@@ -8,12 +8,15 @@ type View = 'setup' | 'game' | 'history'
 interface Player {
   id: string
   name: string
-  number: number
+  number?: number
 }
 
 interface PositionSlot {
   posId: string
+  label: string
   playerId: string | null
+  x: number
+  y: number
 }
 
 interface BenchEntry {
@@ -52,23 +55,100 @@ interface GameParams {
   squad: Player[]
 }
 
-// ── Dutch Clubs ─────────────────────────────────────────────────────────────
+// ── KNHB Clubs ───────────────────────────────────────────────────────────────
+// Full official club list from knhb.nl/club-finder (354 clubs), alphabetical.
 
-const DUTCH_CLUBS = [
-  'Almere HC', 'Amstelveense HC', 'Breda HC', 'HC Alkmaar', 'HC Amersfoort',
-  'HC Amsterdam', 'HC Apeldoorn', 'HC Arnhem', 'HC Assen', 'HC Barendrecht',
-  'HC Bergen op Zoom', 'HC Bloemendaal', 'HC Boxmeer', 'HC Delft', 'HC Den Bosch',
-  'HC Deventer', 'HC Dordrecht', 'HC Eindhoven', 'HC Emmen', 'HC Enschede',
-  'HC Geldrop', 'HC Goes', 'HC Gouda', 'HC Groningen', 'HC Haarlem',
-  'HC Heemstede', 'HC Hengelo', 'HC Hilversum', 'HC Hoorn', 'HC Hoofddorp',
-  'HC Hurley', 'HC Leeuwarden', 'HC Leiden', 'HC Maastricht', 'HC Meppel',
-  'HC Middelburg', 'HC Naarden', 'HC Nijmegen', 'HC Roosendaal', 'HC Rotterdam',
-  'HC Scheveningen', 'HC Sittard', 'HC Terneuzen', 'HC Tilburg', 'HC Utrecht',
-  'HC Venlo', 'HC Vlaardingen', 'HC Vlissingen', 'HC Wassenaar', 'HC Weert',
-  'HC Woerden', 'HC Zaandam', 'HC Zeist', 'HC Zwolle', 'HGC',
-  'Kampong', 'Klein Zwitserland', 'Laren HC', 'MHC Arnhem', 'Oranje-Rood',
-  'Pinoké', 'Push', 'Rood-Wit', 'SC Muiden', 'SCHC', 'Voordaan HC',
-].sort()
+const KNHB_CLUBS = [
+  "'t Spandersbosch", "A.M.H.C. F.I.T.", "A.M.H.C. Rood-Wit", "AH & BC",
+  "AHC IJburg", "AHC Noorderlicht", "Alblasserwaardse Hockeyclub Souburgh", "Alkmaarsche M.H.C.",
+  "Almeerse HC", "AMHC Westerpark", "Amsterdam Dynamics", "Antwerpse Wheelblazers (BE)",
+  "Apeldoornsche (M.H.C.)", "Arnhemsche H.C.", "Arnhemse Antilope Vereniging", "Arnhemse Mixed Hockey Club Upward",
+  "B.H.V. Push", "B.N.M.H.C. Zwart-Wit", "Baarnse Mixed Hockey Vereniging", "Berkel en Rodenrijs",
+  "Berkel-Enschot", "BH&BC Breda", "BHC Overbos", "Bredius Rollers",
+  "Buitenhout MHC", "C.M.H.C. CIVICUM", "Charlotte-Oort Hockey Team (CHT)", "CMHC",
+  "Craeyenhout", "D.H.C. Hudito", "DDHC", "de Graspiepers",
+  "De Keistadrollers", "De Kieviten", "De Meeuwen", "De Peperbus",
+  "De Pont", "DHC Drienerlo", "DHV", "DMHC Shinty",
+  "Doetinchemse Hockey Club", "Doing", "Don Quishoot", "Doornse Hockey Club",
+  "Dopie", "Dordrechtse Mixed Hockey Club", "Dorsteti", "DSHC",
+  "DVS", "E-team Emmen", "Eemsmond", "Eendracht Maakt Macht 2021",
+  "EHV Enschede", "Enschedese hockeyclub Prinses Wilhelmina", "Flevoland Dronten (M.H.C.)", "G.C.H.C.",
+  "G.H.C. RAPID", "GHBS", "Gidos Wheels on Fire (BE)", "Gilze Rijen (H.C.)",
+  "GMHC Goes", "Gooische Hockey Club", "GoorseMHC", "Goudse MHC",
+  "GP Bulls", "Groninger Studenten Hockey Club 'Forward'", "GZG Hardenberg", "H.C. Bedum",
+  "H.C. Derby", "H.C. Eemvallei", "H.C. Haarlem", "H.C. HISALIS",
+  "H.C. Winsum", "H.V. de Terriërs", "H.V. HOCKEER", "H.V.A.",
+  "Haag 88", "Haagsche Countryclub Groen-Geel", "Haagsche Delftsche Mixed", "Harlinger Mixed Hockey Club",
+  "Hattemse M.H.C.", "HC Alphen", "HC Ares", "HC Athena",
+  "HC Baarle Nassau", "HC Bloemendaal", "HC Boekel", "HC Capelle",
+  "HC Cranendonck", "HC De Hoeksche Waard", "HC Delfshaven", "HC Delta Venlo",
+  "HC Den Haag", "HC Diemen", "HC Eelde", "HC Eersel",
+  "HC Eindhoven", "HC Etten-Leur", "HC Feijenoord", "HC Geldermalsen",
+  "HC Gemert", "HC Gorssel/Epse", "HC Grave", "HC Helmond",
+  "HC Horst", "HC IJsseloever", "HC Kampen", "HC Kromme Rijn",
+  "HC Leerdam", "HC Martinus", "HC Mierlo", "HC Mill",
+  "HC Mistral", "HC Nieuwkoop", "HC Nova", "HC Nuth",
+  "HC Oirschot", "HC Oranje Rood", "HC Pijnacker", "HC Polaris",
+  "HC Rijnvliet", "HC Scherpenzeel", "HC Schiedam", "HC Scoop",
+  "HC Spaarndam", "HC Spire", "HC Tilburg", "HC Voorne",
+  "HC Waalwijk", "HC Waddinxveen", "HC Walcheren", "HC Ypenburg",
+  "HC Zwolle", "HCAS", "HCC Catwyck", "HCGO",
+  "HCHN", "HCM Arnhem", "HCOB - Hockeyclub Overbetuwe", "HCOIJ",
+  "HCQZ", "HCRB", "HCSO", "HDS",
+  "HGC", "HHC Haackey", "HHC Quick Stick", "HIC",
+  "HMHC", "HMHC Saxenburg", "HOB Bakel", "Hockey Club Druten",
+  "Hockey Club Houten", "Hockey Club Naarden", "Hockey Club Nuenen", "Hockey Club Rotterdam",
+  "Hockey Club Twente", "Hockey Club Uden", "Hockey Club Wateringse Veld", "Hockey Club Zeewolde",
+  "Hockey Geldrop", "Hockey Heeze", "Hockey Phoenix Belgie", "Hockey Vereniging Abcoude",
+  "Hockey Vereniging Mijdrecht", "Hockey Vereniging Zevenaar", "Hockeyclub 's-Hertogenbosch", "Hockeyclub Amersfoort",
+  "Hockeyclub AMVJ", "Hockeyclub Barendrecht", "Hockeyclub Berlicum", "Hockeyclub De Haaskamp",
+  "Hockeyclub De Hondsrug", "Hockeyclub Dokkum", "Hockeyclub Emmen", "Hockeyclub Groningen",
+  "Hockeyclub Hilvarenbeek", "Hockeyclub Holten Rijssen", "Hockeyclub Liempde", "Hockeyclub Losser",
+  "Hockeyclub Montfoort", "Hockeyclub Peel & Maas", "Hockeyclub Prinsenbeek", "Hockeyclub Ridderkerk",
+  "Hockeyclub Schouwen Duiveland", "Hockeyclub UNO", "Hockeyclub VVV", "Hockeyclub Zevenbergen",
+  "Hockeyvereniging H.O.D.", "Hoogeveen", "HSC Hermes", "HTCSON Hockey",
+  "Huizer HC", "HV Bleiswijk", "HV Meerssen", "HV Myra",
+  "HV Spijkenisse", "HV Victoria", "HV Weert", "HV Westland",
+  "JHC-Stix", "K.H.C. Strawberries", "Kampong Wheelys", "Kennemer Keien",
+  "Klein Zwitserland, H.C.", "L.S.C. ALECTO", "Larensche Mixed Hockey Club", "Leidsche en Oegstgeester Hockeyclub (LOHC)",
+  "Leidse Hockey Club Roomburg", "Lochemse Hockey Club", "Loenense MHC", "M.H.C. Barneveld",
+  "M.H.C. Boxmeer", "M.H.C. Dash", "M.H.C. Deurne", "M.H.C. Goirle",
+  "M.H.C. Hoevelaken", "M.H.C. Krimpen", "M.H.C. LELYSTAD", "M.H.C. M.E.P. (Mea Est Pila)",
+  "M.H.C. Oosterbeek", "M.H.C. Oudenbosch", "M.H.C. Purmerend", "M.H.C. Venray",
+  "M.H.C. Weesp", "Maastrichtse Hockey Club MHC", "MADESE H.C.", "Maestrichtse Studenten Hockey Club",
+  "Meppeler HV", "MH&LC Tempo", "MHC Alliance", "MHC Almelo",
+  "MHC Amstelveen", "MHC Bemmel 800", "MHC Bennebroek", "MHC Best",
+  "MHC Bommelerwaard", "MHC Castricum", "MHC Coevorden", "MHC Dalfsen",
+  "MHC Daring-Veendam", "MHC de Dommel", "MHC de Kikkers", "MHC De Mezen",
+  "MHC De Reigers", "MHC De Warande", "MHC DES", "MHC Dieren",
+  "MHC EDE", "MHC Epe", "MHC Fletiomare", "MHC Forescate",
+  "MHC Heerhugowaard", "MHC HOCO", "MHC Lemmer", "MHC Leusden",
+  "MHC Liberty", "MHC Maarn", "MHC Muiderberg", "MHC Nunspeet",
+  "MHC Olympia", "MHC Rapide", "MHC Roden", "MHC Soest",
+  "MHC Steenwijk", "MHC Udenhout", "MHC Uitgeest", "MHC Vianen",
+  "MHC Voorhout", "MHC Westerkwartier", "MHC Wijchen", "MHC Woerden",
+  "MHCBeuningen", "MHCD", "MHCHBS", "MHCN",
+  "MHCT", "MHCZutphen", "MHV Evergreen", "MHV Forcial",
+  "MHV Maarssen", "Mixed Hockey Club Heesch", "Mixed Hockey Club Leeuwarden", "Mixed Hockey Club Ommen",
+  "mixed hockeyclub HDL", "Mixed Hockeyclub Zoetermeer", "MMHC Voordaan", "N.S.H.C. Apeliotes",
+  "Never Less", "NHC De IJssel", "Nijkerk (H.C.)", "NMHC Nijmegen",
+  "Noordwijkse (H.C)", "O.H.C. Bully", "OMHC", "Only Friends",
+  "Oss (M.H.C.)", "Pinoké", "R.G.H.C. Tempo '34", "R.H.C. Concordia",
+  "R.H.V. Leonidas", "R.K.H.V. Union", "Rapid Rollers", "Rijswijksche Hockey Club",
+  "Ring Pass Delft", "RMHC de Pelikaan", "Rosmalen", "S.M.H.C. Magnus",
+  "SC Muiden", "Schaerweijde", "Schoonhovense MHC", "Scoop Delft",
+  "SG Beverland", "SHOT", "Sint Oedenrode", "Sjinborn",
+  "SMHC De Hopbel", "SMHC Salland", "Sneeker Mixed Hockey Club", "Stichtsche Cricket & Hockey Club",
+  "Stick Flyers", "SV Kampong Hockey", "SV Phoenix", "SVG De Tubanten",
+  "THC Hurley", "THCC De Kromhouters", "The Black Scorpions", "Thor",
+  "Tukkers United", "U.H.C.QUI VIVE", "U.S.H.C.", "V.M.H.& C.C. M.O.P.",
+  "V.M.H.C. Basko", "V.M.H.C. CARTOUCHE", "V.M.H.C. Geel-Zwart", "VIOS '82",
+  "VMHC", "VMHC Pollux", "VMHC Spitsbergen", "Voorster Hockeyclub Twello",
+  "W.M.H.C. Avanti", "Waterlandse Hockey Club", "Were Di Tilburg", "Westerduiven",
+  "WFHC Hoorn", "Wheel Warriors", "Winschoten", "WMHC",
+  "Xenios", "Z.H.C. de Kraaien", "Zandvoortsche H.C.", "Zundertse Hockeyclub",
+  "Zwaluwen Utrecht", "Zwollywood Sticks",
+]
 
 // ── Age group config ─────────────────────────────────────────────────────────
 
@@ -170,6 +250,10 @@ const uid = () => Math.random().toString(36).slice(2, 11)
 const p2 = (n: number) => n.toString().padStart(2, '0')
 const fmtSec = (s: number) => `${p2(Math.floor(s / 60))}:${p2(s % 60)}`
 const todayStr = () => new Date().toISOString().slice(0, 10)
+const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name
+const initials = (name: string) => name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()
+const sortPlayers = <T extends { number?: number; name: string }>(list: T[]) =>
+  [...list].sort((a, b) => (a.number ?? Infinity) - (b.number ?? Infinity) || a.name.localeCompare(b.name))
 
 function useLS<T>(key: string, init: T) {
   const [v, sv] = useState<T>(() => {
@@ -340,6 +424,11 @@ function DualFieldSVG() {
 }
 
 // ── Field View ───────────────────────────────────────────────────────────────
+// Positions carry their own live (x,y) on `slots`, so any marker — bench or
+// field — can be dropped anywhere on the pitch: land near another marker to
+// swap/substitute, or drop on open grass to freely reposition/place there.
+
+const SNAP_THRESHOLD = 7 // % of field container; how close a drop must be to another marker to trigger a swap/sub
 
 interface FieldViewProps {
   ageGroup: AgeGroup
@@ -347,54 +436,93 @@ interface FieldViewProps {
   squad: Player[]
   selected: { type: 'field'; posId: string } | { type: 'bench'; playerId: string } | null
   onFieldClick: (posId: string) => void
-  onPositionDrop: (posId: string, dragType: string, dragId: string) => void
+  onDropAt: (dragType: 'field' | 'bench', dragId: string, x: number, y: number, nearestPosId: string | null) => void
+  onBackgroundClick: (x: number, y: number) => void
 }
 
-function FieldView({ ageGroup, slots, squad, selected, onFieldClick, onPositionDrop }: FieldViewProps) {
+function nearestSlot(slots: PositionSlot[], x: number, y: number, excludeId?: string) {
+  let best: PositionSlot | null = null
+  let bestDist = Infinity
+  for (const s of slots) {
+    if (s.posId === excludeId) continue
+    const d = Math.hypot(s.x - x, s.y - y)
+    if (d < bestDist) { bestDist = d; best = s }
+  }
+  return best && bestDist <= SNAP_THRESHOLD ? best : null
+}
+
+function FieldView({ ageGroup, slots, squad, selected, onFieldClick, onDropAt, onBackgroundClick }: FieldViewProps) {
   const isDual = ageGroup === 'U7' || ageGroup === 'U8'
-  const positions = getPositions(ageGroup)
   const [dragOverPos, setDragOverPos] = useState<string | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
+
+  const pointToPct = (clientX: number, clientY: number) => {
+    const rect = containerRef.current!.getBoundingClientRect()
+    return {
+      x: Math.min(100, Math.max(0, ((clientX - rect.left) / rect.width) * 100)),
+      y: Math.min(100, Math.max(0, ((clientY - rect.top) / rect.height) * 100)),
+    }
+  }
 
   return (
     <div
+      ref={containerRef}
       className="relative w-full"
-      style={{ aspectRatio: isDual ? '140/97' : '62/97', maxHeight: '100%' }}>
+      style={{ aspectRatio: isDual ? '140/97' : '62/97', maxHeight: '100%' }}
+      onDragOver={e => e.preventDefault()}
+      onDrop={e => {
+        e.preventDefault()
+        setDragOverPos(null)
+        const type = e.dataTransfer.getData('type') as 'field' | 'bench'
+        const id = e.dataTransfer.getData('id')
+        if (!type || !id) return
+        const { x, y } = pointToPct(e.clientX, e.clientY)
+        const target = nearestSlot(slots, x, y, type === 'field' ? id : undefined)
+        onDropAt(type, id, x, y, target?.posId ?? null)
+      }}
+      onClick={e => {
+        if (!selected) return
+        const { x, y } = pointToPct(e.clientX, e.clientY)
+        onBackgroundClick(x, y)
+      }}>
       {isDual ? <DualFieldSVG /> : <FieldSVG />}
 
-      {positions.map(pos => {
-        const slot = slots.find(s => s.posId === pos.id)!
+      {slots.map(slot => {
         const player = getPlayer(slot.playerId)
-        const isFieldSel = selected?.type === 'field' && selected.posId === pos.id
+        const isFieldSel = selected?.type === 'field' && selected.posId === slot.posId
         const isBenchSel = selected?.type === 'bench'
-        const isDragTarget = dragOverPos === pos.id
-        const isGK = pos.id === 'gk'
+        const isDragTarget = dragOverPos === slot.posId
+        const isGK = slot.posId === 'gk'
 
         return (
           <div
-            key={pos.id}
-            className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer select-none"
-            style={{ left: `${pos.x}%`, top: `${pos.y}%`, zIndex: 10 }}
-            draggable={!!player}
+            key={slot.posId}
+            className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab select-none"
+            style={{ left: `${slot.x}%`, top: `${slot.y}%`, zIndex: 10 }}
+            draggable
             onDragStart={e => {
+              e.stopPropagation()
               e.dataTransfer.setData('type', 'field')
-              e.dataTransfer.setData('id', pos.id)
+              e.dataTransfer.setData('id', slot.posId)
               e.dataTransfer.effectAllowed = 'move'
             }}
             onDragOver={e => {
+              e.stopPropagation()
               e.preventDefault()
               e.dataTransfer.dropEffect = 'move'
-              setDragOverPos(pos.id)
+              setDragOverPos(slot.posId)
             }}
             onDragLeave={() => setDragOverPos(null)}
             onDrop={e => {
-              e.preventDefault()
+              // let it bubble to the container's onDrop, which resolves the nearest slot itself
+              e.stopPropagation()
               setDragOverPos(null)
-              const type = e.dataTransfer.getData('type')
+              const type = e.dataTransfer.getData('type') as 'field' | 'bench'
               const id = e.dataTransfer.getData('id')
-              if (id !== pos.id) onPositionDrop(pos.id, type, id)
+              if (type && id) onDropAt(type, id, slot.x, slot.y, slot.posId)
             }}
-            onClick={e => { e.stopPropagation(); onFieldClick(pos.id) }}>
+            onClick={e => { e.stopPropagation(); onFieldClick(slot.posId) }}>
             <div
               style={{
                 width: player ? '46px' : '36px',
@@ -427,15 +555,15 @@ function FieldView({ ageGroup, slots, squad, selected, onFieldClick, onPositionD
               {player ? (
                 <>
                   <span style={{ fontSize: '12px', fontWeight: 800, lineHeight: 1, color: '#111' }}>
-                    {player.number}
+                    {player.number ?? initials(player.name)}
                   </span>
                   <span style={{ fontSize: '8px', fontWeight: 600, color: '#333', marginTop: '1px', maxWidth: '42px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '0 2px' }}>
-                    {player.name.split(' ')[0]}
+                    {firstName(player.name)}
                   </span>
                 </>
               ) : (
                 <span style={{ fontSize: '8px', fontWeight: 700, color: 'rgba(255,255,255,0.6)' }}>
-                  {pos.label}
+                  {slot.label}
                 </span>
               )}
             </div>
@@ -550,34 +678,29 @@ function SetupView({ onStart, onHistory, gameCount }: {
 }) {
   const [club, setClub] = useLS('fh_club', 'SC Muiden')
   const [team, setTeam] = useLS('fh_team', '')
-  const [ageGroup, setAgeGroup] = useLS<AgeGroup>('fh_age', 'U12')
+  const [ageGroup, setAgeGroup] = useLS<AgeGroup>('fh_age', 'U7')
   const [opponent, setOpponent] = useState('')
   const [homeAway, setHomeAway] = useState<'Thuis' | 'Uit'>('Thuis')
   const [squad, setSquad] = useLS<Player[]>('fh_squad', [])
   const [newName, setNewName] = useState('')
-  const [newNumber, setNewNumber] = useState('')
   const [clubSearch, setClubSearch] = useState(club)
   const [showList, setShowList] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
-  const [editNum, setEditNum] = useState('')
   const [showFormationEditor, setShowFormationEditor] = useState(false)
 
-  const filtered = DUTCH_CLUBS.filter(c => c.toLowerCase().includes(clubSearch.toLowerCase()))
+  const filtered = KNHB_CLUBS.filter(c => c.toLowerCase().includes(clubSearch.toLowerCase()))
 
   const addPlayer = () => {
     const name = newName.trim()
-    const num = parseInt(newNumber)
-    if (!name || isNaN(num) || num < 1 || num > 99) return
-    setSquad(s => [...s, { id: uid(), name, number: num }])
+    if (!name) return
+    setSquad(s => [...s, { id: uid(), name }])
     setNewName('')
-    setNewNumber('')
   }
 
   const saveEdit = (id: string) => {
-    const num = parseInt(editNum)
-    if (!editName.trim() || isNaN(num)) return
-    setSquad(s => s.map(p => p.id === id ? { ...p, name: editName.trim(), number: num } : p))
+    if (!editName.trim()) return
+    setSquad(s => s.map(p => p.id === id ? { ...p, name: editName.trim() } : p))
     setEditId(null)
   }
 
@@ -617,7 +740,7 @@ function SetupView({ onStart, onHistory, gameCount }: {
 
         {/* Team config */}
         <section className="bg-white rounded-2xl p-6 space-y-5 shadow-sm" style={{ border: '1px solid #D0DCFA' }}>
-          <h2 className="font-display text-2xl font-bold uppercase tracking-wide" style={{ color: '#0D2B7A' }}>Team configuratie</h2>
+          <h2 className="font-display text-2xl font-bold uppercase tracking-wide" style={{ color: '#0D2B7A' }}>Team</h2>
 
           <div className="relative">
             <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Club</label>
@@ -677,9 +800,11 @@ function SetupView({ onStart, onHistory, gameCount }: {
           <h2 className="font-display text-2xl font-bold uppercase tracking-wide" style={{ color: '#0D2B7A' }}>Wedstrijd</h2>
           <div>
             <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Tegenstander</label>
-            <input className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle}
-              value={opponent} onChange={e => setOpponent(e.target.value)}
-              placeholder="Club tegenstander" />
+            <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: opponent ? '#1A2F6B' : '#7B90C8' }}
+              value={opponent} onChange={e => setOpponent(e.target.value)}>
+              <option value="">Kies club tegenstander…</option>
+              {KNHB_CLUBS.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
           </div>
           <div className="flex gap-3">
             {(['Thuis', 'Uit'] as const).map(ha => (
@@ -704,10 +829,6 @@ function SetupView({ onStart, onHistory, gameCount }: {
           </div>
 
           <div className="flex gap-2">
-            <input type="number" min={1} max={99}
-              className="w-16 rounded-xl px-2 py-2.5 text-sm text-center font-mono font-bold"
-              style={{ ...inputStyle, color: '#1A3FAB' }}
-              value={newNumber} onChange={e => setNewNumber(e.target.value)} placeholder="#" />
             <input className="flex-1 rounded-xl px-3 py-2.5 text-sm" style={inputStyle}
               value={newName} onChange={e => setNewName(e.target.value)}
               placeholder="Naam speler"
@@ -721,14 +842,11 @@ function SetupView({ onStart, onHistory, gameCount }: {
             {squad.length === 0 && (
               <p className="text-sm text-center py-6" style={{ color: '#A8BEF0' }}>Voeg spelers toe aan de selectie</p>
             )}
-            {[...squad].sort((a, b) => a.number - b.number).map(p => (
+            {sortPlayers(squad).map(p => (
               <div key={p.id} className="flex items-center gap-2 px-3 py-2 rounded-xl"
                 style={{ background: '#F0F5FF', border: '1px solid #E4ECFE' }}>
                 {editId === p.id ? (
                   <>
-                    <input type="number" className="w-14 rounded-lg px-1.5 py-1 text-xs text-center font-mono font-bold"
-                      style={{ border: '1px solid #D0DCFA', background: 'white' }}
-                      value={editNum} onChange={e => setEditNum(e.target.value)} />
                     <input className="flex-1 rounded-lg px-2 py-1 text-sm"
                       style={{ border: '1px solid #D0DCFA', background: 'white' }}
                       value={editName} onChange={e => setEditName(e.target.value)}
@@ -740,9 +858,11 @@ function SetupView({ onStart, onHistory, gameCount }: {
                   </>
                 ) : (
                   <>
-                    <span className="font-mono text-sm font-bold w-8 text-center" style={{ color: '#1A3FAB' }}>#{p.number}</span>
+                    {p.number != null && (
+                      <span className="font-mono text-sm font-bold w-8 text-center" style={{ color: '#1A3FAB' }}>#{p.number}</span>
+                    )}
                     <span className="flex-1 text-sm font-semibold" style={{ color: '#1A2F6B' }}>{p.name}</span>
-                    <button onClick={() => { setEditId(p.id); setEditName(p.name); setEditNum(String(p.number)) }}
+                    <button onClick={() => { setEditId(p.id); setEditName(p.name) }}
                       className="text-xs px-2 py-0.5 rounded-lg" style={{ color: '#A8BEF0' }}>✎</button>
                     <button onClick={() => setSquad(s => s.filter(x => x.id !== p.id))}
                       className="text-lg leading-none ml-1" style={{ color: '#C8D5F5' }}
@@ -774,19 +894,37 @@ function SetupView({ onStart, onHistory, gameCount }: {
 
 // ── Game View ────────────────────────────────────────────────────────────────
 
-function GameView({ club, team, ageGroup, opponent, homeAway, squad, onSave, onBack }: GameParams & {
+function normalizeSlots(saved: PositionSlot[] | undefined, ageGroup: AgeGroup): PositionSlot[] {
+  const template = getPositions(ageGroup)
+  if (!saved) return template.map(p => ({ posId: p.id, label: p.label, playerId: null, x: p.x, y: p.y }))
+  return saved.map(s => {
+    const base = template.find(p => p.id === s.posId)
+    return {
+      posId: s.posId,
+      playerId: s.playerId,
+      label: s.label ?? base?.label ?? '',
+      x: s.x ?? base?.x ?? 50,
+      y: s.y ?? base?.y ?? 50,
+    }
+  })
+}
+
+function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, onSave, onBack }: GameParams & {
+  initial?: SavedGame
   onSave: (g: SavedGame) => void
   onBack: () => void
 }) {
   const isDual = ageGroup === 'U7' || ageGroup === 'U8'
-  const positions = getPositions(ageGroup)
 
-  const [slots, setSlots] = useState<PositionSlot[]>(() => positions.map(p => ({ posId: p.id, playerId: null })))
-  const [bench, setBench] = useState<BenchEntry[]>(() => squad.map(p => ({ playerId: p.id, sinceGameSec: 0 })))
-  const [subs, setSubs] = useState<SubRecord[]>([])
-  const [notes, setNotes] = useState('')
-  const [result, setResult] = useState('')
-  const [gameSec, setGameSec] = useState(0)
+  const [slots, setSlots] = useState<PositionSlot[]>(() => normalizeSlots(initial?.slots, ageGroup))
+  const [bench, setBench] = useState<BenchEntry[]>(() => {
+    const onField = new Set((initial?.slots ?? []).map(s => s.playerId).filter(Boolean))
+    return squad.filter(p => !onField.has(p.id)).map(p => ({ playerId: p.id, sinceGameSec: initial?.finalTime ?? 0 }))
+  })
+  const [subs, setSubs] = useState<SubRecord[]>(() => initial?.subs ?? [])
+  const [notes, setNotes] = useState(initial?.notes ?? '')
+  const [result, setResult] = useState(initial?.result ?? '')
+  const [gameSec, setGameSec] = useState(initial?.finalTime ?? 0)
   const [running, setRunning] = useState(false)
   const [selected, setSelected] = useState<{ type: 'field'; posId: string } | { type: 'bench'; playerId: string } | null>(null)
   const [activeTab, setActiveTab] = useState<'bench' | 'subs' | 'notes'>('bench')
@@ -827,6 +965,11 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, onSave, onB
     setSelected(null)
   }
 
+  // Freeform positioning: move a slot (and whoever's on it) to an arbitrary spot on the field.
+  const movePosition = (posId: string, x: number, y: number) => {
+    setSlots(sl => sl.map(s => s.posId === posId ? { ...s, x, y } : s))
+  }
+
   const handleFieldClick = (posId: string) => {
     const slot = slots.find(s => s.posId === posId)!
     if (selected?.type === 'bench') {
@@ -857,12 +1000,33 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, onSave, onB
     }
   }
 
-  // Drag-and-drop handlers
-  const handlePositionDrop = (posId: string, dragType: string, dragId: string) => {
-    if (dragType === 'bench') {
-      doSub(dragId, posId)
-    } else if (dragType === 'field') {
-      swapField(dragId, posId)
+  // Dropped anywhere on the field: land near another marker to swap/sub, or on
+  // open grass to freely place/reposition (drag-and-drop everywhere on the field).
+  const handleDropAt = (dragType: 'field' | 'bench', dragId: string, x: number, y: number, nearestPosId: string | null) => {
+    if (nearestPosId) {
+      if (dragType === 'bench') doSub(dragId, nearestPosId)
+      else if (dragId !== nearestPosId) swapField(dragId, nearestPosId)
+      return
+    }
+    if (dragType === 'field') {
+      movePosition(dragId, x, y)
+    } else {
+      const empty = slots.find(s => !s.playerId)
+      if (empty) { doSub(dragId, empty.posId); movePosition(empty.posId, x, y) }
+    }
+  }
+
+  // Click-based equivalent of handleDropAt, for clicking empty grass while something is selected.
+  const handleBackgroundClick = (x: number, y: number) => {
+    if (!selected) return
+    const target = nearestSlot(slots, x, y, selected.type === 'field' ? selected.posId : undefined)
+    if (target) { handleFieldClick(target.posId); return }
+    if (selected.type === 'field') {
+      movePosition(selected.posId, x, y)
+      setSelected(null)
+    } else {
+      const empty = slots.find(s => !s.playerId)
+      if (empty) { doSub(selected.playerId, empty.posId); movePosition(empty.posId, x, y) }
     }
   }
 
@@ -883,7 +1047,12 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, onSave, onB
   const selectedFieldPlayer = selectedFieldPos ? getPlayer(slots.find(s => s.posId === selectedFieldPos)?.playerId ?? null) : null
 
   const saveGame = () => {
-    onSave({ id: uid(), date: todayStr(), club, team, ageGroup, opponent, homeAway, squad, slots, subs, notes, result, finalTime: gameSec })
+    onSave({
+      id: initial?.id ?? uid(),
+      date: initial?.date ?? todayStr(),
+      club, team, ageGroup, opponent, homeAway, squad, slots, subs, notes, result,
+      finalTime: gameSec,
+    })
     alert('Wedstrijd opgeslagen!')
   }
 
@@ -953,7 +1122,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, onSave, onB
               squad={squad}
               selected={selected}
               onFieldClick={handleFieldClick}
-              onPositionDrop={handlePositionDrop}
+              onDropAt={handleDropAt}
+              onBackgroundClick={handleBackgroundClick}
             />
           </div>
 
@@ -1004,7 +1174,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, onSave, onB
                     Alle spelers staan op het veld
                   </div>
                 ) : (
-                  benchPlayers.sort((a, b) => a.player.number - b.player.number).map(({ playerId, sinceGameSec, player }) => {
+                  [...benchPlayers].sort((a, b) => (a.player.number ?? Infinity) - (b.player.number ?? Infinity) || a.player.name.localeCompare(b.player.name)).map(({ playerId, sinceGameSec, player }) => {
                     const elapsed = Math.max(0, gameSec - sinceGameSec)
                     const isSel = selected?.type === 'bench' && selected.playerId === playerId
                     return (
@@ -1023,7 +1193,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, onSave, onB
                         onClick={() => handleBenchClick(playerId)}>
                         <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0"
                           style={{ background: '#1A3FAB' }}>
-                          {player.number}
+                          {player.number ?? initials(player.name)}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-semibold truncate" style={{ color: '#1A2F6B' }}>{player.name}</div>
@@ -1052,8 +1222,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, onSave, onB
                     <div key={i} className="py-2.5 rounded-xl px-3"
                       style={{ background: '#F0F5FF', border: '1px solid #E4ECFE' }}>
                       <div className="font-mono text-xs font-bold mb-1" style={{ color: '#7B90C8' }}>{fmtSec(s.gameTimeSec)}</div>
-                      <div className="text-xs font-semibold" style={{ color: '#16A34A' }}>↑ #{pIn?.number} {pIn?.name}</div>
-                      <div className="text-xs font-semibold" style={{ color: '#DC2626' }}>↓ #{pOut?.number} {pOut?.name}</div>
+                      <div className="text-xs font-semibold" style={{ color: '#16A34A' }}>↑ {pIn?.number ? `#${pIn.number} ` : ''}{pIn?.name}</div>
+                      <div className="text-xs font-semibold" style={{ color: '#DC2626' }}>↓ {pOut?.number ? `#${pOut.number} ` : ''}{pOut?.name}</div>
                     </div>
                   )
                 })}
@@ -1087,10 +1257,11 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, onSave, onB
 
 // ── History View ─────────────────────────────────────────────────────────────
 
-function HistoryView({ games, onBack, onDelete }: {
+function HistoryView({ games, onBack, onDelete, onEdit }: {
   games: SavedGame[]
   onBack: () => void
   onDelete: (id: string) => void
+  onEdit: (game: SavedGame) => void
 }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const getPlayer = (g: SavedGame, id: string) => g.squad.find(p => p.id === id)
@@ -1144,10 +1315,10 @@ function HistoryView({ games, onBack, onDelete }: {
                           Selectie ({g.squad.length})
                         </h4>
                         <div className="flex flex-wrap gap-1.5">
-                          {[...g.squad].sort((a, b) => a.number - b.number).map(p => (
+                          {sortPlayers(g.squad).map(p => (
                             <span key={p.id} className="text-xs px-2 py-1 rounded-lg font-medium"
                               style={{ background: '#EEF3FF', color: '#1A2F6B', border: '1px solid #D0DCFA' }}>
-                              <span className="font-mono font-bold" style={{ color: '#1A3FAB' }}>#{p.number}</span> {p.name}
+                              {p.number != null && <span className="font-mono font-bold" style={{ color: '#1A3FAB' }}>#{p.number} </span>}{p.name}
                             </span>
                           ))}
                         </div>
@@ -1179,11 +1350,18 @@ function HistoryView({ games, onBack, onDelete }: {
                         </div>
                       )}
 
-                      <button onClick={() => { if (confirm('Wedstrijd verwijderen?')) onDelete(g.id) }}
-                        className="text-xs font-bold px-3 py-1.5 rounded-lg"
-                        style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
-                        Verwijder
-                      </button>
+                      <div className="flex gap-2">
+                        <button onClick={() => onEdit(g)}
+                          className="text-xs font-bold px-3 py-1.5 rounded-lg text-white"
+                          style={{ background: '#1A3FAB' }}>
+                          Bewerken
+                        </button>
+                        <button onClick={() => { if (confirm('Wedstrijd verwijderen?')) onDelete(g.id) }}
+                          className="text-xs font-bold px-3 py-1.5 rounded-lg"
+                          style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
+                          Verwijder
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1196,16 +1374,107 @@ function HistoryView({ games, onBack, onDelete }: {
   )
 }
 
+// ── Remote match history (Vercel Postgres via /api/games) ────────────────────
+// Saved matches are persisted server-side for historical purposes. Any
+// pre-existing local matches (from before this backend existed) are migrated
+// up on first load, then localStorage is cleared to avoid duplicate copies.
+
+function useRemoteGames() {
+  const [games, setGames] = useState<SavedGame[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/games')
+        if (!res.ok) throw new Error(`GET /api/games: ${res.status}`)
+        let remote = (await res.json()) as SavedGame[]
+
+        if (remote.length === 0) {
+          const local = JSON.parse(localStorage.getItem('fh_games') ?? 'null') as SavedGame[] | null
+          if (local && local.length > 0) {
+            for (const g of local) {
+              await fetch('/api/games', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(g) })
+            }
+            remote = local
+            localStorage.removeItem('fh_games')
+          }
+        }
+
+        if (!cancelled) setGames(remote)
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  const addGame = useCallback((g: SavedGame) => {
+    setGames(gs => [...gs, g])
+    fetch('/api/games', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(g) })
+      .catch(e => setError(e instanceof Error ? e.message : String(e)))
+  }, [])
+
+  const updateGame = useCallback((g: SavedGame) => {
+    setGames(gs => gs.map(x => x.id === g.id ? g : x))
+    fetch('/api/games', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(g) })
+      .catch(e => setError(e instanceof Error ? e.message : String(e)))
+  }, [])
+
+  const deleteGame = useCallback((id: string) => {
+    setGames(gs => gs.filter(x => x.id !== id))
+    fetch(`/api/games?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+      .catch(e => setError(e instanceof Error ? e.message : String(e)))
+  }, [])
+
+  return { games, loading, error, addGame, updateGame, deleteGame }
+}
+
 // ── App ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [view, setView] = useState<View>('setup')
   const [gameParams, setGameParams] = useState<GameParams | null>(null)
-  const [games, setGames] = useLS<SavedGame[]>('fh_games', [])
+  const [editingGame, setEditingGame] = useState<SavedGame | null>(null)
+  const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames()
+
+  const startEdit = (game: SavedGame) => {
+    setEditingGame(game)
+    setGameParams({ club: game.club, team: game.team, ageGroup: game.ageGroup, opponent: game.opponent, homeAway: game.homeAway, squad: game.squad })
+    setView('game')
+  }
 
   if (view === 'history')
-    return <HistoryView games={games} onBack={() => setView('setup')} onDelete={id => setGames(g => g.filter(x => x.id !== id))} />
+    return (
+      <HistoryView
+        games={games}
+        onBack={() => setView('setup')}
+        onDelete={deleteGame}
+        onEdit={startEdit}
+      />
+    )
   if (view === 'game' && gameParams)
-    return <GameView {...gameParams} onSave={g => setGames(gs => [...gs, g])} onBack={() => setView('setup')} />
-  return <SetupView onStart={p => { setGameParams(p); setView('game') }} onHistory={() => setView('history')} gameCount={games.length} />
+    return (
+      <GameView
+        {...gameParams}
+        initial={editingGame ?? undefined}
+        onSave={g => { if (editingGame) updateGame(g); else addGame(g); setEditingGame(null) }}
+        onBack={() => { setEditingGame(null); setView('setup') }}
+      />
+    )
+  return (
+    <>
+      <SetupView onStart={p => { setEditingGame(null); setGameParams(p); setView('game') }} onHistory={() => setView('history')} gameCount={games.length} />
+      {gamesError && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 text-xs font-semibold px-4 py-2 rounded-xl shadow-lg"
+          style={{ background: '#DC2626', color: '#fff' }}>
+          Kon wedstrijdgeschiedenis niet synchroniseren: {gamesError}
+        </div>
+      )}
+    </>
+  )
 }
