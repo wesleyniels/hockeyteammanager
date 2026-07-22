@@ -131,12 +131,37 @@ const POS_11 = [
   { id: 'f1', label: 'RW',  x: 22, y: 27 }, { id: 'f2', label: 'ST', x: 50, y: 20 }, { id: 'f3', label: 'LW', x: 78, y: 27 },
 ]
 
-function getPos(ag: AgeGroup) {
+interface PosDef {
+  id: string
+  label: string
+  x: number
+  y: number
+}
+
+function getBasePos(ag: AgeGroup): PosDef[] {
   if (ag === 'U7' || ag === 'U8') return POS_DUAL
   if (ag === 'U9')  return POS_U9
   if (ag === 'U10') return POS_U10
   if (ag === 'U11') return POS_U11
   return POS_11
+}
+
+// Custom (dragged) position layouts are saved per age group so a club can
+// tweak the default formation to match how they actually line up.
+const layoutKey = (ag: AgeGroup) => `fh_layout_${ag}`
+
+function getPositions(ag: AgeGroup): PosDef[] {
+  const base = getBasePos(ag)
+  try {
+    const saved = JSON.parse(localStorage.getItem(layoutKey(ag)) ?? 'null') as PosDef[] | null
+    if (saved && saved.length === base.length && saved.every(s => base.some(b => b.id === s.id))) {
+      return base.map(b => {
+        const override = saved.find(s => s.id === b.id)!
+        return { ...b, x: override.x, y: override.y }
+      })
+    }
+  } catch { /* fall through to base */ }
+  return base
 }
 
 // ── Utils ────────────────────────────────────────────────────────────────────
@@ -225,11 +250,11 @@ function FieldSVG() {
         stroke="white" strokeWidth="0.65" strokeOpacity="0.7"/>
 
       {/* Shooting circles (D) — semicircles projecting INTO the field */}
-      {/* Top D: arc from (cx-dR, topY) to (cx+dR, topY) bowing downward */}
-      <path d={`M ${cx - dR} ${topY} A ${dR} ${dR} 0 0 1 ${cx + dR} ${topY}`}
+      {/* Top D: arc from (cx-dR, topY) to (cx+dR, topY) bowing downward, into the field */}
+      <path d={`M ${cx - dR} ${topY} A ${dR} ${dR} 0 0 0 ${cx + dR} ${topY}`}
         fill="none" stroke="white" strokeWidth="0.8" strokeOpacity="0.85"/>
-      {/* Bottom D: arc from (cx-dR, botY) to (cx+dR, botY) bowing upward */}
-      <path d={`M ${cx - dR} ${botY} A ${dR} ${dR} 0 0 0 ${cx + dR} ${botY}`}
+      {/* Bottom D: arc from (cx-dR, botY) to (cx+dR, botY) bowing upward, into the field */}
+      <path d={`M ${cx - dR} ${botY} A ${dR} ${dR} 0 0 1 ${cx + dR} ${botY}`}
         fill="none" stroke="white" strokeWidth="0.8" strokeOpacity="0.85"/>
 
       {/* Penalty spots */}
@@ -287,10 +312,10 @@ function DualFieldSVG() {
       {/* Center line */}
       <line x1={x} y1={centerY} x2={x + fW} y2={centerY}
         stroke="white" strokeWidth="0.55" strokeOpacity="0.6"/>
-      {/* D circles */}
-      <path d={`M ${cx - dR} ${gy} A ${dR} ${dR} 0 0 1 ${cx + dR} ${gy}`}
+      {/* D circles — bow into the field, not out behind the goal */}
+      <path d={`M ${cx - dR} ${gy} A ${dR} ${dR} 0 0 0 ${cx + dR} ${gy}`}
         fill="none" stroke="white" strokeWidth="0.75" strokeOpacity="0.85"/>
-      <path d={`M ${cx - dR} ${gBot} A ${dR} ${dR} 0 0 0 ${cx + dR} ${gBot}`}
+      <path d={`M ${cx - dR} ${gBot} A ${dR} ${dR} 0 0 1 ${cx + dR} ${gBot}`}
         fill="none" stroke="white" strokeWidth="0.75" strokeOpacity="0.85"/>
       {/* Penalty spots */}
       <circle cx={cx} cy={gy + 5.5} r="0.6" fill="white" fillOpacity="0.75"/>
@@ -327,7 +352,7 @@ interface FieldViewProps {
 
 function FieldView({ ageGroup, slots, squad, selected, onFieldClick, onPositionDrop }: FieldViewProps) {
   const isDual = ageGroup === 'U7' || ageGroup === 'U8'
-  const positions = getPos(ageGroup)
+  const positions = getPositions(ageGroup)
   const [dragOverPos, setDragOverPos] = useState<string | null>(null)
   const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
 
@@ -421,6 +446,101 @@ function FieldView({ ageGroup, slots, squad, selected, onFieldClick, onPositionD
   )
 }
 
+// ── Formation Editor ─────────────────────────────────────────────────────────
+// Lets a club drag the default position markers to match how they actually
+// line up; saved per age group in localStorage and picked up by getPositions().
+
+function FormationEditorView({ ageGroup, onBack }: { ageGroup: AgeGroup; onBack: () => void }) {
+  const isDual = ageGroup === 'U7' || ageGroup === 'U8'
+  const base = getBasePos(ageGroup)
+  const [positions, setPositions] = useLS<PosDef[]>(layoutKey(ageGroup), base)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const draggingId = useRef<string | null>(null)
+
+  // If the underlying formation changed (e.g. a different total player count)
+  // since this layout was saved, the ids won't line up — fall back to base.
+  useEffect(() => {
+    const valid = positions.length === base.length && positions.every(p => base.some(b => b.id === p.id))
+    if (!valid) setPositions(base)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ageGroup])
+
+  const movePos = (clientX: number, clientY: number) => {
+    if (!draggingId.current || !containerRef.current) return
+    const rect = containerRef.current.getBoundingClientRect()
+    const x = Math.min(100, Math.max(0, ((clientX - rect.left) / rect.width) * 100))
+    const y = Math.min(100, Math.max(0, ((clientY - rect.top) / rect.height) * 100))
+    const id = draggingId.current
+    setPositions(ps => ps.map(p => (p.id === id ? { ...p, x, y } : p)))
+  }
+
+  return (
+    <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
+      <header style={{ background: '#0D2B7A' }} className="text-white sticky top-0 z-20 shadow-lg">
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-4">
+          <button onClick={onBack} className="text-sm font-semibold" style={{ color: '#7B9DE0' }}>← Terug</button>
+          <div>
+            <h1 className="font-display text-2xl font-bold uppercase tracking-widest leading-none">Opstelling aanpassen</h1>
+            <p className="text-xs mt-1" style={{ color: '#7B9DE0' }}>{AGE_CONFIG[ageGroup].label}</p>
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
+        <p className="text-sm text-center" style={{ color: '#6B82B8' }}>
+          Sleep de posities naar de gewenste plek op het veld. Dit wordt de standaardopstelling voor {ageGroup}.
+        </p>
+
+        <div className="bg-white rounded-2xl p-6 shadow-sm flex items-center justify-center" style={{ border: '1px solid #D0DCFA' }}>
+          <div
+            ref={containerRef}
+            className="relative w-full touch-none"
+            style={{ aspectRatio: isDual ? '140/97' : '62/97', maxWidth: isDual ? '540px' : '290px' }}
+            onPointerMove={e => movePos(e.clientX, e.clientY)}
+            onPointerUp={() => { draggingId.current = null }}
+            onPointerLeave={() => { draggingId.current = null }}>
+            {isDual ? <DualFieldSVG /> : <FieldSVG />}
+            {positions.map(pos => (
+              <div
+                key={pos.id}
+                className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab select-none touch-none"
+                style={{ left: `${pos.x}%`, top: `${pos.y}%`, zIndex: 10 }}
+                onPointerDown={e => {
+                  draggingId.current = pos.id
+                  ;(e.target as Element).setPointerCapture(e.pointerId)
+                }}>
+                <div
+                  style={{
+                    width: '36px', height: '36px', borderRadius: '50%',
+                    background: pos.id === 'gk' ? '#FBBF24' : '#fff',
+                    border: '2px solid #1A3FAB',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                  }}>
+                  <span style={{ fontSize: '11px', fontWeight: 800, color: '#1A3FAB' }}>{pos.label}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <button onClick={() => setPositions(base)}
+            className="flex-1 py-3 rounded-xl font-semibold text-sm"
+            style={{ background: '#F8FAFF', color: '#3B5299', border: '1.5px solid #D0DCFA' }}>
+            Standaardopstelling herstellen
+          </button>
+          <button onClick={onBack}
+            className="flex-1 py-3 rounded-xl font-bold text-sm text-white"
+            style={{ background: '#1A3FAB' }}>
+            Klaar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Setup View ───────────────────────────────────────────────────────────────
 
 function SetupView({ onStart, onHistory, gameCount }: {
@@ -441,6 +561,7 @@ function SetupView({ onStart, onHistory, gameCount }: {
   const [editId, setEditId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [editNum, setEditNum] = useState('')
+  const [showFormationEditor, setShowFormationEditor] = useState(false)
 
   const filtered = DUTCH_CLUBS.filter(c => c.toLowerCase().includes(clubSearch.toLowerCase()))
 
@@ -464,6 +585,10 @@ function SetupView({ onStart, onHistory, gameCount }: {
   const canStart = (club || clubSearch) && team && opponent && squad.length >= minPlayers
 
   const inputStyle = { border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }
+
+  if (showFormationEditor) {
+    return <FormationEditorView ageGroup={ageGroup} onBack={() => setShowFormationEditor(false)} />
+  }
 
   return (
     <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
@@ -539,6 +664,11 @@ function SetupView({ onStart, onHistory, gameCount }: {
               ))}
             </div>
             <p className="text-xs mt-2 font-medium" style={{ color: '#7B90C8' }}>{AGE_CONFIG[ageGroup].label}</p>
+            <button onClick={() => setShowFormationEditor(true)}
+              className="text-xs font-bold mt-1"
+              style={{ color: '#1A3FAB' }}>
+              Opstelling aanpassen →
+            </button>
           </div>
         </section>
 
@@ -649,7 +779,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, onSave, onB
   onBack: () => void
 }) {
   const isDual = ageGroup === 'U7' || ageGroup === 'U8'
-  const positions = getPos(ageGroup)
+  const positions = getPositions(ageGroup)
 
   const [slots, setSlots] = useState<PositionSlot[]>(() => positions.map(p => ({ posId: p.id, playerId: null })))
   const [bench, setBench] = useState<BenchEntry[]>(() => squad.map(p => ({ playerId: p.id, sinceGameSec: 0 })))
