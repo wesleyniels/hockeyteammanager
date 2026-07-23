@@ -165,6 +165,134 @@ const AGE_CONFIG: Record<AgeGroup, { total: number; field: number; label: string
   Senioren:{ total: 11, field: 10, label: 'Sr. — 11 spelers (10 veld + 1 keeper)' },
 }
 
+// ── SC Muiden Teams (seizoen 2026-2027) ──────────────────────────────────────
+// Team name encodes gender (M/J = Meisjes/Jongens) and KNHB age category
+// (O<n> = Onder <n>), e.g. MO11-Wit = Meisjes Onder 11, team "Wit".
+
+const SC_MUIDEN_TEAMS: Record<string, string[]> = {
+  'MO18-1': [
+    'Annika Aalbersberg', 'Kee Bruckel', 'Felicia Chow', 'Cato Frencken', 'Koosje Gerritsen',
+    'Nova Hooijer', 'Lieve van der Hucht', 'Neele Jansen', 'Nina Kuiper', 'Amber Mansvelder',
+    'Julia Monticelli', 'Kiek van Os', 'Jolie Ottervanger', 'Diya Schuffelers', 'Pien Stam',
+  ],
+  'MO14-1': [
+    'Marie Bak', 'Isabelle Bautz', 'Elin Berkes', 'Pien Boer', 'Roos Boer',
+    'Mila Eikelboom', 'Julia-Fien Kaak', 'Cato Kreuger', 'Lis van Lotringen', 'Niki Smit',
+    'Elisa amelie Troncoso Schach', 'Jasmijn Verbeek', 'Rosa Wierenga', 'Eline Zoetekouw',
+  ],
+  'MO14-2': [
+    'Victoria Aalbersberg', 'Fenna Barrero', 'Sophie Beukeboom', 'Izabella Ciocan', 'Lise de Graaf',
+    'Alicia Hoedt', 'Pomme van Loosbroek', 'Jacky Nova Nelissen', 'Zena Sarryeh', 'Phéline van Schaik',
+    'Valentina Sichtman', 'Florine Smit', 'Olivia Van Oord', 'Isabelle Weijers',
+  ],
+  'MO12-1': [
+    'Jetta von der Assen', 'Lot Benink', 'Hedwig Coepijn', 'Juule Dielemans', 'Olivia van Dorp',
+    'Thinka de Graaff', 'Mijntje Ketting', 'Mijntje Ketting', 'Roos Lubbinge', 'Isa van der Maat',
+    'Hannah Naaijkens', 'Filippa Nordman', 'Pippa Teunissen', 'Keke van de Weijer',
+  ],
+  'MO12-2': [
+    'Mare Bruning', 'Lilly Crouch', 'Noa Dekker', 'Lea Hendry', 'Tess Jansen',
+    'Sara Kanabar', 'Olli van Lotringen', 'Lucy Meijer', 'Anna-mae Rog', 'Elisa Schönfeld',
+    'Philippine Verhoeff', 'Puck de Weerdt', 'Cato Wenning', 'Emma marie Werner',
+  ],
+  'MO11-Blauw': [
+    'Felien Bruning', 'Mabel Eerhardt', 'Micky Geersing', 'Sienna Jacques', 'Eva de Jong',
+    'Anna Smeets', 'Faye Stoop', 'Annika Teeuwen', 'Jolien Toom', 'Roos Verbeek', 'Nouk van de Weijer',
+  ],
+  'MO11-Wit': [
+    'Saar Barrero Galesloot', 'Maya Bleeker', 'Bobbie Bosman', 'Bo Gille', 'Sofia Koppenens',
+    'Sophie Kroezen', 'Gigi Niels', 'Juune van Os', 'Celine Sarryeh', 'Pippa van Daalen', 'Evi Wolfs',
+  ],
+  'MO10-Blauw': [
+    'Kiki Aerts', 'Sofie Barrero galesloot', 'Lara Brouwer', 'Elsbeth Coepijn', 'Storm Rosie Kampman',
+    'Mijntje Lak', 'Fem van der Maat', 'Sophie Prinsen', 'Elise Roodenburg', 'Zoë Steltenpool', 'Cato Visser',
+  ],
+  'MO9-Blauw': [
+    'Nola Crouch', 'Brune van Dorp', 'Sam van Keulen', 'Fientje Klick', 'Olivia Lindelauf',
+    'Isa Nordman', 'Thysa de Rijk', 'Romee Tai', 'Lexi Tittel', 'Milou Wagenmans',
+  ],
+  'MO9-Geel': [
+    'Pippa Berenschot', 'Nena Breek', 'Julie Burggraaff', 'Ada Cavell', 'Feline Coenraads',
+    'Elin van Dijk', 'Louise Eiting', 'Bente Methorst', 'Maeve Postma', 'Mae Sepmeijer',
+  ],
+  'MO9-Oranje': [
+    'Fleur Bangma', 'Kiki Groeneveld', 'Philou Huisman', 'Stella Matthijssens', 'Bente Meijer',
+    'Julia Prinsen', 'Elisa Timmer', 'Bo Vonderbank', 'Loren Willems',
+  ],
+  'MO9-Wit': [
+    'Lauren De Rijk Marschalk', 'Yuli van Erk', 'Loeka van t Hek', 'Jans Houwen', "Rim M'rabti",
+    'Coco Quak', 'Fien Siemerink', 'Izzie van Spronsen', 'Philippa kate Wiggers', 'Lauren van Woerkum',
+  ],
+  'MO8-Blauw': [
+    'Emilie Aerts', 'Amy Bautz', 'Diana Bloemarts', 'Kiki Eikelboom', 'Maren van Heumen',
+    'Mayran Koning', 'Tess van den Nieuwboer', 'Jules de Rijk', 'Charlotte Teeuwen',
+  ],
+  'MO8-Geel': [
+    'Liza van Baarsen', 'Sientje Brand', 'Julie Edens', 'Coco Geersing', 'Bowie de Lang',
+    'Julie mae Oei', 'Lois Schoo noordzij', 'Robin Toom', 'Emma Van vliet',
+  ],
+  'MO8-Rood': [
+    'Féline Beenen', 'Lize Brinkers', 'Evi Buijs', 'Pleun Gille', 'Tess Lurvink',
+    'Charlie van Sabben', 'Betje roos Siecker', 'Doris Smit',
+  ],
+  'MO8-Wit': [
+    'Kato Boerma', 'Liva Dopmeijer', 'Yfke Gijsman', 'Julie Hofman', 'Sofia Rijkse',
+    'Lilli Smeets', 'Bo Timmermans', 'Florence Verhoef',
+  ],
+  'MO7-Blauw': [
+    'Sophie Au yeung', 'Evy Huisman', 'Inez Koelemij', 'Lua Lakner', 'Mae Quak',
+    'Bella Soepboer', 'Charlie Visser', 'Sasha Wagenmans', 'Janne van Wees',
+  ],
+  'MO7-Geel': [
+    'Lara Bolsius', 'Ruby Coppen', 'Bo van Dalfsen', 'Danique Kuys', 'Julia Roodenburg',
+    'Sammie Schmittmann', 'Maeve van Spronsen', 'Sophia Stoop', 'Emma Vonderbank',
+  ],
+  'MO7-Rood': [
+    'Madelon Coenraads', 'Sophie Houthuys', 'Valerie Kooijman', 'Luce Kuipers', 'Isabelle Perotti',
+    'Ella van der Ploeg', 'Harper Roosblad', 'Lara Westedt', 'Puck Wikkerman',
+  ],
+  'JO11-Blauw': [
+    'Boudie Bautz', 'Felix Bernink', 'Doeke Eikelboom', 'Marc Eiting', 'Louis Jacobs',
+    'Teun Klick', 'Melle Kloet', 'Julius Langerak', 'Lex van der Linde', 'Felix van Oss', 'Melle Siemerink',
+  ],
+  'JO10-Blauw': [
+    'Storm Bastel', 'Hugo van Boetzelaer', 'Rafael Hermans', 'Liam Hofman', 'Jack Kuys',
+    'Lodi van der Linde', 'Pepijn van Oss', 'Hugo van Schaik', 'Luc Spijkervet', 'Quin Teunissen',
+    'Federico Troncoso Schach', 'James Wagenmans', 'Hugo nico de Wolf', 'Raphael Worms',
+  ],
+  'JO9-Blauw': [
+    'Beckett Bushman', 'Zef Gezelle Meerburg', 'Jack Huttinga', 'Adam Naaijkens',
+    'Joep Nieuwendijk', 'Teun Van den berg', 'Chris Wilders',
+  ],
+  'JO9-Wit': [
+    'Joep Bosman', 'Bowie Botter', 'Benjamin Guissouma', 'Luca Hendry', 'Victor Langerak',
+    'Morris van Oss', 'Daniel Puskas diaz',
+  ],
+  'JO8-Blauw': [
+    'Alexander Burgerhout', 'Eric Domnica', 'Boaz Spijkervet', 'Alexander Steeksma',
+    'Matz van der Veer', 'Boris Versteeg', 'Julian Winter',
+  ],
+  'JO7-Blauw': [
+    'Hugo Brandon', 'Freddie le Conge kleyn', 'Lewis van Dijk', 'Tom van Dorp',
+    'Ludo Eerhardt', 'Miles Gabriel', 'David Schröder',
+  ],
+}
+
+function ageGroupFromTeamName(team: string): AgeGroup {
+  const m = team.match(/^[MJ]O(\d+)/i)
+  const candidate = m ? (`U${m[1]}` as AgeGroup) : null
+  return candidate && candidate in AGE_CONFIG ? candidate : 'U7'
+}
+
+const SC_MUIDEN_TEAM_NAMES = Object.keys(SC_MUIDEN_TEAMS).sort((a, b) => {
+  const ma = a.match(/^([MJ])O(\d+)-(.+)$/)!
+  const mb = b.match(/^([MJ])O(\d+)-(.+)$/)!
+  if (ma[1] !== mb[1]) return ma[1] === 'M' ? -1 : 1
+  const na = parseInt(ma[2]), nb = parseInt(mb[2])
+  if (na !== nb) return na - nb
+  return ma[3].localeCompare(mb[3])
+})
+
 // ── Field positions ──────────────────────────────────────────────────────────
 // x/y are % of the SVG container (0–100)
 // Standard field SVG viewBox="0 0 62 97", dual viewBox="0 0 140 97"
@@ -670,7 +798,7 @@ function SetupView({ onStart, onHistory, gameCount }: {
 }) {
   const [club, setClub] = useLS('fh_club', 'SC Muiden')
   const [team, setTeam] = useLS('fh_team', '')
-  const [ageGroup, setAgeGroup] = useLS<AgeGroup>('fh_age', 'U7')
+  const ageGroup = team ? ageGroupFromTeamName(team) : 'U7'
   const [opponent, setOpponent] = useState('')
   const [homeAway, setHomeAway] = useState<'Thuis' | 'Uit'>('Thuis')
   const [squad, setSquad] = useLS<Player[]>('fh_squad', [])
@@ -694,6 +822,14 @@ function SetupView({ onStart, onHistory, gameCount }: {
     if (!editName.trim()) return
     setSquad(s => s.map(p => p.id === id ? { ...p, name: editName.trim() } : p))
     setEditId(null)
+  }
+
+  // Selecting a team fills Selectie with its official roster; players can
+  // still be added or removed manually afterwards.
+  const selectTeam = (newTeam: string) => {
+    setTeam(newTeam)
+    const roster = SC_MUIDEN_TEAMS[newTeam]
+    if (roster) setSquad(roster.map(name => ({ id: uid(), name })))
   }
 
   const minPlayers = AGE_CONFIG[ageGroup].total
@@ -760,30 +896,21 @@ function SetupView({ onStart, onHistory, gameCount }: {
 
           <div>
             <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Teamnaam</label>
-            <input className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle}
-              value={team} onChange={e => setTeam(e.target.value)}
-              placeholder="bijv. D1, U12-1, JO14-2" />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Leeftijdscategorie</label>
-            <div className="grid grid-cols-5 gap-2">
-              {(Object.keys(AGE_CONFIG) as AgeGroup[]).map(ag => (
-                <button key={ag} onClick={() => setAgeGroup(ag)}
-                  className="py-2 px-1 rounded-xl text-sm font-bold transition-all"
-                  style={ageGroup === ag
-                    ? { background: '#1A3FAB', color: '#fff', border: '1.5px solid #1A3FAB' }
-                    : { background: '#F8FAFF', color: '#3B5299', border: '1.5px solid #D0DCFA' }}>
-                  {ageGroupLabel(ag)}
+            <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: team ? '#1A2F6B' : '#7B90C8' }}
+              value={team} onChange={e => selectTeam(e.target.value)}>
+              <option value="">Kies team…</option>
+              {SC_MUIDEN_TEAM_NAMES.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            {team && (
+              <>
+                <p className="text-xs mt-2 font-medium" style={{ color: '#7B90C8' }}>{AGE_CONFIG[ageGroup].label}</p>
+                <button onClick={() => setShowFormationEditor(true)}
+                  className="text-xs font-bold mt-1"
+                  style={{ color: '#1A3FAB' }}>
+                  Opstelling aanpassen →
                 </button>
-              ))}
-            </div>
-            <p className="text-xs mt-2 font-medium" style={{ color: '#7B90C8' }}>{AGE_CONFIG[ageGroup].label}</p>
-            <button onClick={() => setShowFormationEditor(true)}
-              className="text-xs font-bold mt-1"
-              style={{ color: '#1A3FAB' }}>
-              Opstelling aanpassen →
-            </button>
+              </>
+            )}
           </div>
         </section>
 
