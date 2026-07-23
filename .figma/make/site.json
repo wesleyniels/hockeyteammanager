@@ -1,4 +1,5 @@
 {
+  "title": "Hockey One",
   "description": "Manage your field hockey team with ease by creating lineups, tracking substitutions, and accessing club data, all while saving game notes.",
   "robots": {
     "index": false

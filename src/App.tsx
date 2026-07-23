@@ -791,12 +791,13 @@ function FormationEditorView({ ageGroup, onBack }: { ageGroup: AgeGroup; onBack:
 
 // ── Setup View ───────────────────────────────────────────────────────────────
 
-function SetupView({ onStart, onHistory, onProfile, gameCount, user }: {
+function SetupView({ onStart, onHistory, onProfile, gameCount, user, onSetDefaultTeam }: {
   onStart: (p: GameParams) => void
   onHistory: () => void
   onProfile: () => void
   gameCount: number
   user: AuthUser | null
+  onSetDefaultTeam: (team: string) => void
 }) {
   const [club, setClub] = useLS('fh_club', 'SC Muiden')
   const [team, setTeam] = useLS('fh_team', '')
@@ -827,12 +828,23 @@ function SetupView({ onStart, onHistory, onProfile, gameCount, user }: {
   }
 
   // Selecting a team fills Selectie with its official roster; players can
-  // still be added or removed manually afterwards.
+  // still be added or removed manually afterwards. When signed in, it's also
+  // remembered on the profile so it's pre-selected next time, any device.
   const selectTeam = (newTeam: string) => {
     setTeam(newTeam)
     const roster = SC_MUIDEN_TEAMS[newTeam]
     if (roster) setSquad(roster.map(name => ({ id: uid(), name })))
+    if (user) onSetDefaultTeam(newTeam)
   }
+
+  // Once signed in, pre-select the coach's remembered team (from their
+  // profile) if nothing's been picked locally yet — works across devices.
+  useEffect(() => {
+    if (user?.defaultTeam && !team && SC_MUIDEN_TEAMS[user.defaultTeam]) {
+      selectTeam(user.defaultTeam)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.defaultTeam])
 
   const minPlayers = AGE_CONFIG[ageGroup].total
   const canStart = (club || clubSearch) && team && opponent
@@ -854,7 +866,7 @@ function SetupView({ onStart, onHistory, onProfile, gameCount, user }: {
                 SC Muiden
               </h1>
               <p className="text-xs leading-none mt-0.5" style={{ color: '#A8BEF0', letterSpacing: '0.12em' }}>
-                HOCKEY TEAMMANAGER
+                HOCKEY ONE
               </p>
             </div>
           </div>
@@ -1718,6 +1730,7 @@ interface AuthUser {
   email: string
   name: string | null
   picture: string | null
+  defaultTeam: string | null
 }
 
 function useAuth() {
@@ -1748,7 +1761,18 @@ function useAuth() {
     setUser(null)
   }, [])
 
-  return { user, loading, loginWithCredential, logout }
+  // Persists the club/team a signed-in coach manages so it's pre-selected
+  // next time they log in, on any device.
+  const setDefaultTeam = useCallback(async (team: string) => {
+    const res = await fetch('/api/auth/me', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ defaultTeam: team }),
+    })
+    if (res.ok) setUser((await res.json()).user)
+  }, [])
+
+  return { user, loading, loginWithCredential, logout, setDefaultTeam }
 }
 
 // Renders Google's own "Sign in with Google" button into a div once the GSI
@@ -1848,7 +1872,7 @@ export default function App() {
   const [view, setView] = useState<View>('setup')
   const [gameParams, setGameParams] = useState<GameParams | null>(null)
   const [editingGame, setEditingGame] = useState<SavedGame | null>(null)
-  const { user, loading: authLoading, loginWithCredential, logout } = useAuth()
+  const { user, loading: authLoading, loginWithCredential, logout, setDefaultTeam } = useAuth()
   const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user)
 
   const startEdit = (game: SavedGame) => {
@@ -1898,6 +1922,7 @@ export default function App() {
         onProfile={() => setView('profile')}
         gameCount={games.length}
         user={user}
+        onSetDefaultTeam={setDefaultTeam}
       />
       {gamesError && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 text-xs font-semibold px-4 py-2 rounded-xl shadow-lg"

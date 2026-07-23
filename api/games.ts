@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { neon } from '@neondatabase/serverless'
-import { getSessionFromCookies } from './_lib/session'
+import { getSessionFromCookies } from './_lib/session.js'
 
 const sql = neon(process.env.POSTGRES_URL!)
 
