@@ -162,7 +162,7 @@ const AGE_CONFIG: Record<AgeGroup, { total: number; field: number; label: string
   U14:     { total: 11, field: 10, label: 'U14 — 11 spelers (10 veld + 1 keeper)' },
   U16:     { total: 11, field: 10, label: 'U16 — 11 spelers (10 veld + 1 keeper)' },
   U18:     { total: 11, field: 10, label: 'U18 — 11 spelers (10 veld + 1 keeper)' },
-  Senioren:{ total: 11, field: 10, label: 'Senioren — 11 spelers (10 veld + 1 keeper)' },
+  Senioren:{ total: 11, field: 10, label: 'Sr. — 11 spelers (10 veld + 1 keeper)' },
 }
 
 // ── Field positions ──────────────────────────────────────────────────────────
@@ -254,6 +254,7 @@ const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name
 const initials = (name: string) => name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()
 const sortPlayers = <T extends { number?: number; name: string }>(list: T[]) =>
   [...list].sort((a, b) => (a.number ?? Infinity) - (b.number ?? Infinity) || a.name.localeCompare(b.name))
+const ageGroupLabel = (ag: AgeGroup) => ag === 'Senioren' ? 'Sr.' : ag
 
 function useLS<T>(key: string, init: T) {
   const [v, sv] = useState<T>(() => {
@@ -280,7 +281,7 @@ function benchColor(sec: number) {
 
 function SCMuidenLogo({ size = 48 }: { size?: number }) {
   return (
-    <img src="/sc-muiden-logo.jpg" alt="SC Muiden" width={size} height={size}
+    <img src="/sc-muiden-logo.webp" alt="SC Muiden" width={size} height={size}
       style={{ width: size, height: size, objectFit: 'contain' }} />
   )
 }
@@ -616,7 +617,7 @@ function FormationEditorView({ ageGroup, onBack }: { ageGroup: AgeGroup; onBack:
 
       <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
         <p className="text-sm text-center" style={{ color: '#6B82B8' }}>
-          Sleep de posities naar de gewenste plek op het veld. Dit wordt de standaardopstelling voor {ageGroup}.
+          Sleep de posities naar de gewenste plek op het veld. Dit wordt de standaardopstelling voor {ageGroupLabel(ageGroup)}.
         </p>
 
         <div className="bg-white rounded-2xl p-6 shadow-sm flex items-center justify-center" style={{ border: '1px solid #D0DCFA' }}>
@@ -705,7 +706,7 @@ function SetupView({ onStart, onHistory, gameCount }: {
   }
 
   const minPlayers = AGE_CONFIG[ageGroup].total
-  const canStart = (club || clubSearch) && team && opponent && squad.length >= minPlayers
+  const canStart = (club || clubSearch) && team && opponent && squad.length > 0
 
   const inputStyle = { border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }
 
@@ -782,7 +783,7 @@ function SetupView({ onStart, onHistory, gameCount }: {
                   style={ageGroup === ag
                     ? { background: '#1A3FAB', color: '#fff', border: '1.5px solid #1A3FAB' }
                     : { background: '#F8FAFF', color: '#3B5299', border: '1.5px solid #D0DCFA' }}>
-                  {ag}
+                  {ageGroupLabel(ag)}
                 </button>
               ))}
             </div>
@@ -884,7 +885,7 @@ function SetupView({ onStart, onHistory, gameCount }: {
         </button>
         {!canStart && (
           <p className="text-xs text-center -mt-3" style={{ color: '#A8BEF0' }}>
-            Vul alle velden in en voeg minimaal {minPlayers} spelers toe
+            Vul club, team en tegenstander in en voeg minimaal 1 speler toe
           </p>
         )}
       </div>
@@ -928,6 +929,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, on
   const [running, setRunning] = useState(false)
   const [selected, setSelected] = useState<{ type: 'field'; posId: string } | { type: 'bench'; playerId: string } | null>(null)
   const [activeTab, setActiveTab] = useState<'bench' | 'subs' | 'notes'>('bench')
+  const [panelCollapsed, setPanelCollapsed] = useLS('fh_panel_collapsed', false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
@@ -1069,7 +1071,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, on
             <div className="min-w-0">
               <div className="font-display font-bold text-sm leading-none truncate">{club} {team}</div>
               <div className="text-xs leading-none mt-0.5 truncate" style={{ color: '#7B9DE0' }}>
-                {homeAway === 'Thuis' ? 'vs' : '@'} {opponent} · {ageGroup}
+                {homeAway === 'Thuis' ? 'vs' : '@'} {opponent} · {ageGroupLabel(ageGroup)}
               </div>
             </div>
           </div>
@@ -1095,7 +1097,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, on
         <div className="flex flex-col flex-1 overflow-hidden p-3 items-center"
           onClick={e => e.stopPropagation()}>
           <div className="flex items-center justify-between w-full mb-2"
-            style={{ maxWidth: isDual ? '540px' : '290px' }}>
+            style={{ maxWidth: isDual ? (panelCollapsed ? '820px' : '540px') : (panelCollapsed ? '460px' : '290px') }}>
             <span className="text-xs font-bold" style={{ color: '#6B82B8' }}>
               Op veld:&nbsp;
               <span style={{ color: onFieldCount < targetCount ? '#DC2626' : '#16A34A' }}>
@@ -1115,7 +1117,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, on
           </div>
 
           <div className="flex-1 flex items-center justify-center w-full"
-            style={{ maxWidth: isDual ? '540px' : '290px' }}>
+            style={{ maxWidth: isDual ? (panelCollapsed ? '820px' : '540px') : (panelCollapsed ? '460px' : '290px') }}>
             <FieldView
               ageGroup={ageGroup}
               slots={slots}
@@ -1146,11 +1148,27 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, on
         </div>
 
         {/* Right panel */}
+        {panelCollapsed ? (
+          <button
+            onClick={e => { e.stopPropagation(); setPanelCollapsed(false) }}
+            className="w-8 flex flex-col items-center gap-3 pt-3 bg-white shrink-0"
+            style={{ borderLeft: '1px solid #D0DCFA' }}>
+            <span style={{ color: '#1A3FAB', fontSize: '14px', fontWeight: 800, lineHeight: 1 }}>‹</span>
+            <span className="text-xs font-bold" style={{ color: '#7B90C8', writingMode: 'vertical-rl' }}>
+              Bank ({benchPlayers.length})
+            </span>
+          </button>
+        ) : (
         <div className="w-64 flex flex-col bg-white shrink-0 overflow-hidden"
           style={{ borderLeft: '1px solid #D0DCFA' }}
           onClick={e => e.stopPropagation()}>
           {/* Tabs */}
-          <div className="flex shrink-0" style={{ borderBottom: '1px solid #E8EFFD' }}>
+          <div className="flex shrink-0 items-stretch" style={{ borderBottom: '1px solid #E8EFFD' }}>
+            <button onClick={() => setPanelCollapsed(true)}
+              className="shrink-0 px-2 text-sm font-bold"
+              style={{ color: '#A8BEF0' }}>
+              ›
+            </button>
             {(['bench', 'subs', 'notes'] as const).map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)}
                 className="flex-1 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors"
@@ -1250,6 +1268,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, on
             )}
           </div>
         </div>
+        )}
       </div>
     </div>
   )
@@ -1297,7 +1316,7 @@ function HistoryView({ games, onBack, onDelete, onEdit }: {
                     </div>
                     <div className="flex flex-wrap gap-3 mt-0.5">
                       <span className="text-xs font-medium" style={{ color: '#7B90C8' }}>{g.date}</span>
-                      <span className="text-xs font-bold" style={{ color: '#1A3FAB' }}>{g.ageGroup}</span>
+                      <span className="text-xs font-bold" style={{ color: '#1A3FAB' }}>{ageGroupLabel(g.ageGroup)}</span>
                       {g.result && <span className="text-xs font-bold" style={{ color: '#1A3FAB' }}>{g.result}</span>}
                       <span className="text-xs font-mono" style={{ color: '#A8BEF0' }}>{fmtSec(g.finalTime)}</span>
                     </div>
