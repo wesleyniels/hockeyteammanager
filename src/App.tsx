@@ -385,6 +385,34 @@ const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name
 const initials = (name: string) => name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()
 const sortPlayers = <T extends { number?: number; name: string }>(list: T[]) =>
   [...list].sort((a, b) => (a.number ?? Infinity) - (b.number ?? Infinity) || a.name.localeCompare(b.name))
+
+// Downscales a picked photo to a small square JPEG before it's stored as
+// base64 in Postgres — keeps profile photos to a few tens of KB instead of
+// multi-MB camera originals.
+function resizeImageToDataUrl(file: File, maxDim = 300, quality = 0.85): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error ?? new Error('Kon bestand niet lezen'))
+    reader.onload = () => {
+      const img = new Image()
+      img.onerror = () => reject(new Error('Kon afbeelding niet laden'))
+      img.onload = () => {
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height))
+        const w = Math.max(1, Math.round(img.width * scale))
+        const h = Math.max(1, Math.round(img.height * scale))
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        const ctx = canvas.getContext('2d')
+        if (!ctx) { reject(new Error('Canvas wordt niet ondersteund')); return }
+        ctx.drawImage(img, 0, 0, w, h)
+        resolve(canvas.toDataURL('image/jpeg', quality))
+      }
+      img.src = reader.result as string
+    }
+    reader.readAsDataURL(file)
+  })
+}
 const ageGroupLabel = (ag: AgeGroup) => ag === 'Senioren' ? 'Sr.' : ag
 
 function useLS<T>(key: string, init: T) {
@@ -1703,20 +1731,26 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
 
 // ── Profile View ─────────────────────────────────────────────────────────────
 
-function ProfileView({ user, loading, onCredential, onLogout, onBack, gameCount, onUpdateProfile }: {
+function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword, onResendVerification, onLogout, onBack, gameCount, onUpdateProfile }: {
   user: AuthUser | null
   loading: boolean
   onCredential: (credential: string) => void
+  onRegister: (email: string, password: string, name: string) => Promise<{ ok: true } | { ok: false; error: string }>
+  onLoginPassword: (email: string, password: string) => Promise<{ ok: true } | { ok: false; error: string; code?: string }>
+  onResendVerification: (email: string) => Promise<void>
   onLogout: () => void
   onBack: () => void
   gameCount: number
-  onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'firstName' | 'lastName' | 'role'>>) => void
+  onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => void
 }) {
   const inputStyle = { border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }
   const [firstName, setFirstName] = useState(user?.firstName ?? '')
   const [lastName, setLastName] = useState(user?.lastName ?? '')
   const [role, setRole] = useState(user?.role ?? '')
   const [saved, setSaved] = useState(false)
+  const [photoError, setPhotoError] = useState<string | null>(null)
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const photoInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setFirstName(user?.firstName ?? '')
@@ -1728,6 +1762,20 @@ function ProfileView({ user, loading, onCredential, onLogout, onBack, gameCount,
     onUpdateProfile({ firstName: firstName || null, lastName: lastName || null, role: role || null })
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
+  }
+
+  const pickPhoto = async (file: File | undefined) => {
+    if (!file) return
+    setPhotoError(null)
+    setUploadingPhoto(true)
+    try {
+      const dataUrl = await resizeImageToDataUrl(file)
+      onUpdateProfile({ picture: dataUrl })
+    } catch {
+      setPhotoError('Kon foto niet verwerken. Probeer een andere afbeelding.')
+    } finally {
+      setUploadingPhoto(false)
+    }
   }
 
   return (
@@ -1747,19 +1795,29 @@ function ProfileView({ user, loading, onCredential, onLogout, onBack, gameCount,
           ) : user ? (
             <div className="space-y-5">
               <div className="flex items-center gap-4">
-                {user.picture ? (
-                  <img src={user.picture} alt="" className="w-16 h-16 rounded-full" referrerPolicy="no-referrer" />
-                ) : (
-                  <div className="w-16 h-16 rounded-full flex items-center justify-center text-white font-bold text-xl shrink-0"
-                    style={{ background: '#1A3FAB' }}>
-                    {initials(user.name ?? user.email)}
-                  </div>
-                )}
+                <button onClick={() => photoInputRef.current?.click()} disabled={uploadingPhoto}
+                  className="relative w-16 h-16 rounded-full shrink-0 group" title="Foto wijzigen">
+                  {user.picture ? (
+                    <img src={user.picture} alt="" className="w-16 h-16 rounded-full object-cover" referrerPolicy="no-referrer" />
+                  ) : (
+                    <div className="w-16 h-16 rounded-full flex items-center justify-center text-white font-bold text-xl"
+                      style={{ background: '#1A3FAB' }}>
+                      {initials(user.name ?? user.email)}
+                    </div>
+                  )}
+                  <span className="absolute inset-0 rounded-full flex items-center justify-center text-white text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity"
+                    style={{ background: 'rgba(13,43,122,0.55)' }}>
+                    {uploadingPhoto ? '…' : '✎'}
+                  </span>
+                </button>
+                <input ref={photoInputRef} type="file" accept="image/*" className="hidden"
+                  onChange={e => { pickPhoto(e.target.files?.[0]); e.target.value = '' }} />
                 <div className="min-w-0">
                   <div className="font-display font-bold text-lg truncate" style={{ color: '#0D2B7A' }}>{user.name ?? user.email}</div>
                   <div className="text-sm truncate" style={{ color: '#7B90C8' }}>{user.email}</div>
                 </div>
               </div>
+              {photoError && <p className="text-xs font-semibold" style={{ color: '#DC2626' }}>{photoError}</p>}
 
               <div>
                 <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Voorkeursteam</label>
@@ -1808,13 +1866,19 @@ function ProfileView({ user, loading, onCredential, onLogout, onBack, gameCount,
               </button>
             </div>
           ) : (
-            <div className="space-y-4 text-center py-4">
+            <div className="space-y-5 text-center py-4">
               <p className="text-sm" style={{ color: '#6B82B8' }}>
-                Log in met je Google-account om wedstrijden op te slaan en later terug te vinden.
+                Log in om wedstrijden op te slaan en later terug te vinden.
               </p>
               <div className="flex justify-center">
                 <GoogleSignInButton onCredential={onCredential} />
               </div>
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-px" style={{ background: '#E4ECFE' }} />
+                <span className="text-xs font-semibold uppercase" style={{ color: '#A8BEF0' }}>of</span>
+                <div className="flex-1 h-px" style={{ background: '#E4ECFE' }} />
+              </div>
+              <EmailAuthForm onLogin={onLoginPassword} onRegister={onRegister} onResend={onResendVerification} />
             </div>
           )}
         </section>
@@ -1852,6 +1916,20 @@ function useAuth() {
     return () => { cancelled = true }
   }, [])
 
+  // /api/auth/verify-email redirects back here with ?verify=ok|error after
+  // the coach clicks the link in their inbox — surface the result once and
+  // strip the param so refreshing doesn't repeat it.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const verify = params.get('verify')
+    if (!verify) return
+    if (verify === 'ok') alert('E-mailadres bevestigd! Je bent ingelogd.')
+    else if (verify === 'error') alert('Deze verificatielink is ongeldig of verlopen. Log in om een nieuwe aan te vragen.')
+    params.delete('verify')
+    const qs = params.toString()
+    window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''))
+  }, [])
+
   const loginWithCredential = useCallback(async (credential: string) => {
     const res = await fetch('/api/auth/google', {
       method: 'POST',
@@ -1861,15 +1939,45 @@ function useAuth() {
     if (res.ok) setUser((await res.json()).user)
   }, [])
 
+  const registerWithPassword = useCallback(async (email: string, password: string, name: string) => {
+    const res = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, name }),
+    })
+    if (res.ok) return { ok: true as const }
+    const body = await res.json().catch(() => ({}))
+    return { ok: false as const, error: body.error ?? 'Registreren mislukt' }
+  }, [])
+
+  const loginWithPassword = useCallback(async (email: string, password: string) => {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    })
+    if (res.ok) { setUser((await res.json()).user); return { ok: true as const } }
+    const body = await res.json().catch(() => ({}))
+    return { ok: false as const, error: body.error ?? 'Inloggen mislukt', code: body.code as string | undefined }
+  }, [])
+
+  const resendVerification = useCallback(async (email: string) => {
+    await fetch('/api/auth/resend-verification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    })
+  }, [])
+
   const logout = useCallback(async () => {
     await fetch('/api/auth/logout', { method: 'POST' })
     setUser(null)
   }, [])
 
-  // Persists profile fields (team preference, name, role) so they're
+  // Persists profile fields (team preference, name, role, photo) so they're
   // available next time this coach logs in, on any device. Only the fields
   // passed in are changed — the API leaves the rest untouched.
-  const updateProfile = useCallback(async (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'firstName' | 'lastName' | 'role'>>) => {
+  const updateProfile = useCallback(async (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => {
     const res = await fetch('/api/auth/me', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -1878,7 +1986,7 @@ function useAuth() {
     if (res.ok) setUser((await res.json()).user)
   }, [])
 
-  return { user, loading, loginWithCredential, logout, updateProfile }
+  return { user, loading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, logout, updateProfile }
 }
 
 // Renders Google's own "Sign in with Google" button into a div once the GSI
@@ -1920,6 +2028,104 @@ function GoogleSignInButton({ onCredential }: { onCredential: (credential: strin
   }, [])
 
   return <div ref={ref} />
+}
+
+// ── Email/password auth ───────────────────────────────────────────────────────
+// Alternative to Google sign-in for coaches without a Google account.
+// Registering never logs the user in directly — they must click the
+// verification link emailed to them first (see api/auth/register.ts).
+
+function EmailAuthForm({ onLogin, onRegister, onResend }: {
+  onLogin: (email: string, password: string) => Promise<{ ok: true } | { ok: false; error: string; code?: string }>
+  onRegister: (email: string, password: string, name: string) => Promise<{ ok: true } | { ok: false; error: string }>
+  onResend: (email: string) => Promise<void>
+}) {
+  const inputStyle = { border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }
+  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [info, setInfo] = useState<string | null>(null)
+  const [showResend, setShowResend] = useState(false)
+
+  const switchMode = (m: 'login' | 'register') => {
+    setMode(m)
+    setError(null)
+    setInfo(null)
+    setShowResend(false)
+  }
+
+  const submit = async () => {
+    setBusy(true)
+    setError(null)
+    setInfo(null)
+    setShowResend(false)
+    if (mode === 'register') {
+      const res = await onRegister(email.trim(), password, name.trim())
+      if (res.ok) {
+        setInfo('Bijna klaar! Check je inbox en klik op de link om je e-mailadres te bevestigen.')
+        setPassword('')
+      } else {
+        setError(res.error)
+      }
+    } else {
+      const res = await onLogin(email.trim(), password)
+      if (!res.ok) {
+        setError(res.error)
+        if (res.code === 'unverified') setShowResend(true)
+      }
+    }
+    setBusy(false)
+  }
+
+  const resend = async () => {
+    setBusy(true)
+    await onResend(email.trim())
+    setInfo('Als dit account bestaat, is er een nieuwe verificatie-e-mail verstuurd.')
+    setBusy(false)
+  }
+
+  return (
+    <div className="space-y-3 text-left">
+      <div className="flex gap-2 justify-center">
+        <button onClick={() => switchMode('login')}
+          className="text-xs font-bold uppercase px-3 py-1.5 rounded-lg"
+          style={{ color: mode === 'login' ? '#fff' : '#1A3FAB', background: mode === 'login' ? '#1A3FAB' : '#EEF3FF' }}>
+          Inloggen
+        </button>
+        <button onClick={() => switchMode('register')}
+          className="text-xs font-bold uppercase px-3 py-1.5 rounded-lg"
+          style={{ color: mode === 'register' ? '#fff' : '#1A3FAB', background: mode === 'register' ? '#1A3FAB' : '#EEF3FF' }}>
+          Registreren
+        </button>
+      </div>
+
+      {mode === 'register' && (
+        <input className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle}
+          value={name} onChange={e => setName(e.target.value)} placeholder="Naam" />
+      )}
+      <input className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle} type="email"
+        value={email} onChange={e => setEmail(e.target.value)} placeholder="E-mailadres" />
+      <input className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle} type="password"
+        value={password} onChange={e => setPassword(e.target.value)} placeholder="Wachtwoord" />
+
+      {error && <p className="text-xs font-semibold" style={{ color: '#DC2626' }}>{error}</p>}
+      {info && <p className="text-xs font-semibold" style={{ color: '#16A34A' }}>{info}</p>}
+      {showResend && (
+        <button onClick={resend} disabled={busy} className="text-xs font-bold" style={{ color: '#1A3FAB' }}>
+          Verificatie-e-mail opnieuw versturen
+        </button>
+      )}
+
+      <button onClick={submit} disabled={busy || !email || !password}
+        className="w-full px-4 py-2.5 rounded-xl font-bold text-sm text-white disabled:opacity-50"
+        style={{ background: '#1A3FAB' }}>
+        {mode === 'register' ? 'Account aanmaken' : 'Inloggen'}
+      </button>
+    </div>
+  )
 }
 
 // ── Remote match history (Vercel Postgres via /api/games) ────────────────────
@@ -1978,7 +2184,7 @@ export default function App() {
   const [view, setView] = useState<View>('setup')
   const [gameParams, setGameParams] = useState<GameParams | null>(null)
   const [editingGame, setEditingGame] = useState<SavedGame | null>(null)
-  const { user, loading: authLoading, loginWithCredential, logout, updateProfile } = useAuth()
+  const { user, loading: authLoading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, logout, updateProfile } = useAuth()
   const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user)
 
   const startEdit = (game: SavedGame) => {
@@ -1993,6 +2199,9 @@ export default function App() {
         user={user}
         loading={authLoading}
         onCredential={loginWithCredential}
+        onRegister={registerWithPassword}
+        onLoginPassword={loginWithPassword}
+        onResendVerification={resendVerification}
         onLogout={logout}
         onBack={() => setView('setup')}
         gameCount={games.length}

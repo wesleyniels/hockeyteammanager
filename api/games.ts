@@ -1,33 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { neon } from '@neondatabase/serverless'
+import { sql, ensureSchema } from './_lib/db.js'
 import { getSessionFromCookies } from './_lib/session.js'
-
-const sql = neon(process.env.POSTGRES_URL!)
-
-let schemaReady: Promise<unknown> | null = null
-function ensureSchema() {
-  schemaReady ??= (async () => {
-    await sql`
-      CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        email TEXT NOT NULL,
-        name TEXT,
-        picture TEXT,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      )
-    `
-    await sql`
-      CREATE TABLE IF NOT EXISTS games (
-        id TEXT PRIMARY KEY,
-        data JSONB NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      )
-    `
-    await sql`ALTER TABLE games ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id)`
-  })()
-  return schemaReady
-}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   await ensureSchema()
