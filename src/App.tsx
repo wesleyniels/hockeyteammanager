@@ -437,6 +437,7 @@ interface FieldViewProps {
   squad: Player[]
   selected: { type: 'field'; posId: string } | { type: 'bench'; playerId: string } | null
   dragOverPos: string | null
+  dragPreview: { type: 'field' | 'bench'; id: string; x: number; y: number } | null
   fieldRef: React.RefObject<HTMLDivElement | null>
   onFieldClick: (posId: string) => void
   onBackgroundClick: (x: number, y: number) => void
@@ -454,9 +455,10 @@ function nearestSlot(slots: PositionSlot[], x: number, y: number, excludeId?: st
   return best && bestDist <= SNAP_THRESHOLD ? best : null
 }
 
-function FieldView({ ageGroup, slots, squad, selected, dragOverPos, fieldRef, onFieldClick, onBackgroundClick, onMarkerPointerDown }: FieldViewProps) {
+function FieldView({ ageGroup, slots, squad, selected, dragOverPos, dragPreview, fieldRef, onFieldClick, onBackgroundClick, onMarkerPointerDown }: FieldViewProps) {
   const isDual = ageGroup === 'U7' || ageGroup === 'U8'
   const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
+  const draggedBenchPlayer = dragPreview?.type === 'bench' ? getPlayer(dragPreview.id) : null
 
   return (
     <div
@@ -473,17 +475,20 @@ function FieldView({ ageGroup, slots, squad, selected, dragOverPos, fieldRef, on
       {isDual ? <DualFieldSVG /> : <FieldSVG />}
 
       {slots.map(slot => {
+        const isBeingDragged = dragPreview?.type === 'field' && dragPreview.id === slot.posId
         const player = getPlayer(slot.playerId)
         const isFieldSel = selected?.type === 'field' && selected.posId === slot.posId
         const isBenchSel = selected?.type === 'bench'
         const isDragTarget = dragOverPos === slot.posId
         const isGK = slot.posId === 'gk'
+        const x = isBeingDragged ? dragPreview.x : slot.x
+        const y = isBeingDragged ? dragPreview.y : slot.y
 
         return (
           <div
             key={slot.posId}
             className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab select-none touch-none"
-            style={{ left: `${slot.x}%`, top: `${slot.y}%`, zIndex: 10 }}
+            style={{ left: `${x}%`, top: `${y}%`, zIndex: isBeingDragged ? 30 : 10 }}
             onPointerDown={e => { e.stopPropagation(); onMarkerPointerDown(slot.posId, e) }}
             onClick={e => { e.stopPropagation(); onFieldClick(slot.posId) }}>
             <div
@@ -505,15 +510,18 @@ function FieldView({ ageGroup, slots, squad, selected, dragOverPos, fieldRef, on
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow: isFieldSel
-                  ? '0 0 0 3px rgba(26,63,171,0.7), 0 3px 12px rgba(0,0,0,0.4)'
-                  : isDragTarget
-                    ? '0 0 0 3px rgba(134,239,172,0.6), 0 3px 12px rgba(0,0,0,0.3)'
-                    : player
-                      ? '0 2px 8px rgba(0,0,0,0.3)'
-                      : 'none',
-                transform: isFieldSel ? 'scale(1.12)' : isDragTarget ? 'scale(1.08)' : 'scale(1)',
-                transition: 'transform 0.1s, box-shadow 0.1s',
+                boxShadow: isBeingDragged
+                  ? '0 6px 20px rgba(0,0,0,0.45)'
+                  : isFieldSel
+                    ? '0 0 0 3px rgba(26,63,171,0.7), 0 3px 12px rgba(0,0,0,0.4)'
+                    : isDragTarget
+                      ? '0 0 0 3px rgba(134,239,172,0.6), 0 3px 12px rgba(0,0,0,0.3)'
+                      : player
+                        ? '0 2px 8px rgba(0,0,0,0.3)'
+                        : 'none',
+                transform: isBeingDragged ? 'scale(1.18)' : isFieldSel ? 'scale(1.12)' : isDragTarget ? 'scale(1.08)' : 'scale(1)',
+                opacity: isBeingDragged ? 0.95 : 1,
+                transition: isBeingDragged ? 'none' : 'transform 0.1s, box-shadow 0.1s',
               }}>
               {player ? (
                 <>
@@ -533,6 +541,27 @@ function FieldView({ ageGroup, slots, squad, selected, dragOverPos, fieldRef, on
           </div>
         )
       })}
+
+      {draggedBenchPlayer && dragPreview && (
+        <div
+          className="absolute transform -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+          style={{ left: `${dragPreview.x}%`, top: `${dragPreview.y}%`, zIndex: 30 }}>
+          <div
+            style={{
+              width: '46px', height: '46px', borderRadius: '50%',
+              background: '#fff', border: '2px solid rgba(255,255,255,0.85)',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 6px 20px rgba(0,0,0,0.45)', transform: 'scale(1.18)', opacity: 0.95,
+            }}>
+            <span style={{ fontSize: '12px', fontWeight: 800, lineHeight: 1, color: '#111' }}>
+              {draggedBenchPlayer.number ?? initials(draggedBenchPlayer.name)}
+            </span>
+            <span style={{ fontSize: '8px', fontWeight: 600, color: '#333', marginTop: '1px', maxWidth: '42px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '0 2px' }}>
+              {firstName(draggedBenchPlayer.name)}
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -938,8 +967,12 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, on
   // Window-level pointermove/pointerup listeners so a drag started on a bench
   // card (a separate DOM region from the field) can still be tracked and
   // resolved against the field's bounding rect wherever the pointer lands.
+  // The dragged marker's visual position follows the pointer every animation
+  // frame (dragPreview) so it feels like a smooth, live drag instead of only
+  // snapping into place on release.
   const fieldRef = useRef<HTMLDivElement>(null)
   const [dragOverPos, setDragOverPos] = useState<string | null>(null)
+  const [dragPreview, setDragPreview] = useState<{ type: 'field' | 'bench'; id: string; x: number; y: number } | null>(null)
   const dragInfoRef = useRef<{ type: 'field' | 'bench'; id: string } | null>(null)
   const dragStartRef = useRef<{ x: number; y: number } | null>(null)
   const suppressClickRef = useRef(false)
@@ -960,20 +993,46 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, on
         y: Math.min(100, Math.max(0, ((clientY - rect.top) / rect.height) * 100)),
       }
     }
+
+    // Batch pointermove updates to one React update per animation frame —
+    // pointermove can fire far faster than the display refreshes, and
+    // committing every single event to state is what made dragging feel
+    // sluggish/stuttery, especially on mobile.
+    let raf: number | null = null
+    let pendingOverPos: string | null | undefined
+    let pendingPreview: { type: 'field' | 'bench'; id: string; x: number; y: number } | null | undefined
+    const flush = () => {
+      raf = null
+      if (pendingOverPos !== undefined) setDragOverPos(pendingOverPos)
+      if (pendingPreview !== undefined) setDragPreview(pendingPreview)
+      pendingOverPos = undefined
+      pendingPreview = undefined
+    }
+    const schedule = () => { if (raf == null) raf = requestAnimationFrame(flush) }
+
     const onMove = (e: PointerEvent) => {
       const info = dragInfoRef.current
       if (!info) return
       const pt = pointInField(e.clientX, e.clientY)
-      if (!pt || !pt.inside) { setDragOverPos(null); return }
+      if (!pt || !pt.inside) {
+        pendingOverPos = null
+        pendingPreview = null
+        schedule()
+        return
+      }
       const target = nearestSlot(slotsRef.current, pt.x, pt.y, info.type === 'field' ? info.id : undefined)
-      setDragOverPos(target?.posId ?? null)
+      pendingOverPos = target?.posId ?? null
+      pendingPreview = { type: info.type, id: info.id, x: pt.x, y: pt.y }
+      schedule()
     }
     const onUp = (e: PointerEvent) => {
       const info = dragInfoRef.current
       const start = dragStartRef.current
       dragInfoRef.current = null
       dragStartRef.current = null
+      if (raf != null) { cancelAnimationFrame(raf); raf = null }
       setDragOverPos(null)
+      setDragPreview(null)
       if (!info || !start) return
       const moved = Math.hypot(e.clientX - start.x, e.clientY - start.y) > 6
       if (!moved) return // a simple tap — let the native click event drive the existing select flow
@@ -990,6 +1049,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, on
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
     return () => {
+      if (raf != null) cancelAnimationFrame(raf)
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
     }
@@ -1149,6 +1209,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, on
               squad={squad}
               selected={selected}
               dragOverPos={dragOverPos}
+              dragPreview={dragPreview}
               fieldRef={fieldRef}
               onFieldClick={handleFieldClick}
               onBackgroundClick={handleBackgroundClick}
@@ -1220,12 +1281,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, on
                   [...benchPlayers].sort((a, b) => (a.player.number ?? Infinity) - (b.player.number ?? Infinity) || a.player.name.localeCompare(b.player.name)).map(({ playerId, sinceGameSec, player }) => {
                     const elapsed = Math.max(0, gameSec - sinceGameSec)
                     const isSel = selected?.type === 'bench' && selected.playerId === playerId
+                    const isBeingDragged = dragPreview?.type === 'bench' && dragPreview.id === playerId
                     return (
                       <div key={playerId}
                         className="flex items-center gap-2.5 p-2.5 rounded-xl cursor-grab transition-all touch-none select-none"
                         style={{
                           background: isSel ? '#EEF3FF' : '#F8FAFF',
                           border: isSel ? '1.5px solid #1A3FAB' : '1.5px solid #E8EFFD',
+                          opacity: isBeingDragged ? 0.35 : 1,
                         }}
                         onPointerDown={e => beginDrag('bench', playerId, e)}
                         onClick={() => handleBenchClick(playerId)}>
