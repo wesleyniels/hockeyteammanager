@@ -28,6 +28,7 @@ interface SubRecord {
   gameTimeSec: number
   playerInId: string
   playerOutId: string
+  posLabel: string
 }
 
 interface SavedGame {
@@ -43,6 +44,8 @@ interface SavedGame {
   subs: SubRecord[]
   notes: string
   result: string
+  scoreOwn: number
+  scoreOpp: number
   finalTime: number
 }
 
@@ -791,12 +794,11 @@ function FormationEditorView({ ageGroup, onBack }: { ageGroup: AgeGroup; onBack:
 
 // ── Setup View ───────────────────────────────────────────────────────────────
 
-function SetupView({ onStart, onHistory, onProfile, user, onSetDefaultTeam }: {
+function SetupView({ onStart, onHistory, onProfile, user }: {
   onStart: (p: GameParams) => void
   onHistory: () => void
   onProfile: () => void
   user: AuthUser | null
-  onSetDefaultTeam: (team: string) => void
 }) {
   const [club, setClub] = useLS('fh_club', 'SC Muiden')
   const [team, setTeam] = useLS('fh_team', '')
@@ -827,13 +829,13 @@ function SetupView({ onStart, onHistory, onProfile, user, onSetDefaultTeam }: {
   }
 
   // Selecting a team fills Selectie with its official roster; players can
-  // still be added or removed manually afterwards. When signed in, it's also
-  // remembered on the profile so it's pre-selected next time, any device.
+  // still be added or removed manually afterwards. This only affects the
+  // current match setup — it never touches the profile's preferred team,
+  // which is only changed explicitly from the Profile page.
   const selectTeam = (newTeam: string) => {
     setTeam(newTeam)
     const roster = SC_MUIDEN_TEAMS[newTeam]
     if (roster) setSquad(roster.map(name => ({ id: uid(), name })))
-    if (user) onSetDefaultTeam(newTeam)
   }
 
   // Once signed in, pre-select the coach's remembered team (from their
@@ -1080,6 +1082,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   const [subs, setSubs] = useState<SubRecord[]>(() => initial?.subs ?? [])
   const [notes, setNotes] = useState(initial?.notes ?? '')
   const [result, setResult] = useState(initial?.result ?? '')
+  const [scoreOwn, setScoreOwn] = useState(initial?.scoreOwn ?? 0)
+  const [scoreOpp, setScoreOpp] = useState(initial?.scoreOpp ?? 0)
   const [gameSec, setGameSec] = useState(initial?.finalTime ?? 0)
   const [running, setRunning] = useState(false)
   const [selected, setSelected] = useState<{ type: 'field'; posId: string } | { type: 'bench'; playerId: string } | null>(null)
@@ -1096,10 +1100,11 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
 
   const doSub = (inId: string, posId: string) => {
-    const outId = slots.find(s => s.posId === posId)?.playerId ?? null
+    const pos = slots.find(s => s.posId === posId)
+    const outId = pos?.playerId ?? null
     setSlots(sl => sl.map(s => s.posId === posId ? { ...s, playerId: inId } : s))
     setBench(b => b.filter(e => e.playerId !== inId).concat(outId ? [{ playerId: outId, sinceGameSec: gameSec }] : []))
-    if (outId) setSubs(s => [...s, { gameTimeSec: gameSec, playerInId: inId, playerOutId: outId }])
+    if (outId) setSubs(s => [...s, { gameTimeSec: gameSec, playerInId: inId, playerOutId: outId, posLabel: pos?.label ?? '' }])
     setSelected(null)
   }
 
@@ -1306,6 +1311,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
       id: initial?.id ?? uid(),
       date: initial?.date ?? todayStr(),
       club, team, ageGroup, opponent, homeAway, squad, slots, subs, notes, result,
+      scoreOwn, scoreOpp,
       finalTime: gameSec,
     })
     alert('Wedstrijd opgeslagen!')
@@ -1329,6 +1335,9 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <div className="font-mono font-bold text-sm tabular-nums px-2 py-1 rounded-lg" style={{ background: 'rgba(255,255,255,0.08)' }}>
+              {scoreOwn} - {scoreOpp}
+            </div>
             <div className="font-mono font-bold text-xl tabular-nums">{fmtSec(gameSec)}</div>
             <button onClick={e => { e.stopPropagation(); setRunning(r => !r) }}
               className="px-3 py-1.5 rounded-lg text-xs font-bold"
@@ -1490,7 +1499,12 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                   return (
                     <div key={i} className="py-2.5 rounded-xl px-3"
                       style={{ background: '#F0F5FF', border: '1px solid #E4ECFE' }}>
-                      <div className="font-mono text-xs font-bold mb-1" style={{ color: '#7B90C8' }}>{fmtSec(s.gameTimeSec)}</div>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span className="font-mono text-xs font-bold" style={{ color: '#7B90C8' }}>{fmtSec(s.gameTimeSec)}</span>
+                        {s.posLabel && (
+                          <span className="text-xs font-bold px-1.5 rounded" style={{ color: '#1A3FAB', background: '#E4ECFE' }}>{s.posLabel}</span>
+                        )}
+                      </div>
                       <div className="text-xs font-semibold" style={{ color: '#16A34A' }}>↑ {pIn?.number ? `#${pIn.number} ` : ''}{pIn?.name}</div>
                       <div className="text-xs font-semibold" style={{ color: '#DC2626' }}>↓ {pOut?.number ? `#${pOut.number} ` : ''}{pOut?.name}</div>
                     </div>
@@ -1514,6 +1528,33 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                     style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: '#1A2F6B', outline: 'none' }}
                     rows={8} value={notes} onChange={e => setNotes(e.target.value)}
                     placeholder="Tactische notities, bijzonderheden…" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Scorebord</label>
+                  <div className="flex items-center justify-between gap-2 rounded-xl px-3 py-2.5"
+                    style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF' }}>
+                    <div className="flex-1 text-center min-w-0">
+                      <div className="text-xs font-semibold truncate" style={{ color: '#6B82B8' }}>{team || 'Eigen team'}</div>
+                      <div className="flex items-center justify-center gap-2.5 mt-1">
+                        <button onClick={() => setScoreOwn(s => Math.max(0, s - 1))}
+                          className="w-7 h-7 rounded-lg font-bold text-sm" style={{ background: '#D0DCFA', color: '#1A3FAB' }}>−</button>
+                        <span className="font-mono font-bold text-xl w-6 text-center" style={{ color: '#1A2F6B' }}>{scoreOwn}</span>
+                        <button onClick={() => setScoreOwn(s => s + 1)}
+                          className="w-7 h-7 rounded-lg font-bold text-sm text-white" style={{ background: '#1A3FAB' }}>+</button>
+                      </div>
+                    </div>
+                    <div className="font-bold text-sm shrink-0" style={{ color: '#A8BEF0' }}>–</div>
+                    <div className="flex-1 text-center min-w-0">
+                      <div className="text-xs font-semibold truncate" style={{ color: '#6B82B8' }}>{opponent || 'Tegenstander'}</div>
+                      <div className="flex items-center justify-center gap-2.5 mt-1">
+                        <button onClick={() => setScoreOpp(s => Math.max(0, s - 1))}
+                          className="w-7 h-7 rounded-lg font-bold text-sm" style={{ background: '#D0DCFA', color: '#1A3FAB' }}>−</button>
+                        <span className="font-mono font-bold text-xl w-6 text-center" style={{ color: '#1A2F6B' }}>{scoreOpp}</span>
+                        <button onClick={() => setScoreOpp(s => s + 1)}
+                          className="w-7 h-7 rounded-lg font-bold text-sm text-white" style={{ background: '#1A3FAB' }}>+</button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -1617,6 +1658,9 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
                               return (
                                 <div key={i} className="flex items-center gap-2 text-xs">
                                   <span className="font-mono font-bold w-10 shrink-0" style={{ color: '#7B90C8' }}>{fmtSec(s.gameTimeSec)}</span>
+                                  {s.posLabel && (
+                                    <span className="text-xs font-bold px-1.5 rounded shrink-0" style={{ color: '#1A3FAB', background: '#E4ECFE' }}>{s.posLabel}</span>
+                                  )}
                                   <span className="font-semibold" style={{ color: '#16A34A' }}>↑ {pIn?.name}</span>
                                   <span className="font-semibold" style={{ color: '#DC2626' }}>↓ {pOut?.name}</span>
                                 </div>
@@ -1984,7 +2028,6 @@ export default function App() {
         onHistory={() => setView('history')}
         onProfile={() => setView('profile')}
         user={user}
-        onSetDefaultTeam={team => updateProfile({ defaultTeam: team })}
       />
       {gamesError && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 text-xs font-semibold px-4 py-2 rounded-xl shadow-lg"
