@@ -791,11 +791,10 @@ function FormationEditorView({ ageGroup, onBack }: { ageGroup: AgeGroup; onBack:
 
 // ── Setup View ───────────────────────────────────────────────────────────────
 
-function SetupView({ onStart, onHistory, onProfile, gameCount, user, onSetDefaultTeam }: {
+function SetupView({ onStart, onHistory, onProfile, user, onSetDefaultTeam }: {
   onStart: (p: GameParams) => void
   onHistory: () => void
   onProfile: () => void
-  gameCount: number
   user: AuthUser | null
   onSetDefaultTeam: (team: string) => void
 }) {
@@ -871,11 +870,13 @@ function SetupView({ onStart, onHistory, onProfile, gameCount, user, onSetDefaul
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={onHistory}
-              className="text-sm px-3 py-1.5 rounded-lg font-semibold"
-              style={{ color: '#A8BEF0', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
-              {gameCount} wedstrijd{gameCount !== 1 ? 'en' : ''}
-            </button>
+            {user && (
+              <button onClick={onHistory}
+                className="text-sm px-3 py-1.5 rounded-lg font-semibold"
+                style={{ color: '#A8BEF0', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
+                Wedstrijden
+              </button>
+            )}
             <button onClick={onProfile}
               className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg font-semibold"
               style={{ color: '#A8BEF0', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
@@ -1982,7 +1983,6 @@ export default function App() {
         onStart={p => { setEditingGame(null); setGameParams(p); setView('game') }}
         onHistory={() => setView('history')}
         onProfile={() => setView('profile')}
-        gameCount={games.length}
         user={user}
         onSetDefaultTeam={team => updateProfile({ defaultTeam: team })}
       />
