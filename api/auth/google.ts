@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { OAuth2Client } from 'google-auth-library'
 import { neon } from '@neondatabase/serverless'
 import { signSession, sessionCookieHeader } from '../_lib/session.js'
+import { toUser } from '../_lib/users.js'
 
 const sql = neon(process.env.POSTGRES_URL!)
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID)
@@ -27,10 +28,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const rows = await sql`
     INSERT INTO users (id, email, name, picture) VALUES (${user.id}, ${user.email}, ${user.name}, ${user.picture})
     ON CONFLICT (id) DO UPDATE SET email = ${user.email}, name = ${user.name}, picture = ${user.picture}
-    RETURNING id, email, name, picture, default_team
+    RETURNING id, email, name, picture, default_team, first_name, last_name, role
   `
-  const u = rows[0]
 
   res.setHeader('Set-Cookie', sessionCookieHeader(signSession(user)))
-  res.status(200).json({ user: { id: u.id, email: u.email, name: u.name, picture: u.picture, defaultTeam: u.default_team } })
+  res.status(200).json({ user: toUser(rows[0]) })
 }

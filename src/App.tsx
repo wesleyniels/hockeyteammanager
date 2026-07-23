@@ -1658,14 +1658,33 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
 
 // ── Profile View ─────────────────────────────────────────────────────────────
 
-function ProfileView({ user, loading, onCredential, onLogout, onBack, gameCount }: {
+function ProfileView({ user, loading, onCredential, onLogout, onBack, gameCount, onUpdateProfile }: {
   user: AuthUser | null
   loading: boolean
   onCredential: (credential: string) => void
   onLogout: () => void
   onBack: () => void
   gameCount: number
+  onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'firstName' | 'lastName' | 'role'>>) => void
 }) {
+  const inputStyle = { border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }
+  const [firstName, setFirstName] = useState(user?.firstName ?? '')
+  const [lastName, setLastName] = useState(user?.lastName ?? '')
+  const [role, setRole] = useState(user?.role ?? '')
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    setFirstName(user?.firstName ?? '')
+    setLastName(user?.lastName ?? '')
+    setRole(user?.role ?? '')
+  }, [user?.firstName, user?.lastName, user?.role])
+
+  const saveDetails = () => {
+    onUpdateProfile({ firstName: firstName || null, lastName: lastName || null, role: role || null })
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
   return (
     <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
       <header style={{ background: '#0D2B7A' }} className="text-white sticky top-0 z-20 shadow-lg">
@@ -1696,6 +1715,44 @@ function ProfileView({ user, loading, onCredential, onLogout, onBack, gameCount 
                   <div className="text-sm truncate" style={{ color: '#7B90C8' }}>{user.email}</div>
                 </div>
               </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Voorkeursteam</label>
+                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: user.defaultTeam ? '#1A2F6B' : '#7B90C8' }}
+                  value={user.defaultTeam ?? ''}
+                  onChange={e => onUpdateProfile({ defaultTeam: e.target.value || null })}>
+                  <option value="">Kies team…</option>
+                  {SC_MUIDEN_TEAM_NAMES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <p className="text-xs mt-1.5" style={{ color: '#7B90C8' }}>Wordt automatisch geselecteerd bij het starten van een wedstrijd.</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Naam</label>
+                  <input className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle}
+                    value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="Voornaam" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Achternaam</label>
+                  <input className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle}
+                    value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Achternaam" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Rol</label>
+                <input className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle}
+                  value={role} onChange={e => setRole(e.target.value)} placeholder="Bijv. Coach, Trainer, Manager" />
+              </div>
+              <div className="flex items-center gap-3">
+                <button onClick={saveDetails}
+                  className="px-4 py-2.5 rounded-xl font-bold text-sm text-white"
+                  style={{ background: '#1A3FAB' }}>
+                  Opslaan
+                </button>
+                {saved && <span className="text-sm font-semibold" style={{ color: '#16A34A' }}>Opgeslagen!</span>}
+              </div>
+
               <p className="text-sm font-medium" style={{ color: '#7B90C8' }}>
                 {gameCount} opgeslagen wedstrijd{gameCount !== 1 ? 'en' : ''}
               </p>
@@ -1731,6 +1788,9 @@ interface AuthUser {
   name: string | null
   picture: string | null
   defaultTeam: string | null
+  firstName: string | null
+  lastName: string | null
+  role: string | null
 }
 
 function useAuth() {
@@ -1761,18 +1821,19 @@ function useAuth() {
     setUser(null)
   }, [])
 
-  // Persists the club/team a signed-in coach manages so it's pre-selected
-  // next time they log in, on any device.
-  const setDefaultTeam = useCallback(async (team: string) => {
+  // Persists profile fields (team preference, name, role) so they're
+  // available next time this coach logs in, on any device. Only the fields
+  // passed in are changed — the API leaves the rest untouched.
+  const updateProfile = useCallback(async (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'firstName' | 'lastName' | 'role'>>) => {
     const res = await fetch('/api/auth/me', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ defaultTeam: team }),
+      body: JSON.stringify(fields),
     })
     if (res.ok) setUser((await res.json()).user)
   }, [])
 
-  return { user, loading, loginWithCredential, logout, setDefaultTeam }
+  return { user, loading, loginWithCredential, logout, updateProfile }
 }
 
 // Renders Google's own "Sign in with Google" button into a div once the GSI
@@ -1872,7 +1933,7 @@ export default function App() {
   const [view, setView] = useState<View>('setup')
   const [gameParams, setGameParams] = useState<GameParams | null>(null)
   const [editingGame, setEditingGame] = useState<SavedGame | null>(null)
-  const { user, loading: authLoading, loginWithCredential, logout, setDefaultTeam } = useAuth()
+  const { user, loading: authLoading, loginWithCredential, logout, updateProfile } = useAuth()
   const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user)
 
   const startEdit = (game: SavedGame) => {
@@ -1890,6 +1951,7 @@ export default function App() {
         onLogout={logout}
         onBack={() => setView('setup')}
         gameCount={games.length}
+        onUpdateProfile={updateProfile}
       />
     )
   if (view === 'history')
@@ -1922,7 +1984,7 @@ export default function App() {
         onProfile={() => setView('profile')}
         gameCount={games.length}
         user={user}
-        onSetDefaultTeam={setDefaultTeam}
+        onSetDefaultTeam={team => updateProfile({ defaultTeam: team })}
       />
       {gamesError && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 text-xs font-semibold px-4 py-2 rounded-xl shadow-lg"
