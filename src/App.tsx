@@ -436,9 +436,11 @@ interface FieldViewProps {
   slots: PositionSlot[]
   squad: Player[]
   selected: { type: 'field'; posId: string } | { type: 'bench'; playerId: string } | null
+  dragOverPos: string | null
+  fieldRef: React.RefObject<HTMLDivElement | null>
   onFieldClick: (posId: string) => void
-  onDropAt: (dragType: 'field' | 'bench', dragId: string, x: number, y: number, nearestPosId: string | null) => void
   onBackgroundClick: (x: number, y: number) => void
+  onMarkerPointerDown: (posId: string, e: React.PointerEvent) => void
 }
 
 function nearestSlot(slots: PositionSlot[], x: number, y: number, excludeId?: string) {
@@ -452,39 +454,20 @@ function nearestSlot(slots: PositionSlot[], x: number, y: number, excludeId?: st
   return best && bestDist <= SNAP_THRESHOLD ? best : null
 }
 
-function FieldView({ ageGroup, slots, squad, selected, onFieldClick, onDropAt, onBackgroundClick }: FieldViewProps) {
+function FieldView({ ageGroup, slots, squad, selected, dragOverPos, fieldRef, onFieldClick, onBackgroundClick, onMarkerPointerDown }: FieldViewProps) {
   const isDual = ageGroup === 'U7' || ageGroup === 'U8'
-  const [dragOverPos, setDragOverPos] = useState<string | null>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
   const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
-
-  const pointToPct = (clientX: number, clientY: number) => {
-    const rect = containerRef.current!.getBoundingClientRect()
-    return {
-      x: Math.min(100, Math.max(0, ((clientX - rect.left) / rect.width) * 100)),
-      y: Math.min(100, Math.max(0, ((clientY - rect.top) / rect.height) * 100)),
-    }
-  }
 
   return (
     <div
-      ref={containerRef}
+      ref={fieldRef}
       className="relative w-full"
       style={{ aspectRatio: isDual ? '140/97' : '62/97', maxHeight: '100%' }}
-      onDragOver={e => e.preventDefault()}
-      onDrop={e => {
-        e.preventDefault()
-        setDragOverPos(null)
-        const type = e.dataTransfer.getData('type') as 'field' | 'bench'
-        const id = e.dataTransfer.getData('id')
-        if (!type || !id) return
-        const { x, y } = pointToPct(e.clientX, e.clientY)
-        const target = nearestSlot(slots, x, y, type === 'field' ? id : undefined)
-        onDropAt(type, id, x, y, target?.posId ?? null)
-      }}
       onClick={e => {
         if (!selected) return
-        const { x, y } = pointToPct(e.clientX, e.clientY)
+        const rect = e.currentTarget.getBoundingClientRect()
+        const x = Math.min(100, Math.max(0, ((e.clientX - rect.left) / rect.width) * 100))
+        const y = Math.min(100, Math.max(0, ((e.clientY - rect.top) / rect.height) * 100))
         onBackgroundClick(x, y)
       }}>
       {isDual ? <DualFieldSVG /> : <FieldSVG />}
@@ -499,30 +482,9 @@ function FieldView({ ageGroup, slots, squad, selected, onFieldClick, onDropAt, o
         return (
           <div
             key={slot.posId}
-            className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab select-none"
+            className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab select-none touch-none"
             style={{ left: `${slot.x}%`, top: `${slot.y}%`, zIndex: 10 }}
-            draggable
-            onDragStart={e => {
-              e.stopPropagation()
-              e.dataTransfer.setData('type', 'field')
-              e.dataTransfer.setData('id', slot.posId)
-              e.dataTransfer.effectAllowed = 'move'
-            }}
-            onDragOver={e => {
-              e.stopPropagation()
-              e.preventDefault()
-              e.dataTransfer.dropEffect = 'move'
-              setDragOverPos(slot.posId)
-            }}
-            onDragLeave={() => setDragOverPos(null)}
-            onDrop={e => {
-              // let it bubble to the container's onDrop, which resolves the nearest slot itself
-              e.stopPropagation()
-              setDragOverPos(null)
-              const type = e.dataTransfer.getData('type') as 'field' | 'bench'
-              const id = e.dataTransfer.getData('id')
-              if (type && id) onDropAt(type, id, slot.x, slot.y, slot.posId)
-            }}
+            onPointerDown={e => { e.stopPropagation(); onMarkerPointerDown(slot.posId, e) }}
             onClick={e => { e.stopPropagation(); onFieldClick(slot.posId) }}>
             <div
               style={{
@@ -706,7 +668,7 @@ function SetupView({ onStart, onHistory, gameCount }: {
   }
 
   const minPlayers = AGE_CONFIG[ageGroup].total
-  const canStart = (club || clubSearch) && team && opponent && squad.length > 0
+  const canStart = (club || clubSearch) && team && opponent
 
   const inputStyle = { border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }
 
@@ -885,7 +847,7 @@ function SetupView({ onStart, onHistory, gameCount }: {
         </button>
         {!canStart && (
           <p className="text-xs text-center -mt-3" style={{ color: '#A8BEF0' }}>
-            Vul club, team en tegenstander in en voeg minimaal 1 speler toe
+            Vul club, team en tegenstander in
           </p>
         )}
       </div>
@@ -972,7 +934,74 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, on
     setSlots(sl => sl.map(s => s.posId === posId ? { ...s, x, y } : s))
   }
 
+  // ── Pointer-based dragging (works on touch, unlike HTML5 drag-and-drop) ──
+  // Window-level pointermove/pointerup listeners so a drag started on a bench
+  // card (a separate DOM region from the field) can still be tracked and
+  // resolved against the field's bounding rect wherever the pointer lands.
+  const fieldRef = useRef<HTMLDivElement>(null)
+  const [dragOverPos, setDragOverPos] = useState<string | null>(null)
+  const dragInfoRef = useRef<{ type: 'field' | 'bench'; id: string } | null>(null)
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null)
+  const suppressClickRef = useRef(false)
+  const slotsRef = useRef(slots)
+  slotsRef.current = slots
+  const handleDropAtRef = useRef((_t: 'field' | 'bench', _id: string, _x: number, _y: number, _p: string | null) => {})
+  const sendToBenchRef = useRef((_posId: string) => {})
+  sendToBenchRef.current = sendToBench
+
+  useEffect(() => {
+    const pointInField = (clientX: number, clientY: number) => {
+      const rect = fieldRef.current?.getBoundingClientRect()
+      if (!rect) return null
+      const inside = clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom
+      return {
+        inside,
+        x: Math.min(100, Math.max(0, ((clientX - rect.left) / rect.width) * 100)),
+        y: Math.min(100, Math.max(0, ((clientY - rect.top) / rect.height) * 100)),
+      }
+    }
+    const onMove = (e: PointerEvent) => {
+      const info = dragInfoRef.current
+      if (!info) return
+      const pt = pointInField(e.clientX, e.clientY)
+      if (!pt || !pt.inside) { setDragOverPos(null); return }
+      const target = nearestSlot(slotsRef.current, pt.x, pt.y, info.type === 'field' ? info.id : undefined)
+      setDragOverPos(target?.posId ?? null)
+    }
+    const onUp = (e: PointerEvent) => {
+      const info = dragInfoRef.current
+      const start = dragStartRef.current
+      dragInfoRef.current = null
+      dragStartRef.current = null
+      setDragOverPos(null)
+      if (!info || !start) return
+      const moved = Math.hypot(e.clientX - start.x, e.clientY - start.y) > 6
+      if (!moved) return // a simple tap — let the native click event drive the existing select flow
+      suppressClickRef.current = true
+      setTimeout(() => { suppressClickRef.current = false }, 0)
+      const pt = pointInField(e.clientX, e.clientY)
+      if (!pt || !pt.inside) {
+        if (info.type === 'field') sendToBenchRef.current(info.id)
+        return
+      }
+      const target = nearestSlot(slotsRef.current, pt.x, pt.y, info.type === 'field' ? info.id : undefined)
+      handleDropAtRef.current(info.type, info.id, pt.x, pt.y, target?.posId ?? null)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+  }, [])
+
+  const beginDrag = (type: 'field' | 'bench', id: string, e: React.PointerEvent) => {
+    dragInfoRef.current = { type, id }
+    dragStartRef.current = { x: e.clientX, y: e.clientY }
+  }
+
   const handleFieldClick = (posId: string) => {
+    if (suppressClickRef.current) return
     const slot = slots.find(s => s.posId === posId)!
     if (selected?.type === 'bench') {
       doSub(selected.playerId, posId)
@@ -993,6 +1022,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, on
   }
 
   const handleBenchClick = (playerId: string) => {
+    if (suppressClickRef.current) return
     if (selected?.type === 'field') {
       doSub(playerId, selected.posId)
     } else if (selected?.type === 'bench' && selected.playerId === playerId) {
@@ -1017,9 +1047,11 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, on
       if (empty) { doSub(dragId, empty.posId); movePosition(empty.posId, x, y) }
     }
   }
+  handleDropAtRef.current = handleDropAt
 
   // Click-based equivalent of handleDropAt, for clicking empty grass while something is selected.
   const handleBackgroundClick = (x: number, y: number) => {
+    if (suppressClickRef.current) return
     if (!selected) return
     const target = nearestSlot(slots, x, y, selected.type === 'field' ? selected.posId : undefined)
     if (target) { handleFieldClick(target.posId); return }
@@ -1030,13 +1062,6 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, on
       const empty = slots.find(s => !s.playerId)
       if (empty) { doSub(selected.playerId, empty.posId); movePosition(empty.posId, x, y) }
     }
-  }
-
-  const handleBenchDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    const type = e.dataTransfer.getData('type')
-    const id = e.dataTransfer.getData('id')
-    if (type === 'field') sendToBench(id)
   }
 
   const benchPlayers = bench
@@ -1123,9 +1148,11 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, on
               slots={slots}
               squad={squad}
               selected={selected}
+              dragOverPos={dragOverPos}
+              fieldRef={fieldRef}
               onFieldClick={handleFieldClick}
-              onDropAt={handleDropAt}
               onBackgroundClick={handleBackgroundClick}
+              onMarkerPointerDown={(posId, e) => beginDrag('field', posId, e)}
             />
           </div>
 
@@ -1181,9 +1208,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, on
             ))}
           </div>
 
-          <div className="flex-1 overflow-y-auto"
-            onDragOver={activeTab === 'bench' ? e => e.preventDefault() : undefined}
-            onDrop={activeTab === 'bench' ? handleBenchDrop : undefined}>
+          <div className="flex-1 overflow-y-auto">
             {activeTab === 'bench' && (
               <div className="p-2 space-y-1.5">
                 {benchPlayers.length === 0 ? (
@@ -1197,17 +1222,12 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, on
                     const isSel = selected?.type === 'bench' && selected.playerId === playerId
                     return (
                       <div key={playerId}
-                        className="flex items-center gap-2.5 p-2.5 rounded-xl cursor-grab transition-all"
+                        className="flex items-center gap-2.5 p-2.5 rounded-xl cursor-grab transition-all touch-none select-none"
                         style={{
                           background: isSel ? '#EEF3FF' : '#F8FAFF',
                           border: isSel ? '1.5px solid #1A3FAB' : '1.5px solid #E8EFFD',
                         }}
-                        draggable
-                        onDragStart={e => {
-                          e.dataTransfer.setData('type', 'bench')
-                          e.dataTransfer.setData('id', playerId)
-                          e.dataTransfer.effectAllowed = 'move'
-                        }}
+                        onPointerDown={e => beginDrag('bench', playerId, e)}
                         onClick={() => handleBenchClick(playerId)}>
                         <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0"
                           style={{ background: '#1A3FAB' }}>
