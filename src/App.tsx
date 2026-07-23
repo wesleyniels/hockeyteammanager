@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 // ── Types ───────────────────────────────────────────────────────────────────
 
 type AgeGroup = 'U7' | 'U8' | 'U9' | 'U10' | 'U11' | 'U12' | 'U14' | 'U16' | 'U18' | 'Senioren'
-type View = 'setup' | 'game' | 'history'
+type View = 'setup' | 'game' | 'history' | 'profile'
 
 interface Player {
   id: string
@@ -791,10 +791,12 @@ function FormationEditorView({ ageGroup, onBack }: { ageGroup: AgeGroup; onBack:
 
 // ── Setup View ───────────────────────────────────────────────────────────────
 
-function SetupView({ onStart, onHistory, gameCount }: {
+function SetupView({ onStart, onHistory, onProfile, gameCount, user }: {
   onStart: (p: GameParams) => void
   onHistory: () => void
+  onProfile: () => void
   gameCount: number
+  user: AuthUser | null
 }) {
   const [club, setClub] = useLS('fh_club', 'SC Muiden')
   const [team, setTeam] = useLS('fh_team', '')
@@ -856,11 +858,32 @@ function SetupView({ onStart, onHistory, gameCount }: {
               </p>
             </div>
           </div>
-          <button onClick={onHistory}
-            className="text-sm px-3 py-1.5 rounded-lg font-semibold"
-            style={{ color: '#A8BEF0', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
-            {gameCount} wedstrijd{gameCount !== 1 ? 'en' : ''}
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={onHistory}
+              className="text-sm px-3 py-1.5 rounded-lg font-semibold"
+              style={{ color: '#A8BEF0', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
+              {gameCount} wedstrijd{gameCount !== 1 ? 'en' : ''}
+            </button>
+            <button onClick={onProfile}
+              className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg font-semibold"
+              style={{ color: '#A8BEF0', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
+              {user ? (
+                <>
+                  {user.picture ? (
+                    <img src={user.picture} alt="" className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />
+                  ) : (
+                    <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
+                      style={{ background: '#1A3FAB' }}>
+                      {initials(user.name ?? user.email)}
+                    </span>
+                  )}
+                  <span className="max-w-[100px] truncate">{user.name ?? user.email}</span>
+                </>
+              ) : (
+                'Inloggen'
+              )}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -1028,8 +1051,9 @@ function normalizeSlots(saved: PositionSlot[] | undefined, ageGroup: AgeGroup): 
   })
 }
 
-function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, onSave, onBack }: GameParams & {
+function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, user, onSave, onBack }: GameParams & {
   initial?: SavedGame
+  user: AuthUser | null
   onSave: (g: SavedGame) => void
   onBack: () => void
 }) {
@@ -1261,6 +1285,10 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, on
   const selectedFieldPlayer = selectedFieldPos ? getPlayer(slots.find(s => s.posId === selectedFieldPos)?.playerId ?? null) : null
 
   const saveGame = () => {
+    if (!user) {
+      alert('Log in met Google om wedstrijden op te slaan (zie Profiel rechtsboven op het startscherm).')
+      return
+    }
     onSave({
       id: initial?.id ?? uid(),
       date: initial?.date ?? todayStr(),
@@ -1486,11 +1514,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, on
 
 // ── History View ─────────────────────────────────────────────────────────────
 
-function HistoryView({ games, onBack, onDelete, onEdit }: {
+function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onProfile }: {
   games: SavedGame[]
+  user: AuthUser | null
+  authLoading: boolean
   onBack: () => void
   onDelete: (id: string) => void
   onEdit: (game: SavedGame) => void
+  onProfile: () => void
 }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const getPlayer = (g: SavedGame, id: string) => g.squad.find(p => p.id === id)
@@ -1506,7 +1537,17 @@ function HistoryView({ games, onBack, onDelete, onEdit }: {
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-8">
-        {games.length === 0 ? (
+        {!authLoading && !user ? (
+          <div className="text-center py-20">
+            <div className="text-5xl mb-4">🔒</div>
+            <p className="font-display text-xl font-bold uppercase mb-3" style={{ color: '#A8BEF0' }}>Log in om je wedstrijden te zien</p>
+            <button onClick={onProfile}
+              className="px-4 py-2.5 rounded-xl font-bold text-sm text-white"
+              style={{ background: '#1A3FAB' }}>
+              Naar profiel →
+            </button>
+          </div>
+        ) : games.length === 0 ? (
           <div className="text-center py-20">
             <div className="text-5xl mb-4">🏑</div>
             <p className="font-display text-xl font-bold uppercase" style={{ color: '#A8BEF0' }}>Nog geen wedstrijden</p>
@@ -1603,35 +1644,173 @@ function HistoryView({ games, onBack, onDelete, onEdit }: {
   )
 }
 
-// ── Remote match history (Vercel Postgres via /api/games) ────────────────────
-// Saved matches are persisted server-side for historical purposes. Any
-// pre-existing local matches (from before this backend existed) are migrated
-// up on first load, then localStorage is cleared to avoid duplicate copies.
+// ── Profile View ─────────────────────────────────────────────────────────────
 
-function useRemoteGames() {
+function ProfileView({ user, loading, onCredential, onLogout, onBack, gameCount }: {
+  user: AuthUser | null
+  loading: boolean
+  onCredential: (credential: string) => void
+  onLogout: () => void
+  onBack: () => void
+  gameCount: number
+}) {
+  return (
+    <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
+      <header style={{ background: '#0D2B7A' }} className="text-white sticky top-0 z-20 shadow-lg">
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-4">
+          <button onClick={onBack} className="text-sm font-semibold" style={{ color: '#7B9DE0' }}>← Terug</button>
+          <SCMuidenLogo size={32} />
+          <h1 className="font-display text-2xl font-bold uppercase tracking-widest">Profiel</h1>
+        </div>
+      </header>
+
+      <div className="max-w-2xl mx-auto px-4 py-8">
+        <section className="bg-white rounded-2xl p-6 shadow-sm" style={{ border: '1px solid #D0DCFA' }}>
+          {loading ? (
+            <p className="text-sm text-center py-6" style={{ color: '#A8BEF0' }}>Laden…</p>
+          ) : user ? (
+            <div className="space-y-5">
+              <div className="flex items-center gap-4">
+                {user.picture ? (
+                  <img src={user.picture} alt="" className="w-16 h-16 rounded-full" referrerPolicy="no-referrer" />
+                ) : (
+                  <div className="w-16 h-16 rounded-full flex items-center justify-center text-white font-bold text-xl shrink-0"
+                    style={{ background: '#1A3FAB' }}>
+                    {initials(user.name ?? user.email)}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <div className="font-display font-bold text-lg truncate" style={{ color: '#0D2B7A' }}>{user.name ?? user.email}</div>
+                  <div className="text-sm truncate" style={{ color: '#7B90C8' }}>{user.email}</div>
+                </div>
+              </div>
+              <p className="text-sm font-medium" style={{ color: '#7B90C8' }}>
+                {gameCount} opgeslagen wedstrijd{gameCount !== 1 ? 'en' : ''}
+              </p>
+              <button onClick={onLogout}
+                className="px-4 py-2.5 rounded-xl font-bold text-sm"
+                style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
+                Uitloggen
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4 text-center py-4">
+              <p className="text-sm" style={{ color: '#6B82B8' }}>
+                Log in met je Google-account om wedstrijden op te slaan en later terug te vinden.
+              </p>
+              <div className="flex justify-center">
+                <GoogleSignInButton onCredential={onCredential} />
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
+  )
+}
+
+// ── Google auth ───────────────────────────────────────────────────────────────
+// Session lives in an HttpOnly cookie set by /api/auth/google; the frontend
+// only ever sees the decoded user info, never a token it has to manage.
+
+interface AuthUser {
+  id: string
+  email: string
+  name: string | null
+  picture: string | null
+}
+
+function useAuth() {
+  const [user, setUser] = useState<AuthUser | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/auth/me')
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => { if (!cancelled) setUser(data?.user ?? null) })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  const loginWithCredential = useCallback(async (credential: string) => {
+    const res = await fetch('/api/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credential }),
+    })
+    if (res.ok) setUser((await res.json()).user)
+  }, [])
+
+  const logout = useCallback(async () => {
+    await fetch('/api/auth/logout', { method: 'POST' })
+    setUser(null)
+  }, [])
+
+  return { user, loading, loginWithCredential, logout }
+}
+
+// Renders Google's own "Sign in with Google" button into a div once the GSI
+// script (loaded in index.html) is ready. No-ops quietly if the client ID
+// isn't configured yet, rather than crashing the page.
+// google.accounts.id.initialize() should only ever run once per page load —
+// calling it again (e.g. when this component remounts navigating between
+// views) just logs a GSI warning and reinitializes the same thing. The
+// credential callback is kept in a module-level ref so it always delegates
+// to whichever component instance is currently mounted.
+let googleInitialized = false
+const googleCredentialCallbackRef: { current: ((credential: string) => void) | null } = { current: null }
+
+function GoogleSignInButton({ onCredential }: { onCredential: (credential: string) => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  googleCredentialCallbackRef.current = onCredential
+
+  useEffect(() => {
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined
+    if (!clientId) return
+    let cancelled = false
+    const tryRender = () => {
+      if (cancelled) return
+      const google = (window as any).google
+      if (!google?.accounts?.id) { setTimeout(tryRender, 100); return }
+      if (!googleInitialized) {
+        googleInitialized = true
+        google.accounts.id.initialize({
+          client_id: clientId,
+          callback: (response: { credential: string }) => googleCredentialCallbackRef.current?.(response.credential),
+        })
+      }
+      if (ref.current) {
+        google.accounts.id.renderButton(ref.current, { theme: 'outline', size: 'large', text: 'signin_with', shape: 'pill' })
+      }
+    }
+    tryRender()
+    return () => { cancelled = true }
+  }, [])
+
+  return <div ref={ref} />
+}
+
+// ── Remote match history (Vercel Postgres via /api/games) ────────────────────
+// Saved matches are private per account now, so this only fetches once a
+// session exists — logging out clears the list rather than erroring.
+
+function useRemoteGames(enabled: boolean) {
   const [games, setGames] = useState<SavedGame[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!enabled) { setGames([]); setLoading(false); return }
     let cancelled = false
+    setLoading(true)
     ;(async () => {
       try {
         const res = await fetch('/api/games')
+        if (res.status === 401) { if (!cancelled) setGames([]); return }
         if (!res.ok) throw new Error(`GET /api/games: ${res.status}`)
-        let remote = (await res.json()) as SavedGame[]
-
-        if (remote.length === 0) {
-          const local = JSON.parse(localStorage.getItem('fh_games') ?? 'null') as SavedGame[] | null
-          if (local && local.length > 0) {
-            for (const g of local) {
-              await fetch('/api/games', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(g) })
-            }
-            remote = local
-            localStorage.removeItem('fh_games')
-          }
-        }
-
+        const remote = (await res.json()) as SavedGame[]
         if (!cancelled) setGames(remote)
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e))
@@ -1640,7 +1819,7 @@ function useRemoteGames() {
       }
     })()
     return () => { cancelled = true }
-  }, [])
+  }, [enabled])
 
   const addGame = useCallback((g: SavedGame) => {
     setGames(gs => [...gs, g])
@@ -1669,7 +1848,8 @@ export default function App() {
   const [view, setView] = useState<View>('setup')
   const [gameParams, setGameParams] = useState<GameParams | null>(null)
   const [editingGame, setEditingGame] = useState<SavedGame | null>(null)
-  const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames()
+  const { user, loading: authLoading, loginWithCredential, logout } = useAuth()
+  const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user)
 
   const startEdit = (game: SavedGame) => {
     setEditingGame(game)
@@ -1677,13 +1857,27 @@ export default function App() {
     setView('game')
   }
 
+  if (view === 'profile')
+    return (
+      <ProfileView
+        user={user}
+        loading={authLoading}
+        onCredential={loginWithCredential}
+        onLogout={logout}
+        onBack={() => setView('setup')}
+        gameCount={games.length}
+      />
+    )
   if (view === 'history')
     return (
       <HistoryView
         games={games}
+        user={user}
+        authLoading={authLoading}
         onBack={() => setView('setup')}
         onDelete={deleteGame}
         onEdit={startEdit}
+        onProfile={() => setView('profile')}
       />
     )
   if (view === 'game' && gameParams)
@@ -1691,13 +1885,20 @@ export default function App() {
       <GameView
         {...gameParams}
         initial={editingGame ?? undefined}
+        user={user}
         onSave={g => { if (editingGame) updateGame(g); else addGame(g); setEditingGame(null) }}
         onBack={() => { setEditingGame(null); setView('setup') }}
       />
     )
   return (
     <>
-      <SetupView onStart={p => { setEditingGame(null); setGameParams(p); setView('game') }} onHistory={() => setView('history')} gameCount={games.length} />
+      <SetupView
+        onStart={p => { setEditingGame(null); setGameParams(p); setView('game') }}
+        onHistory={() => setView('history')}
+        onProfile={() => setView('profile')}
+        gameCount={games.length}
+        user={user}
+      />
       {gamesError && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 text-xs font-semibold px-4 py-2 rounded-xl shadow-lg"
           style={{ background: '#DC2626', color: '#fff' }}>
