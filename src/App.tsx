@@ -559,6 +559,19 @@ function H1Logo({ height = 28 }: { height?: number }) {
   return <img src="/h1-logo.png" alt="Hockey One" style={{ height, width: 'auto' }} />
 }
 
+// A plain dimpled ball (no black pentagon patches like a football) so goal
+// scorers read as field hockey, not soccer.
+function HockeyBallIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: 'inline-block', verticalAlign: '-2px' }}>
+      <circle cx="12" cy="12" r="10" fill="#F7F3E8" stroke="#B7AD8F" strokeWidth="1.5" />
+      <circle cx="9" cy="9" r="1.1" fill="#B7AD8F" />
+      <circle cx="15.5" cy="10" r="1.1" fill="#B7AD8F" />
+      <circle cx="10.5" cy="15.5" r="1.1" fill="#B7AD8F" />
+    </svg>
+  )
+}
+
 // ── Field Hockey Field SVG (standard portrait) ───────────────────────────────
 // viewBox="0 0 62 97" — field lines from y=4.5 to y=92.5, goals at y=0-4.5 and y=92.5-97
 
@@ -1753,7 +1766,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                   color: activeTab === tab ? '#1A3FAB' : '#A8BEF0',
                   borderBottom: activeTab === tab ? '2.5px solid #1A3FAB' : '2.5px solid transparent',
                 }}>
-                {tab === 'bench' ? `Bank (${benchPlayers.length})` : tab === 'subs' ? `Wissels (${subs.length})` : 'Notities'}
+                {tab === 'bench' ? `Bank (${benchPlayers.length})` : tab === 'subs' ? `Wissels (${subs.length})` : 'Score, etc.'}
               </button>
             ))}
           </div>
@@ -1912,7 +1925,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                         return (
                           <div key={g.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
                             style={{ background: '#F8FAFF', border: '1px solid #E8EFFD' }}>
-                            <span style={{ color: '#1A2F6B' }}>⚽ {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}</span>
+                            <span style={{ color: '#1A2F6B' }}><HockeyBallIcon /> {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}</span>
                             <button onClick={() => setGoals(gs => gs.filter(x => x.id !== g.id))}
                               className="font-bold" style={{ color: '#DC2626' }}>
                               ×
@@ -2071,7 +2084,7 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
                               return (
                                 <span key={playerId} className="text-xs px-2 py-1 rounded-lg font-medium"
                                   style={{ background: '#EEF3FF', color: '#1A2F6B', border: '1px solid #D0DCFA' }}>
-                                  ⚽ {p?.name ?? 'Onbekende speler'}{count > 1 ? ` ×${count}` : ''}
+                                  <HockeyBallIcon /> {p?.name ?? 'Onbekende speler'}{count > 1 ? ` ×${count}` : ''}
                                 </span>
                               )
                             })}
