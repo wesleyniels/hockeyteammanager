@@ -549,6 +549,10 @@ function SCMuidenLogo({ size = 48 }: { size?: number }) {
   )
 }
 
+function H1Logo({ height = 28 }: { height?: number }) {
+  return <img src="/h1-logo.png" alt="Hockey One" style={{ height, width: 'auto' }} />
+}
+
 // ── Field Hockey Field SVG (standard portrait) ───────────────────────────────
 // viewBox="0 0 62 97" — field lines from y=4.5 to y=92.5, goals at y=0-4.5 and y=92.5-97
 
@@ -895,12 +899,16 @@ function FormationEditorView({ ageGroup, onBack }: { ageGroup: AgeGroup; onBack:
   return (
     <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
       <header style={{ background: '#0D2B7A' }} className="text-white sticky top-0 z-20 shadow-lg">
-        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-4">
-          <button onClick={onBack} className="text-sm font-semibold" style={{ color: '#7B9DE0' }}>← Terug</button>
-          <div>
-            <h1 className="font-display text-2xl font-bold uppercase tracking-widest leading-none">Opstelling aanpassen</h1>
-            <p className="text-xs mt-1" style={{ color: '#7B9DE0' }}>{AGE_CONFIG[ageGroup].label}</p>
+        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+          <div className="flex items-center gap-4 min-w-0">
+            <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: '#7B9DE0' }}>← Terug</button>
+            <div className="min-w-0">
+              <h1 className="font-display text-2xl font-bold uppercase tracking-widest leading-none truncate">Opstelling aanpassen</h1>
+              <p className="text-xs mt-1" style={{ color: '#7B9DE0' }}>{AGE_CONFIG[ageGroup].label}</p>
+            </div>
           </div>
+          <H1Logo height={24} />
+          <div />
         </div>
       </header>
 
@@ -1074,11 +1082,11 @@ function SetupView({ onStart, onHistory, onProfile, user }: {
   return (
     <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
       <header style={{ background: '#0D2B7A' }} className="text-white sticky top-0 z-20 shadow-lg">
-        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+          <div className="flex items-center gap-3 min-w-0">
             <SCMuidenLogo size={46} />
-            <div>
-              <h1 className="font-display font-bold uppercase leading-none" style={{ fontSize: '22px', letterSpacing: '0.08em' }}>
+            <div className="min-w-0">
+              <h1 className="font-display font-bold uppercase leading-none truncate" style={{ fontSize: '22px', letterSpacing: '0.08em' }}>
                 SC Muiden
               </h1>
               <p className="text-xs leading-none mt-0.5" style={{ color: '#A8BEF0', letterSpacing: '0.12em' }}>
@@ -1086,7 +1094,8 @@ function SetupView({ onStart, onHistory, onProfile, user }: {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <H1Logo height={26} />
+          <div className="flex items-center gap-2 justify-end">
             {user && (
               <button onClick={onHistory}
                 className="text-sm px-3 py-1.5 rounded-lg font-semibold"
@@ -1899,10 +1908,14 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
   return (
     <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
       <header style={{ background: '#0D2B7A' }} className="text-white sticky top-0 z-20 shadow-lg">
-        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-4">
-          <button onClick={onBack} className="text-sm font-semibold" style={{ color: '#7B9DE0' }}>← Terug</button>
-          <SCMuidenLogo size={32} />
-          <h1 className="font-display text-2xl font-bold uppercase tracking-widest">Wedstrijd Geschiedenis</h1>
+        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+          <div className="flex items-center gap-4 min-w-0">
+            <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: '#7B9DE0' }}>← Terug</button>
+            <SCMuidenLogo size={32} />
+            <h1 className="font-display text-2xl font-bold uppercase tracking-widest truncate">Wedstrijd Geschiedenis</h1>
+          </div>
+          <H1Logo height={24} />
+          <div />
         </div>
       </header>
 
@@ -2073,10 +2086,14 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   return (
     <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
       <header style={{ background: '#0D2B7A' }} className="text-white sticky top-0 z-20 shadow-lg">
-        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-4">
-          <button onClick={onBack} className="text-sm font-semibold" style={{ color: '#7B9DE0' }}>← Terug</button>
-          <SCMuidenLogo size={32} />
-          <h1 className="font-display text-2xl font-bold uppercase tracking-widest">Profiel</h1>
+        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+          <div className="flex items-center gap-4 min-w-0">
+            <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: '#7B9DE0' }}>← Terug</button>
+            <SCMuidenLogo size={32} />
+            <h1 className="font-display text-2xl font-bold uppercase tracking-widest truncate">Profiel</h1>
+          </div>
+          <H1Logo height={24} />
+          <div />
         </div>
       </header>
 
