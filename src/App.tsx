@@ -1766,7 +1766,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                   color: activeTab === tab ? '#1A3FAB' : '#A8BEF0',
                   borderBottom: activeTab === tab ? '2.5px solid #1A3FAB' : '2.5px solid transparent',
                 }}>
-                {tab === 'bench' ? `Bank (${benchPlayers.length})` : tab === 'subs' ? `Wissels (${subs.length})` : 'Score, etc.'}
+                {tab === 'bench' ? `Bank (${benchPlayers.length})` : tab === 'subs' ? `Wissels (${subs.length})` : 'Score'}
               </button>
             ))}
           </div>
