@@ -31,6 +31,12 @@ interface SubRecord {
   posLabel: string
 }
 
+interface OppMarker {
+  id: string
+  x: number
+  y: number
+}
+
 interface SavedGame {
   id: string
   date: string
@@ -42,6 +48,7 @@ interface SavedGame {
   squad: Player[]
   slots: PositionSlot[]
   subs: SubRecord[]
+  oppMarkers: OppMarker[]
   notes: string
   result: string
   scoreOwn: number
@@ -300,8 +307,21 @@ const SC_MUIDEN_TEAM_NAMES = Object.keys(SC_MUIDEN_TEAMS).sort((a, b) => {
 // x/y are % of the SVG container (0–100)
 // Standard field SVG viewBox="0 0 62 97", dual viewBox="0 0 140 97"
 
+interface PosDef {
+  id: string
+  label: string
+  x: number
+  y: number
+}
+
+interface FormationVariant {
+  id: string
+  name: string
+  positions: PosDef[]
+}
+
 // U7/U8 dual field — left field center x≈22.5%, right≈77.5%
-const POS_DUAL = [
+const POS_DUAL: PosDef[] = [
   { id: 'a_b', label: 'VD', x: 22.5, y: 82 },
   { id: 'a_m', label: 'MV', x: 22.5, y: 50 },
   { id: 'a_f', label: 'ST', x: 22.5, y: 18 },
@@ -310,61 +330,145 @@ const POS_DUAL = [
   { id: 'b_f', label: 'ST', x: 77.5, y: 18 },
 ]
 
-// U9 (KNHB O9, 6-tegen-6): GK + 2-2-1
-const POS_U9 = [
+// U9 (KNHB O9, 6-tegen-6) — GK + 5 outfield, in three common shapes
+const POS_U9_2_2_1: PosDef[] = [
   { id: 'gk', label: 'K',  x: 50, y: 86 },
   { id: 'd1', label: 'RB', x: 28, y: 66 }, { id: 'd2', label: 'LB', x: 72, y: 66 },
   { id: 'm1', label: 'RM', x: 28, y: 40 }, { id: 'm2', label: 'LM', x: 72, y: 40 },
   { id: 'f1', label: 'ST', x: 50, y: 20 },
 ]
+const POS_U9_1_3_1: PosDef[] = [
+  { id: 'gk', label: 'K',  x: 50, y: 86 },
+  { id: 'd1', label: 'CB', x: 50, y: 68 },
+  { id: 'm1', label: 'RM', x: 20, y: 45 }, { id: 'm2', label: 'CM', x: 50, y: 45 }, { id: 'm3', label: 'LM', x: 80, y: 45 },
+  { id: 'f1', label: 'ST', x: 50, y: 20 },
+]
+const POS_U9_2_1_2: PosDef[] = [
+  { id: 'gk', label: 'K',  x: 50, y: 86 },
+  { id: 'd1', label: 'RB', x: 28, y: 68 }, { id: 'd2', label: 'LB', x: 72, y: 68 },
+  { id: 'm1', label: 'CM', x: 50, y: 45 },
+  { id: 'f1', label: 'RS', x: 30, y: 20 }, { id: 'f2', label: 'LS', x: 70, y: 20 },
+]
 
-// U10: GK + 2-3-2
-const POS_U10 = [
+// U10 — GK + 7 outfield
+const POS_U10_2_3_2: PosDef[] = [
   { id: 'gk', label: 'K',  x: 50, y: 86 },
   { id: 'd1', label: 'RB', x: 28, y: 70 }, { id: 'd2', label: 'LB', x: 72, y: 70 },
   { id: 'm1', label: 'RH', x: 16, y: 50 }, { id: 'm2', label: 'CH', x: 50, y: 50 }, { id: 'm3', label: 'LH', x: 84, y: 50 },
   { id: 'f1', label: 'RS', x: 30, y: 26 }, { id: 'f2', label: 'LS', x: 70, y: 26 },
 ]
+const POS_U10_3_2_2: PosDef[] = [
+  { id: 'gk', label: 'K',  x: 50, y: 86 },
+  { id: 'd1', label: 'RB', x: 18, y: 70 }, { id: 'd2', label: 'CB', x: 50, y: 72 }, { id: 'd3', label: 'LB', x: 82, y: 70 },
+  { id: 'm1', label: 'RH', x: 28, y: 48 }, { id: 'm2', label: 'LH', x: 72, y: 48 },
+  { id: 'f1', label: 'RS', x: 30, y: 24 }, { id: 'f2', label: 'LS', x: 70, y: 24 },
+]
+const POS_U10_2_2_3: PosDef[] = [
+  { id: 'gk', label: 'K',  x: 50, y: 86 },
+  { id: 'd1', label: 'RB', x: 28, y: 68 }, { id: 'd2', label: 'LB', x: 72, y: 68 },
+  { id: 'm1', label: 'RH', x: 28, y: 46 }, { id: 'm2', label: 'LH', x: 72, y: 46 },
+  { id: 'f1', label: 'RW', x: 20, y: 24 }, { id: 'f2', label: 'ST', x: 50, y: 18 }, { id: 'f3', label: 'LW', x: 80, y: 24 },
+]
 
-// U11: GK + 2-3-3
-const POS_U11 = [
+// U11 — GK + 8 outfield
+const POS_U11_2_3_3: PosDef[] = [
   { id: 'gk', label: 'K',  x: 50, y: 86 },
   { id: 'd1', label: 'RB', x: 28, y: 70 }, { id: 'd2', label: 'LB', x: 72, y: 70 },
   { id: 'm1', label: 'RH', x: 16, y: 50 }, { id: 'm2', label: 'MH', x: 50, y: 50 }, { id: 'm3', label: 'LH', x: 84, y: 50 },
   { id: 'f1', label: 'RW', x: 22, y: 28 }, { id: 'f2', label: 'ST', x: 50, y: 21 }, { id: 'f3', label: 'LW', x: 78, y: 28 },
 ]
+const POS_U11_3_3_2: PosDef[] = [
+  { id: 'gk', label: 'K',  x: 50, y: 86 },
+  { id: 'd1', label: 'RB', x: 18, y: 70 }, { id: 'd2', label: 'CB', x: 50, y: 72 }, { id: 'd3', label: 'LB', x: 82, y: 70 },
+  { id: 'm1', label: 'RH', x: 22, y: 48 }, { id: 'm2', label: 'MH', x: 50, y: 48 }, { id: 'm3', label: 'LH', x: 78, y: 48 },
+  { id: 'f1', label: 'RS', x: 32, y: 22 }, { id: 'f2', label: 'LS', x: 68, y: 22 },
+]
+const POS_U11_3_2_3: PosDef[] = [
+  { id: 'gk', label: 'K',  x: 50, y: 86 },
+  { id: 'd1', label: 'RB', x: 18, y: 70 }, { id: 'd2', label: 'CB', x: 50, y: 72 }, { id: 'd3', label: 'LB', x: 82, y: 70 },
+  { id: 'm1', label: 'RH', x: 30, y: 48 }, { id: 'm2', label: 'LH', x: 70, y: 48 },
+  { id: 'f1', label: 'RW', x: 22, y: 22 }, { id: 'f2', label: 'ST', x: 50, y: 18 }, { id: 'f3', label: 'LW', x: 78, y: 22 },
+]
 
-// U12+: GK + 4-3-3
-const POS_11 = [
+// U12+ (11-a-side) — GK + 10 outfield, shared by U12/U14/U16/U18/Senioren
+const POS_11_4_3_3: PosDef[] = [
   { id: 'gk', label: 'K',   x: 50, y: 86 },
   { id: 'd1', label: 'RB',  x: 15, y: 70 }, { id: 'd2', label: 'CB', x: 38, y: 70 }, { id: 'd3', label: 'CB', x: 62, y: 70 }, { id: 'd4', label: 'LB', x: 85, y: 70 },
   { id: 'm1', label: 'RH',  x: 22, y: 50 }, { id: 'm2', label: 'CH', x: 50, y: 50 }, { id: 'm3', label: 'LH', x: 78, y: 50 },
   { id: 'f1', label: 'RW',  x: 22, y: 27 }, { id: 'f2', label: 'ST', x: 50, y: 20 }, { id: 'f3', label: 'LW', x: 78, y: 27 },
 ]
+const POS_11_4_4_2: PosDef[] = [
+  { id: 'gk', label: 'K',   x: 50, y: 86 },
+  { id: 'd1', label: 'RB',  x: 15, y: 70 }, { id: 'd2', label: 'CB', x: 38, y: 70 }, { id: 'd3', label: 'CB', x: 62, y: 70 }, { id: 'd4', label: 'LB', x: 85, y: 70 },
+  { id: 'm1', label: 'RM',  x: 15, y: 48 }, { id: 'm2', label: 'CM', x: 38, y: 48 }, { id: 'm3', label: 'CM', x: 62, y: 48 }, { id: 'm4', label: 'LM', x: 85, y: 48 },
+  { id: 'f1', label: 'ST',  x: 35, y: 22 }, { id: 'f2', label: 'ST', x: 65, y: 22 },
+]
+const POS_11_3_4_3: PosDef[] = [
+  { id: 'gk', label: 'K',   x: 50, y: 86 },
+  { id: 'd1', label: 'CB',  x: 25, y: 70 }, { id: 'd2', label: 'CB', x: 50, y: 72 }, { id: 'd3', label: 'CB', x: 75, y: 70 },
+  { id: 'm1', label: 'RM',  x: 15, y: 48 }, { id: 'm2', label: 'CM', x: 38, y: 48 }, { id: 'm3', label: 'CM', x: 62, y: 48 }, { id: 'm4', label: 'LM', x: 85, y: 48 },
+  { id: 'f1', label: 'RW',  x: 22, y: 22 }, { id: 'f2', label: 'ST', x: 50, y: 18 }, { id: 'f3', label: 'LW', x: 78, y: 22 },
+]
 
-interface PosDef {
-  id: string
-  label: string
-  x: number
-  y: number
+const FORMATIONS_11: FormationVariant[] = [
+  { id: '1-4-3-3', name: '1-4-3-3 (standaard)', positions: POS_11_4_3_3 },
+  { id: '1-4-4-2', name: '1-4-4-2', positions: POS_11_4_4_2 },
+  { id: '1-3-4-3', name: '1-3-4-3', positions: POS_11_3_4_3 },
+]
+
+// Every age group's available formation variants — the first is the default.
+// Ids only need to be unique within an age group's own list.
+const FORMATIONS: Record<AgeGroup, FormationVariant[]> = {
+  U7:  [{ id: 'standaard', name: 'Standaard', positions: POS_DUAL }],
+  U8:  [{ id: 'standaard', name: 'Standaard', positions: POS_DUAL }],
+  U9:  [
+    { id: '1-2-2-1', name: '1-2-2-1 (standaard)', positions: POS_U9_2_2_1 },
+    { id: '1-1-3-1', name: '1-1-3-1', positions: POS_U9_1_3_1 },
+    { id: '1-2-1-2', name: '1-2-1-2', positions: POS_U9_2_1_2 },
+  ],
+  U10: [
+    { id: '1-2-3-2', name: '1-2-3-2 (standaard)', positions: POS_U10_2_3_2 },
+    { id: '1-3-2-2', name: '1-3-2-2', positions: POS_U10_3_2_2 },
+    { id: '1-2-2-3', name: '1-2-2-3', positions: POS_U10_2_2_3 },
+  ],
+  U11: [
+    { id: '1-2-3-3', name: '1-2-3-3 (standaard)', positions: POS_U11_2_3_3 },
+    { id: '1-3-3-2', name: '1-3-3-2', positions: POS_U11_3_3_2 },
+    { id: '1-3-2-3', name: '1-3-2-3', positions: POS_U11_3_2_3 },
+  ],
+  U12: FORMATIONS_11,
+  U14: FORMATIONS_11,
+  U16: FORMATIONS_11,
+  U18: FORMATIONS_11,
+  Senioren: FORMATIONS_11,
 }
 
-function getBasePos(ag: AgeGroup): PosDef[] {
-  if (ag === 'U7' || ag === 'U8') return POS_DUAL
-  if (ag === 'U9')  return POS_U9
-  if (ag === 'U10') return POS_U10
-  if (ag === 'U11') return POS_U11
-  return POS_11
+function getFormationVariants(ag: AgeGroup): FormationVariant[] {
+  return FORMATIONS[ag]
 }
 
-// Custom (dragged) position layouts are saved per age group so a club can
-// tweak the default formation to match how they actually line up.
-const layoutKey = (ag: AgeGroup) => `fh_layout_${ag}`
+// Which variant a club currently plays, per age group.
+const formationVariantKey = (ag: AgeGroup) => `fh_formation_variant_${ag}`
+
+function getSelectedVariant(ag: AgeGroup): FormationVariant {
+  const variants = getFormationVariants(ag)
+  try {
+    const saved = localStorage.getItem(formationVariantKey(ag))
+    return variants.find(v => v.id === saved) ?? variants[0]
+  } catch {
+    return variants[0]
+  }
+}
+
+// Custom (dragged) position layouts are saved per age group *and* variant —
+// switching formation shouldn't clobber another variant's saved tweaks.
+const layoutKey = (ag: AgeGroup, variantId: string) => `fh_layout_${ag}_${variantId}`
 
 function getPositions(ag: AgeGroup): PosDef[] {
-  const base = getBasePos(ag)
+  const variant = getSelectedVariant(ag)
+  const base = variant.positions
   try {
-    const saved = JSON.parse(localStorage.getItem(layoutKey(ag)) ?? 'null') as PosDef[] | null
+    const saved = JSON.parse(localStorage.getItem(layoutKey(ag, variant.id)) ?? 'null') as PosDef[] | null
     if (saved && saved.length === base.length && saved.every(s => base.some(b => b.id === s.id))) {
       return base.map(b => {
         const override = saved.find(s => s.id === b.id)!
@@ -590,17 +694,23 @@ function DualFieldSVG() {
 
 const SNAP_THRESHOLD = 7 // % of field container; how close a drop must be to another marker to trigger a swap/sub
 
+// 'opp-pool' = an unplaced opponent token dragged in from the Bank tab;
+// 'opp-marker' = an opponent token already placed on the field.
+type DragKind = 'field' | 'bench' | 'opp-pool' | 'opp-marker'
+
 interface FieldViewProps {
   ageGroup: AgeGroup
   slots: PositionSlot[]
   squad: Player[]
+  oppMarkers: OppMarker[]
   selected: { type: 'field'; posId: string } | { type: 'bench'; playerId: string } | null
   dragOverPos: string | null
-  dragPreview: { type: 'field' | 'bench'; id: string; x: number; y: number } | null
+  dragPreview: { type: DragKind; id: string; x: number; y: number } | null
   fieldRef: React.RefObject<HTMLDivElement | null>
   onFieldClick: (posId: string) => void
   onBackgroundClick: (x: number, y: number) => void
   onMarkerPointerDown: (posId: string, e: React.PointerEvent) => void
+  onOppMarkerPointerDown: (id: string, e: React.PointerEvent) => void
 }
 
 function nearestSlot(slots: PositionSlot[], x: number, y: number, excludeId?: string) {
@@ -614,7 +724,7 @@ function nearestSlot(slots: PositionSlot[], x: number, y: number, excludeId?: st
   return best && bestDist <= SNAP_THRESHOLD ? best : null
 }
 
-function FieldView({ ageGroup, slots, squad, selected, dragOverPos, dragPreview, fieldRef, onFieldClick, onBackgroundClick, onMarkerPointerDown }: FieldViewProps) {
+function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, dragPreview, fieldRef, onFieldClick, onBackgroundClick, onMarkerPointerDown, onOppMarkerPointerDown }: FieldViewProps) {
   const isDual = ageGroup === 'U7' || ageGroup === 'U8'
   const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
   const draggedBenchPlayer = dragPreview?.type === 'bench' ? getPlayer(dragPreview.id) : null
@@ -721,6 +831,40 @@ function FieldView({ ageGroup, slots, squad, selected, dragOverPos, dragPreview,
           </div>
         </div>
       )}
+
+      {oppMarkers.map(o => {
+        const isBeingDragged = dragPreview?.type === 'opp-marker' && dragPreview.id === o.id
+        const x = isBeingDragged ? dragPreview.x : o.x
+        const y = isBeingDragged ? dragPreview.y : o.y
+        return (
+          <div
+            key={o.id}
+            className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab select-none touch-none"
+            style={{ left: `${x}%`, top: `${y}%`, zIndex: isBeingDragged ? 30 : 9 }}
+            onPointerDown={e => { e.stopPropagation(); onOppMarkerPointerDown(o.id, e) }}>
+            <div style={{
+              width: '32px', height: '32px', borderRadius: '50%',
+              background: '#DC2626', border: '2px solid rgba(255,255,255,0.85)',
+              boxShadow: isBeingDragged ? '0 6px 20px rgba(0,0,0,0.45)' : '0 2px 8px rgba(0,0,0,0.3)',
+              transform: isBeingDragged ? 'scale(1.18)' : 'scale(1)',
+              opacity: isBeingDragged ? 0.95 : 1,
+              transition: isBeingDragged ? 'none' : 'transform 0.1s, box-shadow 0.1s',
+            }} />
+          </div>
+        )
+      })}
+
+      {dragPreview?.type === 'opp-pool' && (
+        <div
+          className="absolute transform -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+          style={{ left: `${dragPreview.x}%`, top: `${dragPreview.y}%`, zIndex: 30 }}>
+          <div style={{
+            width: '32px', height: '32px', borderRadius: '50%',
+            background: '#DC2626', border: '2px solid rgba(255,255,255,0.85)',
+            boxShadow: '0 6px 20px rgba(0,0,0,0.45)', transform: 'scale(1.18)', opacity: 0.95,
+          }} />
+        </div>
+      )}
     </div>
   )
 }
@@ -730,28 +874,9 @@ function FieldView({ ageGroup, slots, squad, selected, dragOverPos, dragPreview,
 // line up; saved per age group in localStorage and picked up by getPositions().
 
 function FormationEditorView({ ageGroup, onBack }: { ageGroup: AgeGroup; onBack: () => void }) {
-  const isDual = ageGroup === 'U7' || ageGroup === 'U8'
-  const base = getBasePos(ageGroup)
-  const [positions, setPositions] = useLS<PosDef[]>(layoutKey(ageGroup), base)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const draggingId = useRef<string | null>(null)
-
-  // If the underlying formation changed (e.g. a different total player count)
-  // since this layout was saved, the ids won't line up — fall back to base.
-  useEffect(() => {
-    const valid = positions.length === base.length && positions.every(p => base.some(b => b.id === p.id))
-    if (!valid) setPositions(base)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ageGroup])
-
-  const movePos = (clientX: number, clientY: number) => {
-    if (!draggingId.current || !containerRef.current) return
-    const rect = containerRef.current.getBoundingClientRect()
-    const x = Math.min(100, Math.max(0, ((clientX - rect.left) / rect.width) * 100))
-    const y = Math.min(100, Math.max(0, ((clientY - rect.top) / rect.height) * 100))
-    const id = draggingId.current
-    setPositions(ps => ps.map(p => (p.id === id ? { ...p, x, y } : p)))
-  }
+  const variants = getFormationVariants(ageGroup)
+  const [variantId, setVariantId] = useLS(formationVariantKey(ageGroup), variants[0].id)
+  const activeVariant = variants.find(v => v.id === variantId) ?? variants[0]
 
   return (
     <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
@@ -770,53 +895,101 @@ function FormationEditorView({ ageGroup, onBack }: { ageGroup: AgeGroup; onBack:
           Sleep de posities naar de gewenste plek op het veld. Dit wordt de standaardopstelling voor {ageGroupLabel(ageGroup)}.
         </p>
 
-        <div className="bg-white rounded-2xl p-6 shadow-sm flex items-center justify-center" style={{ border: '1px solid #D0DCFA' }}>
-          <div
-            ref={containerRef}
-            className="relative w-full touch-none"
-            style={{ aspectRatio: isDual ? '140/97' : '62/97', maxWidth: isDual ? '540px' : '290px' }}
-            onPointerMove={e => movePos(e.clientX, e.clientY)}
-            onPointerUp={() => { draggingId.current = null }}
-            onPointerLeave={() => { draggingId.current = null }}>
-            {isDual ? <DualFieldSVG /> : <FieldSVG />}
-            {positions.map(pos => (
-              <div
-                key={pos.id}
-                className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab select-none touch-none"
-                style={{ left: `${pos.x}%`, top: `${pos.y}%`, zIndex: 10 }}
-                onPointerDown={e => {
-                  draggingId.current = pos.id
-                  ;(e.target as Element).setPointerCapture(e.pointerId)
-                }}>
-                <div
-                  style={{
-                    width: '36px', height: '36px', borderRadius: '50%',
-                    background: pos.id === 'gk' ? '#FBBF24' : '#fff',
-                    border: '2px solid #1A3FAB',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
-                  }}>
-                  <span style={{ fontSize: '11px', fontWeight: 800, color: '#1A3FAB' }}>{pos.label}</span>
-                </div>
-              </div>
-            ))}
+        {variants.length > 1 && (
+          <div className="bg-white rounded-2xl p-4 shadow-sm" style={{ border: '1px solid #D0DCFA' }}>
+            <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>
+              Opstellingsvariant
+            </label>
+            <select className="w-full rounded-xl px-3 py-2.5 text-sm"
+              style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: '#1A2F6B', outline: 'none' }}
+              value={activeVariant.id} onChange={e => setVariantId(e.target.value)}>
+              {variants.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+            </select>
           </div>
-        </div>
+        )}
 
-        <div className="flex gap-2">
-          <button onClick={() => setPositions(base)}
-            className="flex-1 py-3 rounded-xl font-semibold text-sm"
-            style={{ background: '#F8FAFF', color: '#3B5299', border: '1.5px solid #D0DCFA' }}>
-            Standaardopstelling herstellen
-          </button>
-          <button onClick={onBack}
-            className="flex-1 py-3 rounded-xl font-bold text-sm text-white"
-            style={{ background: '#1A3FAB' }}>
-            Klaar
-          </button>
-        </div>
+        {/* Keyed by variant so switching variants remounts this with a fresh
+            drag-layout read from localStorage instead of carrying over the
+            previous variant's positions. */}
+        <FormationVariantEditor key={activeVariant.id} ageGroup={ageGroup} variant={activeVariant} onBack={onBack} />
       </div>
     </div>
+  )
+}
+
+function FormationVariantEditor({ ageGroup, variant, onBack }: { ageGroup: AgeGroup; variant: FormationVariant; onBack: () => void }) {
+  const isDual = ageGroup === 'U7' || ageGroup === 'U8'
+  const base = variant.positions
+  const [positions, setPositions] = useLS<PosDef[]>(layoutKey(ageGroup, variant.id), base)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const draggingId = useRef<string | null>(null)
+
+  // If the underlying formation changed since this layout was saved, the ids
+  // won't line up — fall back to base. (Component remounts on variant change,
+  // so this only ever needs to guard within a single variant.)
+  useEffect(() => {
+    const valid = positions.length === base.length && positions.every(p => base.some(b => b.id === p.id))
+    if (!valid) setPositions(base)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const movePos = (clientX: number, clientY: number) => {
+    if (!draggingId.current || !containerRef.current) return
+    const rect = containerRef.current.getBoundingClientRect()
+    const x = Math.min(100, Math.max(0, ((clientX - rect.left) / rect.width) * 100))
+    const y = Math.min(100, Math.max(0, ((clientY - rect.top) / rect.height) * 100))
+    const id = draggingId.current
+    setPositions(ps => ps.map(p => (p.id === id ? { ...p, x, y } : p)))
+  }
+
+  return (
+    <>
+      <div className="bg-white rounded-2xl p-6 shadow-sm flex items-center justify-center" style={{ border: '1px solid #D0DCFA' }}>
+        <div
+          ref={containerRef}
+          className="relative w-full touch-none"
+          style={{ aspectRatio: isDual ? '140/97' : '62/97', maxWidth: isDual ? '540px' : '290px' }}
+          onPointerMove={e => movePos(e.clientX, e.clientY)}
+          onPointerUp={() => { draggingId.current = null }}
+          onPointerLeave={() => { draggingId.current = null }}>
+          {isDual ? <DualFieldSVG /> : <FieldSVG />}
+          {positions.map(pos => (
+            <div
+              key={pos.id}
+              className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab select-none touch-none"
+              style={{ left: `${pos.x}%`, top: `${pos.y}%`, zIndex: 10 }}
+              onPointerDown={e => {
+                draggingId.current = pos.id
+                ;(e.target as Element).setPointerCapture(e.pointerId)
+              }}>
+              <div
+                style={{
+                  width: '36px', height: '36px', borderRadius: '50%',
+                  background: pos.id === 'gk' ? '#FBBF24' : '#fff',
+                  border: '2px solid #1A3FAB',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                }}>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: '#1A3FAB' }}>{pos.label}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex gap-2">
+        <button onClick={() => setPositions(base)}
+          className="flex-1 py-3 rounded-xl font-semibold text-sm"
+          style={{ background: '#F8FAFF', color: '#3B5299', border: '1.5px solid #D0DCFA' }}>
+          Standaardopstelling herstellen
+        </button>
+        <button onClick={onBack}
+          className="flex-1 py-3 rounded-xl font-bold text-sm text-white"
+          style={{ background: '#1A3FAB' }}>
+          Klaar
+        </button>
+      </div>
+    </>
   )
 }
 
@@ -990,6 +1163,9 @@ function SetupView({ onStart, onHistory, onProfile, user }: {
               <option value="">Kies club tegenstander…</option>
               {KNHB_CLUBS.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
+            <input className="w-full rounded-xl px-3 py-2.5 text-sm mt-2" style={inputStyle}
+              value={opponent} onChange={e => setOpponent(e.target.value)}
+              placeholder="Staat de club er niet bij? Typ de naam handmatig…" />
           </div>
           <div className="flex gap-3">
             {(['Thuis', 'Uit'] as const).map(ha => (
@@ -1108,8 +1284,9 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     return squad.filter(p => !onField.has(p.id)).map(p => ({ playerId: p.id, sinceGameSec: initial?.finalTime ?? 0 }))
   })
   const [subs, setSubs] = useState<SubRecord[]>(() => initial?.subs ?? [])
+  const [oppMarkers, setOppMarkers] = useState<OppMarker[]>(() => initial?.oppMarkers ?? [])
   const [notes, setNotes] = useState(initial?.notes ?? '')
-  const [result, setResult] = useState(initial?.result ?? '')
+  const [result] = useState(initial?.result ?? '')
   const [scoreOwn, setScoreOwn] = useState(initial?.scoreOwn ?? 0)
   const [scoreOpp, setScoreOpp] = useState(initial?.scoreOpp ?? 0)
   const [gameSec, setGameSec] = useState(initial?.finalTime ?? 0)
@@ -1169,8 +1346,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   // snapping into place on release.
   const fieldRef = useRef<HTMLDivElement>(null)
   const [dragOverPos, setDragOverPos] = useState<string | null>(null)
-  const [dragPreview, setDragPreview] = useState<{ type: 'field' | 'bench'; id: string; x: number; y: number } | null>(null)
-  const dragInfoRef = useRef<{ type: 'field' | 'bench'; id: string } | null>(null)
+  const [dragPreview, setDragPreview] = useState<{ type: DragKind; id: string; x: number; y: number } | null>(null)
+  const dragInfoRef = useRef<{ type: DragKind; id: string } | null>(null)
   const dragStartRef = useRef<{ x: number; y: number } | null>(null)
   const suppressClickRef = useRef(false)
   const slotsRef = useRef(slots)
@@ -1197,7 +1374,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     // sluggish/stuttery, especially on mobile.
     let raf: number | null = null
     let pendingOverPos: string | null | undefined
-    let pendingPreview: { type: 'field' | 'bench'; id: string; x: number; y: number } | null | undefined
+    let pendingPreview: { type: DragKind; id: string; x: number; y: number } | null | undefined
     const flush = () => {
       raf = null
       if (pendingOverPos !== undefined) setDragOverPos(pendingOverPos)
@@ -1217,7 +1394,10 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
         schedule()
         return
       }
-      const target = nearestSlot(slotsRef.current, pt.x, pt.y, info.type === 'field' ? info.id : undefined)
+      // Opponent tokens are a freeform overlay — they never snap to/swap with
+      // your own team's slots, so skip the nearest-slot lookup for them.
+      const isOpp = info.type === 'opp-pool' || info.type === 'opp-marker'
+      const target = isOpp ? null : nearestSlot(slotsRef.current, pt.x, pt.y, info.type === 'field' ? info.id : undefined)
       pendingOverPos = target?.posId ?? null
       pendingPreview = { type: info.type, id: info.id, x: pt.x, y: pt.y }
       schedule()
@@ -1236,6 +1416,19 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
       suppressClickRef.current = true
       setTimeout(() => { suppressClickRef.current = false }, 0)
       const pt = pointInField(e.clientX, e.clientY)
+
+      // Opponent markers: drag onto the field to place/reposition, drag off
+      // the field to remove. No swap/sub semantics — they're just tokens.
+      if (info.type === 'opp-marker') {
+        if (!pt || !pt.inside) setOppMarkers(m => m.filter(o => o.id !== info.id))
+        else setOppMarkers(m => m.map(o => o.id === info.id ? { ...o, x: pt.x, y: pt.y } : o))
+        return
+      }
+      if (info.type === 'opp-pool') {
+        if (pt && pt.inside) setOppMarkers(m => [...m, { id: uid(), x: pt.x, y: pt.y }])
+        return
+      }
+
       if (!pt || !pt.inside) {
         if (info.type === 'field') sendToBenchRef.current(info.id)
         return
@@ -1252,7 +1445,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     }
   }, [])
 
-  const beginDrag = (type: 'field' | 'bench', id: string, e: React.PointerEvent) => {
+  const beginDrag = (type: DragKind, id: string, e: React.PointerEvent) => {
     dragInfoRef.current = { type, id }
     dragStartRef.current = { x: e.clientX, y: e.clientY }
   }
@@ -1327,6 +1520,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
 
   const onFieldCount = slots.filter(s => s.playerId).length
   const targetCount = AGE_CONFIG[ageGroup].total
+  const oppAvailable = Math.max(0, AGE_CONFIG[ageGroup].total - oppMarkers.length)
   const selectedFieldPos = selected?.type === 'field' ? selected.posId : null
   const selectedFieldPlayer = selectedFieldPos ? getPlayer(slots.find(s => s.posId === selectedFieldPos)?.playerId ?? null) : null
 
@@ -1338,7 +1532,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     onSave({
       id: initial?.id ?? uid(),
       date: initial?.date ?? todayStr(),
-      club, team, ageGroup, opponent, homeAway, squad, slots, subs, notes, result,
+      club, team, ageGroup, opponent, homeAway, squad, slots, subs, oppMarkers, notes, result,
       scoreOwn, scoreOpp,
       finalTime: gameSec,
     })
@@ -1412,6 +1606,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
               ageGroup={ageGroup}
               slots={slots}
               squad={squad}
+              oppMarkers={oppMarkers}
               selected={selected}
               dragOverPos={dragOverPos}
               dragPreview={dragPreview}
@@ -1419,6 +1614,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
               onFieldClick={handleFieldClick}
               onBackgroundClick={handleBackgroundClick}
               onMarkerPointerDown={(posId, e) => beginDrag('field', posId, e)}
+              onOppMarkerPointerDown={(id, e) => beginDrag('opp-marker', id, e)}
             />
           </div>
 
@@ -1513,6 +1709,30 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                     )
                   })
                 )}
+
+                <div className="mt-4 pt-3 px-1" style={{ borderTop: '1px solid #E8EFFD' }}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-bold uppercase" style={{ color: '#7B90C8', letterSpacing: '0.08em' }}>
+                      Tegenstander ({oppAvailable} beschikbaar)
+                    </span>
+                    {oppMarkers.length > 0 && (
+                      <button onClick={() => setOppMarkers([])} className="text-xs font-bold" style={{ color: '#DC2626' }}>
+                        Wis
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-xs mb-2" style={{ color: '#A8BEF0' }}>
+                    Sleep naar het veld om de opstelling van de tegenstander te markeren.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {Array.from({ length: oppAvailable }).map((_, i) => (
+                      <div key={i}
+                        className="w-8 h-8 rounded-full cursor-grab touch-none select-none shrink-0"
+                        style={{ background: '#DC2626', border: '2px solid #fff', boxShadow: '0 2px 6px rgba(0,0,0,0.25)' }}
+                        onPointerDown={e => beginDrag('opp-pool', 'new', e)} />
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
 
@@ -1544,20 +1764,6 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
             {activeTab === 'notes' && (
               <div className="p-3 space-y-3">
                 <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Uitslag</label>
-                  <input className="w-full rounded-xl px-3 py-2 text-sm font-bold"
-                    style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: '#1A2F6B', outline: 'none' }}
-                    value={result} onChange={e => setResult(e.target.value)}
-                    placeholder="bijv. 3-1" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Notities</label>
-                  <textarea className="w-full rounded-xl px-3 py-2 text-sm resize-none"
-                    style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: '#1A2F6B', outline: 'none' }}
-                    rows={8} value={notes} onChange={e => setNotes(e.target.value)}
-                    placeholder="Tactische notities, bijzonderheden…" />
-                </div>
-                <div>
                   <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Scorebord</label>
                   <div className="flex items-center justify-between gap-2 rounded-xl px-3 py-2.5"
                     style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF' }}>
@@ -1583,6 +1789,13 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                       </div>
                     </div>
                   </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Notities</label>
+                  <textarea className="w-full rounded-xl px-3 py-2 text-sm resize-none"
+                    style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: '#1A2F6B', outline: 'none' }}
+                    rows={8} value={notes} onChange={e => setNotes(e.target.value)}
+                    placeholder="Tactische notities, bijzonderheden…" />
                 </div>
               </div>
             )}
@@ -1650,7 +1863,11 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
                     <div className="flex flex-wrap gap-3 mt-0.5">
                       <span className="text-xs font-medium" style={{ color: '#7B90C8' }}>{g.date}</span>
                       <span className="text-xs font-bold" style={{ color: '#1A3FAB' }}>{ageGroupLabel(g.ageGroup)}</span>
-                      {g.result && <span className="text-xs font-bold" style={{ color: '#1A3FAB' }}>{g.result}</span>}
+                      {typeof g.scoreOwn === 'number' && typeof g.scoreOpp === 'number' ? (
+                        <span className="text-xs font-bold" style={{ color: '#1A3FAB' }}>{g.scoreOwn} - {g.scoreOpp}</span>
+                      ) : g.result ? (
+                        <span className="text-xs font-bold" style={{ color: '#1A3FAB' }}>{g.result}</span>
+                      ) : null}
                       <span className="text-xs font-mono" style={{ color: '#A8BEF0' }}>{fmtSec(g.finalTime)}</span>
                     </div>
                   </div>
