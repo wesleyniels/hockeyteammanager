@@ -2174,7 +2174,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   }
 
   const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL
-  const { users: adminUsers, loading: adminLoading, error: adminError, deleteUser } = useAdminUsers(isAdmin)
+  const { users: adminUsers, loading: adminLoading, error: adminError, deleteUser, setAdmin } = useAdminUsers(isAdmin)
 
   return (
     <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
@@ -2309,17 +2309,36 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                         </div>
                         <div className="text-xs truncate" style={{ color: '#7B90C8' }}>{u.email}</div>
                       </div>
-                      {u.id !== user?.id && (
-                        <button onClick={() => {
-                          if (confirm(`Account van ${u.email} verwijderen? Dit verwijdert ook alle opgeslagen wedstrijden van dit account.`)) deleteUser(u.id)
-                        }}
-                          className="text-xs font-bold px-2.5 py-1.5 rounded-lg shrink-0"
-                          style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
-                          Verwijder
-                        </button>
-                      )}
+                      <div className="flex gap-2 shrink-0">
+                        {u.id !== user?.id && u.email.toLowerCase() !== ADMIN_EMAIL && (
+                          <button onClick={() => {
+                            if (!u.isAdmin && !confirm(`${u.email} beheerderstoegang geven? Diegene kan dan ook andere accounts beheren.`)) return
+                            setAdmin(u.id, !u.isAdmin)
+                          }}
+                            className="text-xs font-bold px-2.5 py-1.5 rounded-lg"
+                            style={u.isAdmin
+                              ? { color: '#7B90C8', border: '1px solid #D0DCFA' }
+                              : { color: '#1A3FAB', border: '1px solid #A8BEF0' }}>
+                            {u.isAdmin ? 'Beheerder verwijderen' : 'Maak beheerder'}
+                          </button>
+                        )}
+                        {u.id !== user?.id && (
+                          <button onClick={() => {
+                            if (confirm(`Account van ${u.email} verwijderen? Dit verwijdert ook alle opgeslagen wedstrijden van dit account.`)) deleteUser(u.id)
+                          }}
+                            className="text-xs font-bold px-2.5 py-1.5 rounded-lg"
+                            style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
+                            Verwijder
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-1.5 mt-2">
+                      {u.isAdmin && (
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#EDE9FE', color: '#6D28D9' }}>
+                          Beheerder
+                        </span>
+                      )}
                       {u.defaultTeam && (
                         <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#EEF3FF', color: '#1A3FAB' }}>
                           {u.defaultTeam}
@@ -2663,6 +2682,7 @@ interface AdminUser {
   hasPassword: boolean
   gameCount: number
   createdAt: string
+  isAdmin: boolean
 }
 
 function useAdminUsers(enabled: boolean) {
@@ -2691,7 +2711,17 @@ function useAdminUsers(enabled: boolean) {
     return res.ok
   }, [])
 
-  return { users, loading, error, deleteUser }
+  const setAdmin = useCallback(async (id: string, isAdmin: boolean) => {
+    const res = await fetch('/api/admin/users', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, isAdmin }),
+    })
+    if (res.ok) setUsers(u => u.map(x => x.id === id ? { ...x, isAdmin } : x))
+    return res.ok
+  }, [])
+
+  return { users, loading, error, deleteUser, setAdmin }
 }
 
 // ── Splash screen ─────────────────────────────────────────────────────────────

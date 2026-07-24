@@ -6,12 +6,19 @@ import { isAdminEmail } from '../_lib/admin.js'
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   await ensureSchema()
   const session = getSessionFromCookies(req.headers.cookie)
-  if (!session || !isAdminEmail(session.email)) { res.status(403).json({ error: 'Forbidden' }); return }
+  if (!session) { res.status(403).json({ error: 'Forbidden' }); return }
+
+  // The hardcoded email is a permanent fallback admin (so the account can
+  // never be locked out); everyone else's access comes from the DB flag,
+  // which admins grant/revoke on each other through this same endpoint.
+  const requester = await sql`SELECT is_admin FROM users WHERE id = ${session.id}`
+  const requesterIsAdmin = isAdminEmail(session.email) || requester[0]?.is_admin === true
+  if (!requesterIsAdmin) { res.status(403).json({ error: 'Forbidden' }); return }
 
   if (req.method === 'GET') {
     const rows = await sql`
       SELECT u.id, u.email, u.name, u.first_name, u.last_name, u.role, u.default_team,
-             u.email_verified, u.created_at, (u.password_hash IS NOT NULL) AS has_password,
+             u.email_verified, u.created_at, u.is_admin, (u.password_hash IS NOT NULL) AS has_password,
              COUNT(g.id)::int AS game_count
       FROM users u
       LEFT JOIN games g ON g.user_id = u.id
@@ -31,8 +38,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         hasPassword: r.has_password,
         gameCount: r.game_count,
         createdAt: r.created_at,
+        isAdmin: r.is_admin === true || isAdminEmail(r.email),
       })),
     })
+    return
+  }
+
+  if (req.method === 'PATCH') {
+    const id = req.body?.id
+    const isAdmin = req.body?.isAdmin
+    if (!id || typeof isAdmin !== 'boolean') { res.status(400).json({ error: 'Missing id or isAdmin' }); return }
+    if (id === session.id) { res.status(400).json({ error: 'Je kunt je eigen beheerdersrechten niet aanpassen' }); return }
+    await sql`UPDATE users SET is_admin = ${isAdmin} WHERE id = ${id}`
+    res.status(200).json({ ok: true })
     return
   }
 

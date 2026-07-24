@@ -28,6 +28,7 @@ export function ensureSchema() {
     await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT false`
     await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token TEXT`
     await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_expires TIMESTAMPTZ`
+    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false`
     await sql`
       CREATE TABLE IF NOT EXISTS games (
         id TEXT PRIMARY KEY,
