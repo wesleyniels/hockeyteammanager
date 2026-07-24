@@ -698,12 +698,19 @@ const SNAP_THRESHOLD = 7 // % of field container; how close a drop must be to an
 // 'opp-marker' = an opponent token already placed on the field.
 type DragKind = 'field' | 'bench' | 'opp-pool' | 'opp-marker'
 
+type Selected =
+  | { type: 'field'; posId: string }
+  | { type: 'bench'; playerId: string }
+  | { type: 'opp-pool' }
+  | { type: 'opp-marker'; id: string }
+  | null
+
 interface FieldViewProps {
   ageGroup: AgeGroup
   slots: PositionSlot[]
   squad: Player[]
   oppMarkers: OppMarker[]
-  selected: { type: 'field'; posId: string } | { type: 'bench'; playerId: string } | null
+  selected: Selected
   dragOverPos: string | null
   dragPreview: { type: DragKind; id: string; x: number; y: number } | null
   fieldRef: React.RefObject<HTMLDivElement | null>
@@ -711,6 +718,7 @@ interface FieldViewProps {
   onBackgroundClick: (x: number, y: number) => void
   onMarkerPointerDown: (posId: string, e: React.PointerEvent) => void
   onOppMarkerPointerDown: (id: string, e: React.PointerEvent) => void
+  onOppMarkerClick: (id: string) => void
 }
 
 function nearestSlot(slots: PositionSlot[], x: number, y: number, excludeId?: string) {
@@ -724,7 +732,7 @@ function nearestSlot(slots: PositionSlot[], x: number, y: number, excludeId?: st
   return best && bestDist <= SNAP_THRESHOLD ? best : null
 }
 
-function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, dragPreview, fieldRef, onFieldClick, onBackgroundClick, onMarkerPointerDown, onOppMarkerPointerDown }: FieldViewProps) {
+function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, dragPreview, fieldRef, onFieldClick, onBackgroundClick, onMarkerPointerDown, onOppMarkerPointerDown, onOppMarkerClick }: FieldViewProps) {
   const isDual = ageGroup === 'U7' || ageGroup === 'U8'
   const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
   const draggedBenchPlayer = dragPreview?.type === 'bench' ? getPlayer(dragPreview.id) : null
@@ -834,6 +842,7 @@ function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, 
 
       {oppMarkers.map(o => {
         const isBeingDragged = dragPreview?.type === 'opp-marker' && dragPreview.id === o.id
+        const isSel = selected?.type === 'opp-marker' && selected.id === o.id
         const x = isBeingDragged ? dragPreview.x : o.x
         const y = isBeingDragged ? dragPreview.y : o.y
         return (
@@ -841,12 +850,17 @@ function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, 
             key={o.id}
             className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab select-none touch-none"
             style={{ left: `${x}%`, top: `${y}%`, zIndex: isBeingDragged ? 30 : 9 }}
-            onPointerDown={e => { e.stopPropagation(); onOppMarkerPointerDown(o.id, e) }}>
+            onPointerDown={e => { e.stopPropagation(); onOppMarkerPointerDown(o.id, e) }}
+            onClick={e => { e.stopPropagation(); onOppMarkerClick(o.id) }}>
             <div style={{
               width: '32px', height: '32px', borderRadius: '50%',
-              background: '#DC2626', border: '2px solid rgba(255,255,255,0.85)',
-              boxShadow: isBeingDragged ? '0 6px 20px rgba(0,0,0,0.45)' : '0 2px 8px rgba(0,0,0,0.3)',
-              transform: isBeingDragged ? 'scale(1.18)' : 'scale(1)',
+              background: '#DC2626', border: isSel ? '2.5px solid #fff' : '2px solid rgba(255,255,255,0.85)',
+              boxShadow: isBeingDragged
+                ? '0 6px 20px rgba(0,0,0,0.45)'
+                : isSel
+                  ? '0 0 0 3px rgba(26,63,171,0.7), 0 3px 12px rgba(0,0,0,0.4)'
+                  : '0 2px 8px rgba(0,0,0,0.3)',
+              transform: isBeingDragged ? 'scale(1.18)' : isSel ? 'scale(1.12)' : 'scale(1)',
               opacity: isBeingDragged ? 0.95 : 1,
               transition: isBeingDragged ? 'none' : 'transform 0.1s, box-shadow 0.1s',
             }} />
@@ -1165,7 +1179,7 @@ function SetupView({ onStart, onHistory, onProfile, user }: {
             </select>
             <input className="w-full rounded-xl px-3 py-2.5 text-sm mt-2" style={inputStyle}
               value={opponent} onChange={e => setOpponent(e.target.value)}
-              placeholder="Staat de club er niet bij? Typ de naam handmatig…" />
+              placeholder="Teamnaam (bijv. MO11-1 of JO9-Blauw)" />
           </div>
           <div className="flex gap-3">
             {(['Thuis', 'Uit'] as const).map(ha => (
@@ -1291,7 +1305,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   const [scoreOpp, setScoreOpp] = useState(initial?.scoreOpp ?? 0)
   const [gameSec, setGameSec] = useState(initial?.finalTime ?? 0)
   const [running, setRunning] = useState(false)
-  const [selected, setSelected] = useState<{ type: 'field'; posId: string } | { type: 'bench'; playerId: string } | null>(null)
+  const [selected, setSelected] = useState<Selected>(null)
   const [activeTab, setActiveTab] = useState<'bench' | 'subs' | 'notes'>('bench')
   const [panelCollapsed, setPanelCollapsed] = useLS('fh_panel_collapsed', false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -1465,6 +1479,13 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
         return s
       }))
       setSelected(null)
+    } else if (selected?.type === 'opp-pool') {
+      setOppMarkers(m => [...m, { id: uid(), x: slot.x, y: slot.y }])
+      setSelected(null)
+    } else if (selected?.type === 'opp-marker') {
+      const id = selected.id
+      setOppMarkers(m => m.map(o => o.id === id ? { ...o, x: slot.x, y: slot.y } : o))
+      setSelected(null)
     } else {
       setSelected({ type: 'field', posId })
       setActiveTab('bench')
@@ -1480,6 +1501,23 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     } else {
       setSelected({ type: 'bench', playerId })
     }
+  }
+
+  // Tap-to-place fallback for opponent tokens, mirroring how bench players
+  // can be either dragged or click-selected-then-placed.
+  const handleOppPoolClick = () => {
+    if (suppressClickRef.current) return
+    setSelected(sel => (sel?.type === 'opp-pool' ? null : { type: 'opp-pool' }))
+  }
+
+  const handleOppMarkerClick = (id: string) => {
+    if (suppressClickRef.current) return
+    setSelected(sel => (sel?.type === 'opp-marker' && sel.id === id ? null : { type: 'opp-marker', id }))
+  }
+
+  const removeOppMarker = (id: string) => {
+    setOppMarkers(m => m.filter(o => o.id !== id))
+    setSelected(null)
   }
 
   // Dropped anywhere on the field: land near another marker to swap/sub, or on
@@ -1503,6 +1541,18 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   const handleBackgroundClick = (x: number, y: number) => {
     if (suppressClickRef.current) return
     if (!selected) return
+    // Opponent tokens are freeform — they never snap to/swap with own slots.
+    if (selected.type === 'opp-pool') {
+      setOppMarkers(m => [...m, { id: uid(), x, y }])
+      setSelected(null)
+      return
+    }
+    if (selected.type === 'opp-marker') {
+      const id = selected.id
+      setOppMarkers(m => m.map(o => o.id === id ? { ...o, x, y } : o))
+      setSelected(null)
+      return
+    }
     const target = nearestSlot(slots, x, y, selected.type === 'field' ? selected.posId : undefined)
     if (target) { handleFieldClick(target.posId); return }
     if (selected.type === 'field') {
@@ -1593,7 +1643,9 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                 style={{ background: '#DBEAFE', color: '#1A3FAB' }}>
                 {selected.type === 'bench'
                   ? `Kies positie voor ${getPlayer(selected.playerId)?.name.split(' ')[0]}`
-                  : selectedFieldPlayer ? `${selectedFieldPlayer.name.split(' ')[0]} geselecteerd` : 'Positie geselecteerd'}
+                  : selected.type === 'opp-pool' || selected.type === 'opp-marker'
+                    ? 'Tik op het veld om de tegenstander te plaatsen'
+                    : selectedFieldPlayer ? `${selectedFieldPlayer.name.split(' ')[0]} geselecteerd` : 'Positie geselecteerd'}
               </span>
             ) : (
               <span className="text-xs" style={{ color: '#A8BEF0' }}>Sleep of klik om te wisselen</span>
@@ -1615,6 +1667,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
               onBackgroundClick={handleBackgroundClick}
               onMarkerPointerDown={(posId, e) => beginDrag('field', posId, e)}
               onOppMarkerPointerDown={(id, e) => beginDrag('opp-marker', id, e)}
+              onOppMarkerClick={handleOppMarkerClick}
             />
           </div>
 
@@ -1627,6 +1680,21 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                   → Bank
                 </button>
               )}
+              <button onClick={() => setSelected(null)}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+                style={{ background: '#D0DCFA', color: '#1A3FAB' }}>
+                Annuleer
+              </button>
+            </div>
+          )}
+
+          {selected?.type === 'opp-marker' && (
+            <div className="flex gap-2 mt-2" onClick={e => e.stopPropagation()}>
+              <button onClick={() => removeOppMarker(selected.id)}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
+                style={{ background: '#4B5563' }}>
+                Verwijder
+              </button>
               <button onClick={() => setSelected(null)}
                 className="px-3 py-1.5 rounded-lg text-xs font-semibold"
                 style={{ background: '#D0DCFA', color: '#1A3FAB' }}>
@@ -1721,15 +1789,22 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                       </button>
                     )}
                   </div>
-                  <p className="text-xs mb-2" style={{ color: '#A8BEF0' }}>
-                    Sleep naar het veld om de opstelling van de tegenstander te markeren.
+                  <p className="text-xs mb-2" style={{ color: selected?.type === 'opp-pool' ? '#1A3FAB' : '#A8BEF0' }}>
+                    {selected?.type === 'opp-pool'
+                      ? 'Tik op het veld om te plaatsen…'
+                      : 'Sleep naar het veld, of tik en tik daarna op het veld.'}
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {Array.from({ length: oppAvailable }).map((_, i) => (
                       <div key={i}
                         className="w-8 h-8 rounded-full cursor-grab touch-none select-none shrink-0"
-                        style={{ background: '#DC2626', border: '2px solid #fff', boxShadow: '0 2px 6px rgba(0,0,0,0.25)' }}
-                        onPointerDown={e => beginDrag('opp-pool', 'new', e)} />
+                        style={{
+                          background: '#DC2626',
+                          border: selected?.type === 'opp-pool' ? '2.5px solid #1A3FAB' : '2px solid #fff',
+                          boxShadow: selected?.type === 'opp-pool' ? '0 0 0 3px rgba(26,63,171,0.35)' : '0 2px 6px rgba(0,0,0,0.25)',
+                        }}
+                        onPointerDown={e => beginDrag('opp-pool', 'new', e)}
+                        onClick={handleOppPoolClick} />
                     ))}
                   </div>
                 </div>
