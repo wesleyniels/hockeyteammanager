@@ -2198,28 +2198,35 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
             <p className="text-sm text-center py-6" style={{ color: '#A8BEF0' }}>Laden…</p>
           ) : user ? (
             <div className="space-y-5">
-              <div className="flex items-center gap-4">
-                <button onClick={() => photoInputRef.current?.click()} disabled={uploadingPhoto}
-                  className="relative w-16 h-16 rounded-full shrink-0 group" title="Foto wijzigen">
-                  {user.picture ? (
-                    <img src={user.picture} alt="" className="w-16 h-16 rounded-full object-cover" referrerPolicy="no-referrer" />
-                  ) : (
-                    <div className="w-16 h-16 rounded-full flex items-center justify-center text-white font-bold text-xl"
-                      style={{ background: '#1A3FAB' }}>
-                      {initials(user.name ?? user.email)}
-                    </div>
-                  )}
-                  <span className="absolute inset-0 rounded-full flex items-center justify-center text-white text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity"
-                    style={{ background: 'rgba(13,43,122,0.55)' }}>
-                    {uploadingPhoto ? '…' : '✎'}
-                  </span>
-                </button>
-                <input ref={photoInputRef} type="file" accept="image/*" className="hidden"
-                  onChange={e => { pickPhoto(e.target.files?.[0]); e.target.value = '' }} />
-                <div className="min-w-0">
-                  <div className="font-display font-bold text-lg truncate" style={{ color: '#0D2B7A' }}>{user.name ?? user.email}</div>
-                  <div className="text-sm truncate" style={{ color: '#7B90C8' }}>{user.email}</div>
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center gap-4 min-w-0">
+                  <button onClick={() => photoInputRef.current?.click()} disabled={uploadingPhoto}
+                    className="relative w-16 h-16 rounded-full shrink-0 group" title="Foto wijzigen">
+                    {user.picture ? (
+                      <img src={user.picture} alt="" className="w-16 h-16 rounded-full object-cover" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="w-16 h-16 rounded-full flex items-center justify-center text-white font-bold text-xl"
+                        style={{ background: '#1A3FAB' }}>
+                        {initials(user.name ?? user.email)}
+                      </div>
+                    )}
+                    <span className="absolute inset-0 rounded-full flex items-center justify-center text-white text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity"
+                      style={{ background: 'rgba(13,43,122,0.55)' }}>
+                      {uploadingPhoto ? '…' : '✎'}
+                    </span>
+                  </button>
+                  <input ref={photoInputRef} type="file" accept="image/*" className="hidden"
+                    onChange={e => { pickPhoto(e.target.files?.[0]); e.target.value = '' }} />
+                  <div className="min-w-0">
+                    <div className="font-display font-bold text-lg truncate" style={{ color: '#0D2B7A' }}>{user.name ?? user.email}</div>
+                    <div className="text-sm truncate" style={{ color: '#7B90C8' }}>{user.email}</div>
+                  </div>
                 </div>
+                <button onClick={onLogout}
+                  className="text-xs font-bold px-3 py-1.5 rounded-lg shrink-0"
+                  style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
+                  Uitloggen
+                </button>
               </div>
               {photoError && <p className="text-xs font-semibold" style={{ color: '#DC2626' }}>{photoError}</p>}
 
@@ -2262,11 +2269,6 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
 
               <button onClick={onHistory} className="text-sm font-medium hover:underline" style={{ color: '#1A3FAB' }}>
                 {gameCount} opgeslagen wedstrijd{gameCount !== 1 ? 'en' : ''} →
-              </button>
-              <button onClick={onLogout}
-                className="px-4 py-2.5 rounded-xl font-bold text-sm"
-                style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
-                Uitloggen
               </button>
             </div>
           ) : (
