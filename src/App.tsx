@@ -2125,7 +2125,7 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
 
 // ── Profile View ─────────────────────────────────────────────────────────────
 
-function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword, onResendVerification, onLogout, onBack, gameCount, onUpdateProfile }: {
+function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword, onResendVerification, onLogout, onBack, onHistory, gameCount, onUpdateProfile }: {
   user: AuthUser | null
   loading: boolean
   onCredential: (credential: string) => void
@@ -2134,6 +2134,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   onResendVerification: (email: string) => Promise<void>
   onLogout: () => void
   onBack: () => void
+  onHistory: () => void
   gameCount: number
   onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => void
 }) {
@@ -2259,9 +2260,9 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                 {saved && <span className="text-sm font-semibold" style={{ color: '#16A34A' }}>Opgeslagen!</span>}
               </div>
 
-              <p className="text-sm font-medium" style={{ color: '#7B90C8' }}>
-                {gameCount} opgeslagen wedstrijd{gameCount !== 1 ? 'en' : ''}
-              </p>
+              <button onClick={onHistory} className="text-sm font-medium hover:underline" style={{ color: '#1A3FAB' }}>
+                {gameCount} opgeslagen wedstrijd{gameCount !== 1 ? 'en' : ''} →
+              </button>
               <button onClick={onLogout}
                 className="px-4 py-2.5 rounded-xl font-bold text-sm"
                 style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
@@ -2755,6 +2756,7 @@ export default function App() {
         onResendVerification={resendVerification}
         onLogout={logout}
         onBack={() => setView('setup')}
+        onHistory={() => setView('history')}
         gameCount={games.length}
         onUpdateProfile={updateProfile}
       />
