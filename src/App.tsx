@@ -2172,6 +2172,9 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
     }
   }
 
+  const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL
+  const { users: adminUsers, loading: adminLoading, error: adminError, deleteUser } = useAdminUsers(isAdmin)
+
   return (
     <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
       <header style={{ background: '#0D2B7A' }} className="text-white sticky top-0 z-20 shadow-lg">
@@ -2282,6 +2285,69 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
             </div>
           )}
         </section>
+
+        {isAdmin && (
+          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid #D0DCFA' }}>
+            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-4" style={{ color: '#0D2B7A' }}>
+              Beheer — Gebruikers
+            </h2>
+            {adminLoading ? (
+              <p className="text-sm text-center py-4" style={{ color: '#A8BEF0' }}>Laden…</p>
+            ) : adminError ? (
+              <p className="text-sm font-semibold" style={{ color: '#DC2626' }}>{adminError}</p>
+            ) : adminUsers.length === 0 ? (
+              <p className="text-sm" style={{ color: '#7B90C8' }}>Nog geen gebruikers.</p>
+            ) : (
+              <div className="space-y-2">
+                {adminUsers.map(u => (
+                  <div key={u.id} className="p-3 rounded-xl" style={{ border: '1px solid #E8EFFD', background: '#F8FAFF' }}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-bold truncate" style={{ color: '#1A2F6B' }}>
+                          {[u.firstName, u.lastName].filter(Boolean).join(' ') || u.name || u.email}
+                        </div>
+                        <div className="text-xs truncate" style={{ color: '#7B90C8' }}>{u.email}</div>
+                      </div>
+                      {u.id !== user?.id && (
+                        <button onClick={() => {
+                          if (confirm(`Account van ${u.email} verwijderen? Dit verwijdert ook alle opgeslagen wedstrijden van dit account.`)) deleteUser(u.id)
+                        }}
+                          className="text-xs font-bold px-2.5 py-1.5 rounded-lg shrink-0"
+                          style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
+                          Verwijder
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {u.defaultTeam && (
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#EEF3FF', color: '#1A3FAB' }}>
+                          {u.defaultTeam}
+                        </span>
+                      )}
+                      {u.role && (
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#EEF3FF', color: '#1A3FAB' }}>
+                          {u.role}
+                        </span>
+                      )}
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#EEF3FF', color: '#1A3FAB' }}>
+                        {u.gameCount} wedstrijd{u.gameCount !== 1 ? 'en' : ''}
+                      </span>
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                        style={u.emailVerified
+                          ? { background: '#DCFCE7', color: '#16A34A' }
+                          : { background: '#FEF3C7', color: '#D97706' }}>
+                        {u.emailVerified ? 'Geverifieerd' : 'Niet geverifieerd'}
+                      </span>
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#EEF3FF', color: '#1A3FAB' }}>
+                        {u.hasPassword ? 'E-mail/wachtwoord' : 'Google'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
       </div>
     </div>
   )
@@ -2576,6 +2642,55 @@ function useRemoteGames(enabled: boolean) {
   }, [])
 
   return { games, loading, error, addGame, updateGame, deleteGame }
+}
+
+// ── Admin (user management) ───────────────────────────────────────────────────
+// Gate is purely a UI convenience — the /api/admin/* routes re-check the
+// session's email server-side, so hiding this section isn't the real guard.
+
+const ADMIN_EMAIL = 'wesleyniels@gmail.com'
+
+interface AdminUser {
+  id: string
+  email: string
+  name: string | null
+  firstName: string | null
+  lastName: string | null
+  role: string | null
+  defaultTeam: string | null
+  emailVerified: boolean
+  hasPassword: boolean
+  gameCount: number
+  createdAt: string
+}
+
+function useAdminUsers(enabled: boolean) {
+  const [users, setUsers] = useState<AdminUser[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const refresh = useCallback(() => {
+    if (!enabled) return
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    fetch('/api/admin/users')
+      .then(res => { if (!res.ok) throw new Error(); return res.json() })
+      .then(data => { if (!cancelled) setUsers(data.users) })
+      .catch(() => { if (!cancelled) setError('Kon gebruikers niet laden') })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [enabled])
+
+  useEffect(() => refresh(), [refresh])
+
+  const deleteUser = useCallback(async (id: string) => {
+    const res = await fetch(`/api/admin/users?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+    if (res.ok) setUsers(u => u.filter(x => x.id !== id))
+    return res.ok
+  }, [])
+
+  return { users, loading, error, deleteUser }
 }
 
 // ── Splash screen ─────────────────────────────────────────────────────────────
