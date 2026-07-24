@@ -37,6 +37,11 @@ interface OppMarker {
   y: number
 }
 
+interface Goal {
+  id: string
+  playerId: string
+}
+
 interface SavedGame {
   id: string
   date: string
@@ -49,6 +54,7 @@ interface SavedGame {
   slots: PositionSlot[]
   subs: SubRecord[]
   oppMarkers: OppMarker[]
+  goals: Goal[]
   notes: string
   result: string
   scoreOwn: number
@@ -1311,6 +1317,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   })
   const [subs, setSubs] = useState<SubRecord[]>(() => initial?.subs ?? [])
   const [oppMarkers, setOppMarkers] = useState<OppMarker[]>(() => initial?.oppMarkers ?? [])
+  const [goals, setGoals] = useState<Goal[]>(() => initial?.goals ?? [])
+  const [goalPlayerId, setGoalPlayerId] = useState('')
   const [notes, setNotes] = useState(initial?.notes ?? '')
   const [result] = useState(initial?.result ?? '')
   const [scoreOwn, setScoreOwn] = useState(initial?.scoreOwn ?? 0)
@@ -1594,7 +1602,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     onSave({
       id: initial?.id ?? uid(),
       date: initial?.date ?? todayStr(),
-      club, team, ageGroup, opponent, homeAway, squad, slots, subs, oppMarkers, notes, result,
+      club, team, ageGroup, opponent, homeAway, squad, slots, subs, oppMarkers, goals, notes, result,
       scoreOwn, scoreOpp,
       finalTime: gameSec,
     })
@@ -1878,6 +1886,47 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                   </div>
                 </div>
                 <div>
+                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Doelpuntenmakers</label>
+                  <div className="flex gap-2">
+                    <select className="flex-1 rounded-xl px-3 py-2 text-sm"
+                      style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: goalPlayerId ? '#1A2F6B' : '#7B90C8', outline: 'none' }}
+                      value={goalPlayerId} onChange={e => setGoalPlayerId(e.target.value)}>
+                      <option value="">Kies speler…</option>
+                      {sortPlayers(squad).map(p => (
+                        <option key={p.id} value={p.id}>{p.number ? `#${p.number} ` : ''}{p.name}</option>
+                      ))}
+                    </select>
+                    <button onClick={() => {
+                      if (!goalPlayerId) return
+                      setGoals(g => [...g, { id: uid(), playerId: goalPlayerId }])
+                    }}
+                      className="px-4 py-2 rounded-xl font-bold text-white text-lg shrink-0"
+                      style={{ background: '#1A3FAB' }}>
+                      +
+                    </button>
+                  </div>
+                  {goals.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {goals.map(g => {
+                        const p = getPlayer(g.playerId)
+                        return (
+                          <div key={g.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
+                            style={{ background: '#F8FAFF', border: '1px solid #E8EFFD' }}>
+                            <span style={{ color: '#1A2F6B' }}>⚽ {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}</span>
+                            <button onClick={() => setGoals(gs => gs.filter(x => x.id !== g.id))}
+                              className="font-bold" style={{ color: '#DC2626' }}>
+                              ×
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  <p className="text-xs mt-1.5" style={{ color: goals.length === scoreOwn ? '#7B90C8' : '#D97706' }}>
+                    {goals.length} van de {scoreOwn} doelpunten toegewezen
+                  </p>
+                </div>
+                <div>
                   <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Notities</label>
                   <textarea className="w-full rounded-xl px-3 py-2 text-sm resize-none"
                     style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: '#1A2F6B', outline: 'none' }}
@@ -2002,6 +2051,28 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
                                   <span className="font-semibold" style={{ color: '#16A34A' }}>↑ {pIn?.name}</span>
                                   <span className="font-semibold" style={{ color: '#DC2626' }}>↓ {pOut?.name}</span>
                                 </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {g.goals && g.goals.length > 0 && (
+                        <div>
+                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: '#7B90C8' }}>Doelpunten</h4>
+                          <div className="flex flex-wrap gap-1.5">
+                            {Object.entries(
+                              g.goals.reduce<Record<string, number>>((acc, goal) => {
+                                acc[goal.playerId] = (acc[goal.playerId] ?? 0) + 1
+                                return acc
+                              }, {})
+                            ).map(([playerId, count]) => {
+                              const p = getPlayer(g, playerId)
+                              return (
+                                <span key={playerId} className="text-xs px-2 py-1 rounded-lg font-medium"
+                                  style={{ background: '#EEF3FF', color: '#1A2F6B', border: '1px solid #D0DCFA' }}>
+                                  ⚽ {p?.name ?? 'Onbekende speler'}{count > 1 ? ` ×${count}` : ''}
+                                </span>
                               )
                             })}
                           </div>
