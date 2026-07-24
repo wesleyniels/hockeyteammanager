@@ -899,15 +899,17 @@ function FormationEditorView({ ageGroup, onBack }: { ageGroup: AgeGroup; onBack:
   return (
     <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
       <header style={{ background: '#0D2B7A' }} className="text-white sticky top-0 z-20 shadow-lg">
-        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-          <div className="flex items-center gap-4 min-w-0">
+        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
+          <div className="flex items-center gap-4">
             <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: '#7B9DE0' }}>← Terug</button>
-            <div className="min-w-0">
-              <h1 className="font-display text-2xl font-bold uppercase tracking-widest leading-none truncate">Opstelling aanpassen</h1>
+            <div>
+              <h1 className="font-display text-2xl font-bold uppercase tracking-widest leading-none">Opstelling aanpassen</h1>
               <p className="text-xs mt-1" style={{ color: '#7B9DE0' }}>{AGE_CONFIG[ageGroup].label}</p>
             </div>
           </div>
-          <H1Logo height={24} />
+          <div className="flex justify-center">
+            <H1Logo height={24} />
+          </div>
           <div />
         </div>
       </header>
@@ -1082,11 +1084,11 @@ function SetupView({ onStart, onHistory, onProfile, user }: {
   return (
     <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
       <header style={{ background: '#0D2B7A' }} className="text-white sticky top-0 z-20 shadow-lg">
-        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-          <div className="flex items-center gap-3 min-w-0">
+        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
+          <div className="flex items-center gap-3">
             <SCMuidenLogo size={46} />
-            <div className="min-w-0">
-              <h1 className="font-display font-bold uppercase leading-none truncate" style={{ fontSize: '22px', letterSpacing: '0.08em' }}>
+            <div>
+              <h1 className="font-display font-bold uppercase leading-none" style={{ fontSize: '22px', letterSpacing: '0.08em' }}>
                 SC Muiden
               </h1>
               <p className="text-xs leading-none mt-0.5" style={{ color: '#A8BEF0', letterSpacing: '0.12em' }}>
@@ -1094,7 +1096,9 @@ function SetupView({ onStart, onHistory, onProfile, user }: {
               </p>
             </div>
           </div>
-          <H1Logo height={26} />
+          <div className="flex justify-center">
+            <H1Logo height={26} />
+          </div>
           <div className="flex items-center gap-2 justify-end">
             {user && (
               <button onClick={onHistory}
@@ -1104,20 +1108,19 @@ function SetupView({ onStart, onHistory, onProfile, user }: {
               </button>
             )}
             <button onClick={onProfile}
-              className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg font-semibold"
-              style={{ color: '#A8BEF0', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
+              className={user ? 'rounded-full' : 'text-sm px-3 py-1.5 rounded-lg font-semibold'}
+              style={user
+                ? {}
+                : { color: '#A8BEF0', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
               {user ? (
-                <>
-                  {user.picture ? (
-                    <img src={user.picture} alt="" className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />
-                  ) : (
-                    <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
-                      style={{ background: '#1A3FAB' }}>
-                      {initials(user.name ?? user.email)}
-                    </span>
-                  )}
-                  <span className="max-w-[100px] truncate">{user.name ?? user.email}</span>
-                </>
+                user.picture ? (
+                  <img src={user.picture} alt="Profiel" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
+                ) : (
+                  <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                    style={{ background: '#1A3FAB' }}>
+                    {initials(user.name ?? user.email)}
+                  </span>
+                )
               ) : (
                 'Inloggen'
               )}
@@ -1908,13 +1911,15 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
   return (
     <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
       <header style={{ background: '#0D2B7A' }} className="text-white sticky top-0 z-20 shadow-lg">
-        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-          <div className="flex items-center gap-4 min-w-0">
+        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
+          <div className="flex items-center gap-4">
             <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: '#7B9DE0' }}>← Terug</button>
             <SCMuidenLogo size={32} />
-            <h1 className="font-display text-2xl font-bold uppercase tracking-widest truncate">Wedstrijd Geschiedenis</h1>
+            <h1 className="font-display text-2xl font-bold uppercase tracking-widest">Wedstrijd Geschiedenis</h1>
           </div>
-          <H1Logo height={24} />
+          <div className="flex justify-center">
+            <H1Logo height={24} />
+          </div>
           <div />
         </div>
       </header>
@@ -2086,13 +2091,15 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   return (
     <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
       <header style={{ background: '#0D2B7A' }} className="text-white sticky top-0 z-20 shadow-lg">
-        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-          <div className="flex items-center gap-4 min-w-0">
+        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
+          <div className="flex items-center gap-4">
             <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: '#7B9DE0' }}>← Terug</button>
             <SCMuidenLogo size={32} />
-            <h1 className="font-display text-2xl font-bold uppercase tracking-widest truncate">Profiel</h1>
+            <h1 className="font-display text-2xl font-bold uppercase tracking-widest">Profiel</h1>
           </div>
-          <H1Logo height={24} />
+          <div className="flex justify-center">
+            <H1Logo height={24} />
+          </div>
           <div />
         </div>
       </header>
@@ -2489,12 +2496,11 @@ function useRemoteGames(enabled: boolean) {
 
 // ── Splash screen ─────────────────────────────────────────────────────────────
 // Shown once per browser session (sessionStorage, not localStorage — a
-// reload later that day should still skip it) before flipping to the app.
+// reload later that day should still skip it) until the coach taps Continue.
 
 const SPLASH_SESSION_KEY = 'fh_splash_shown'
-const SPLASH_DURATION_MS = 2000
 
-function SplashScreen() {
+function SplashScreen({ onContinue }: { onContinue: () => void }) {
   const [visible, setVisible] = useState(false)
   useEffect(() => {
     const raf = requestAnimationFrame(() => setVisible(true))
@@ -2502,10 +2508,15 @@ function SplashScreen() {
   }, [])
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center" style={{ background: '#000' }}>
+    <div className="fixed inset-0 flex flex-col items-center justify-center gap-8" style={{ background: '#000' }}>
       <img src="/hockey-one-splash.png" alt="Hockey One"
         className="w-full max-w-xs px-10"
         style={{ opacity: visible ? 1 : 0, transition: 'opacity 0.4s ease-out' }} />
+      <button onClick={onContinue}
+        className="text-sm font-bold uppercase italic"
+        style={{ color: '#2563EB', letterSpacing: '0.15em', opacity: visible ? 1 : 0, transition: 'opacity 0.4s ease-out' }}>
+        Continue →
+      </button>
     </div>
   )
 }
@@ -2515,12 +2526,10 @@ function SplashScreen() {
 export default function App() {
   const [showSplash, setShowSplash] = useState(() => sessionStorage.getItem(SPLASH_SESSION_KEY) !== '1')
 
-  useEffect(() => {
-    if (!showSplash) return
+  const dismissSplash = () => {
     sessionStorage.setItem(SPLASH_SESSION_KEY, '1')
-    const t = setTimeout(() => setShowSplash(false), SPLASH_DURATION_MS)
-    return () => clearTimeout(t)
-  }, [showSplash])
+    setShowSplash(false)
+  }
 
   const [view, setView] = useState<View>('setup')
   const [gameParams, setGameParams] = useState<GameParams | null>(null)
@@ -2528,7 +2537,7 @@ export default function App() {
   const { user, loading: authLoading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, logout, updateProfile } = useAuth()
   const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user)
 
-  if (showSplash) return <SplashScreen />
+  if (showSplash) return <SplashScreen onContinue={dismissSplash} />
 
   const startEdit = (game: SavedGame) => {
     setEditingGame(game)
