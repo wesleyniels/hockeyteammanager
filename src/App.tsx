@@ -2470,14 +2470,48 @@ function useRemoteGames(enabled: boolean) {
   return { games, loading, error, addGame, updateGame, deleteGame }
 }
 
+// ── Splash screen ─────────────────────────────────────────────────────────────
+// Shown once per browser session (sessionStorage, not localStorage — a
+// reload later that day should still skip it) before flipping to the app.
+
+const SPLASH_SESSION_KEY = 'fh_splash_shown'
+const SPLASH_DURATION_MS = 2000
+
+function SplashScreen() {
+  const [visible, setVisible] = useState(false)
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setVisible(true))
+    return () => cancelAnimationFrame(raf)
+  }, [])
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center" style={{ background: '#000' }}>
+      <img src="/hockey-one-splash.png" alt="Hockey One"
+        className="w-full max-w-xs px-10"
+        style={{ opacity: visible ? 1 : 0, transition: 'opacity 0.4s ease-out' }} />
+    </div>
+  )
+}
+
 // ── App ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
+  const [showSplash, setShowSplash] = useState(() => sessionStorage.getItem(SPLASH_SESSION_KEY) !== '1')
+
+  useEffect(() => {
+    if (!showSplash) return
+    sessionStorage.setItem(SPLASH_SESSION_KEY, '1')
+    const t = setTimeout(() => setShowSplash(false), SPLASH_DURATION_MS)
+    return () => clearTimeout(t)
+  }, [showSplash])
+
   const [view, setView] = useState<View>('setup')
   const [gameParams, setGameParams] = useState<GameParams | null>(null)
   const [editingGame, setEditingGame] = useState<SavedGame | null>(null)
   const { user, loading: authLoading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, logout, updateProfile } = useAuth()
   const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user)
+
+  if (showSplash) return <SplashScreen />
 
   const startEdit = (game: SavedGame) => {
     setEditingGame(game)

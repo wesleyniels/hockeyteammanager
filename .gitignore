@@ -13,3 +13,4 @@ logs/
 .tmp-*
 .tools/
 .vercel
+.DS_Store
