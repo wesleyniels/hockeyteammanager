@@ -473,7 +473,11 @@ function getSelectedVariant(ag: AgeGroup): FormationVariant {
 
 // Custom (dragged) position layouts are saved per age group *and* variant —
 // switching formation shouldn't clobber another variant's saved tweaks.
-const layoutKey = (ag: AgeGroup, variantId: string) => `fh_layout_${ag}_${variantId}`
+// "_v2" marks the coordinate fix that mirrored every L/R position (previously
+// R was on-screen-left and L was on-screen-right) — bumping the key orphans
+// any layout saved under the old, mirrored coordinates instead of re-applying
+// them onto the now-correct labels.
+const layoutKey = (ag: AgeGroup, variantId: string) => `fh_layout_v2_${ag}_${variantId}`
 
 function getPositions(ag: AgeGroup): PosDef[] {
   const variant = getSelectedVariant(ag)
@@ -1053,6 +1057,7 @@ function SetupView({ onStart, onHistory, onProfile, user }: {
   const [team, setTeam] = useLS('fh_team', '')
   const ageGroup = team ? ageGroupFromTeamName(team) : 'U7'
   const [opponent, setOpponent] = useState('')
+  const [opponentTeam, setOpponentTeam] = useState('')
   const [homeAway, setHomeAway] = useState<'Thuis' | 'Uit'>('Thuis')
   const [squad, setSquad] = useLS<Player[]>('fh_squad', [])
   const [newName, setNewName] = useState('')
@@ -1097,7 +1102,7 @@ function SetupView({ onStart, onHistory, onProfile, user }: {
   }, [user?.defaultTeam])
 
   const minPlayers = AGE_CONFIG[ageGroup].total
-  const canStart = (club || clubSearch) && team && opponent
+  const canStart = (club || clubSearch) && team && (opponent || opponentTeam.trim())
 
   const inputStyle = { border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }
 
@@ -1214,7 +1219,7 @@ function SetupView({ onStart, onHistory, onProfile, user }: {
               {KNHB_CLUBS.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
             <input type="text" className="w-full rounded-xl px-3 py-2.5 text-sm mt-2" style={inputStyle}
-              value={opponent} onChange={e => setOpponent(e.target.value)}
+              value={opponentTeam} onChange={e => setOpponentTeam(e.target.value)}
               placeholder="Teamnaam (bijv. MO11-1 of JO9-Blauw)" />
           </div>
           <div className="flex gap-3">
@@ -1288,7 +1293,7 @@ function SetupView({ onStart, onHistory, onProfile, user }: {
 
         <button
           disabled={!canStart}
-          onClick={() => onStart({ club: club || clubSearch, team, ageGroup, opponent, homeAway, squad })}
+          onClick={() => onStart({ club: club || clubSearch, team, ageGroup, opponent: opponentTeam.trim() || opponent, homeAway, squad })}
           className="w-full py-4 rounded-2xl font-display text-xl font-bold uppercase tracking-widest text-white shadow-lg"
           style={{ background: canStart ? '#1A3FAB' : '#B8C8F0', cursor: canStart ? 'pointer' : 'not-allowed' }}>
           Wedstrijd starten →
@@ -2725,6 +2730,28 @@ interface GameShare {
   permission: 'view' | 'edit'
 }
 
+interface DirectoryUser {
+  id: string
+  email: string
+  name: string | null
+}
+
+// Small closed roster, so any signed-in coach can browse who else has an
+// account (id/email/name only) to pick a share target from — see
+// api/users-list.ts for the access-control reasoning.
+function useAllUsers() {
+  const [users, setUsers] = useState<DirectoryUser[]>([])
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/users-list')
+      .then(res => (res.ok ? res.json() : { users: [] }))
+      .then(data => { if (!cancelled) setUsers(data.users ?? []) })
+      .catch(() => { if (!cancelled) setUsers([]) })
+    return () => { cancelled = true }
+  }, [])
+  return users
+}
+
 function useGameShares(gameId: string | null) {
   const [shares, setShares] = useState<GameShare[]>([])
   const [loading, setLoading] = useState(false)
@@ -2770,36 +2797,47 @@ function GameShareManager({ shares, onAdd, onRemove }: {
   onRemove: (userId: string) => void
 }) {
   const inputStyle = { border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }
-  const [email, setEmail] = useState('')
+  const allUsers = useAllUsers()
+  const sharedIds = new Set(shares.map(s => s.userId))
+  const available = allUsers.filter(u => !sharedIds.has(u.id))
+  const [userId, setUserId] = useState('')
   const [permission, setPermission] = useState<'view' | 'edit'>('view')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   const submit = async () => {
-    if (!email.trim()) return
+    const target = available.find(u => u.id === userId)
+    if (!target) return
     setBusy(true)
     setError(null)
-    const res = await onAdd(email.trim(), permission)
-    if (res.ok) setEmail(''); else setError(res.error)
+    const res = await onAdd(target.email, permission)
+    if (res.ok) setUserId(''); else setError(res.error)
     setBusy(false)
   }
 
   return (
     <div>
       <div className="flex gap-2">
-        <input className="flex-1 rounded-xl px-3 py-2 text-sm" style={inputStyle} type="email"
-          value={email} onChange={e => setEmail(e.target.value)} placeholder="E-mailadres" />
+        <select className="flex-1 rounded-xl px-3 py-2 text-sm"
+          style={{ ...inputStyle, color: userId ? '#1A2F6B' : '#7B90C8' }}
+          value={userId} onChange={e => setUserId(e.target.value)}>
+          <option value="">Kies gebruiker…</option>
+          {available.map(u => <option key={u.id} value={u.id}>{u.name ? `${u.name} (${u.email})` : u.email}</option>)}
+        </select>
         <select className="rounded-xl px-2 py-2 text-sm" style={inputStyle}
           value={permission} onChange={e => setPermission(e.target.value as 'view' | 'edit')}>
           <option value="view">Bekijken</option>
           <option value="edit">Bewerken</option>
         </select>
-        <button onClick={submit} disabled={busy || !email.trim()}
+        <button onClick={submit} disabled={busy || !userId}
           className="px-3 py-2 rounded-xl font-bold text-white text-sm shrink-0 disabled:opacity-50"
           style={{ background: '#1A3FAB' }}>
           Delen
         </button>
       </div>
+      {available.length === 0 && (
+        <p className="text-xs mt-1" style={{ color: '#A8BEF0' }}>Geen andere gebruikers gevonden om mee te delen.</p>
+      )}
       {error && <p className="text-xs font-semibold mt-1" style={{ color: '#DC2626' }}>{error}</p>}
       {shares.length > 0 && (
         <div className="mt-2 space-y-1">
