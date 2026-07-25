@@ -1190,9 +1190,6 @@ function SetupView({ onStart, onHistory, onProfile, user }: {
               <option value="">Kies team…</option>
               {SC_MUIDEN_TEAM_NAMES.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
-            <input className="w-full rounded-xl px-3 py-2.5 text-sm mt-2" style={inputStyle}
-              value={team} onChange={e => selectTeam(e.target.value)}
-              placeholder="Staat je team er niet bij? Typ de naam handmatig…" />
             {team && (
               <>
                 <p className="text-xs mt-2 font-medium" style={{ color: '#7B90C8' }}>{AGE_CONFIG[ageGroup].label}</p>
@@ -1208,15 +1205,15 @@ function SetupView({ onStart, onHistory, onProfile, user }: {
 
         {/* Match */}
         <section className="bg-white rounded-2xl p-6 space-y-4 shadow-sm" style={{ border: '1px solid #D0DCFA' }}>
-          <h2 className="font-display text-2xl font-bold uppercase tracking-wide" style={{ color: '#0D2B7A' }}>Wedstrijd</h2>
+          <h2 className="font-display text-2xl font-bold uppercase tracking-wide" style={{ color: '#0D2B7A' }}>Tegenstander</h2>
           <div>
-            <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Tegenstander</label>
+            <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Club</label>
             <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: opponent ? '#1A2F6B' : '#7B90C8' }}
               value={opponent} onChange={e => setOpponent(e.target.value)}>
               <option value="">Kies club tegenstander…</option>
               {KNHB_CLUBS.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
-            <input className="w-full rounded-xl px-3 py-2.5 text-sm mt-2" style={inputStyle}
+            <input type="text" className="w-full rounded-xl px-3 py-2.5 text-sm mt-2" style={inputStyle}
               value={opponent} onChange={e => setOpponent(e.target.value)}
               placeholder="Teamnaam (bijv. MO11-1 of JO9-Blauw)" />
           </div>
