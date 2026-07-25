@@ -38,6 +38,15 @@ export function ensureSchema() {
       )
     `
     await sql`ALTER TABLE games ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id)`
+    await sql`
+      CREATE TABLE IF NOT EXISTS game_shares (
+        game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        permission TEXT NOT NULL CHECK (permission IN ('view', 'edit')),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (game_id, user_id)
+      )
+    `
   })()
   return schemaReady
 }

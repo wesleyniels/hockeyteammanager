@@ -60,6 +60,11 @@ interface SavedGame {
   scoreOwn: number
   scoreOpp: number
   finalTime: number
+  // Populated by the API from games/game_shares — absent on a game that
+  // hasn't been saved/fetched yet. Missing means "treat as fully owned",
+  // which is correct for anything created locally before its first save.
+  ownerId?: string
+  permission?: 'owner' | 'edit' | 'view'
 }
 
 interface GameParams {
@@ -339,81 +344,81 @@ const POS_DUAL: PosDef[] = [
 // U9 (KNHB O9, 6-tegen-6) — GK + 5 outfield, in three common shapes
 const POS_U9_2_2_1: PosDef[] = [
   { id: 'gk', label: 'K',  x: 50, y: 86 },
-  { id: 'd1', label: 'RB', x: 28, y: 66 }, { id: 'd2', label: 'LB', x: 72, y: 66 },
-  { id: 'm1', label: 'RM', x: 28, y: 40 }, { id: 'm2', label: 'LM', x: 72, y: 40 },
+  { id: 'd1', label: 'RB', x: 72, y: 66 }, { id: 'd2', label: 'LB', x: 28, y: 66 },
+  { id: 'm1', label: 'RM', x: 72, y: 40 }, { id: 'm2', label: 'LM', x: 28, y: 40 },
   { id: 'f1', label: 'ST', x: 50, y: 20 },
 ]
 const POS_U9_1_3_1: PosDef[] = [
   { id: 'gk', label: 'K',  x: 50, y: 86 },
   { id: 'd1', label: 'CB', x: 50, y: 68 },
-  { id: 'm1', label: 'RM', x: 20, y: 45 }, { id: 'm2', label: 'CM', x: 50, y: 45 }, { id: 'm3', label: 'LM', x: 80, y: 45 },
+  { id: 'm1', label: 'RM', x: 80, y: 45 }, { id: 'm2', label: 'CM', x: 50, y: 45 }, { id: 'm3', label: 'LM', x: 20, y: 45 },
   { id: 'f1', label: 'ST', x: 50, y: 20 },
 ]
 const POS_U9_2_1_2: PosDef[] = [
   { id: 'gk', label: 'K',  x: 50, y: 86 },
-  { id: 'd1', label: 'RB', x: 28, y: 68 }, { id: 'd2', label: 'LB', x: 72, y: 68 },
+  { id: 'd1', label: 'RB', x: 72, y: 68 }, { id: 'd2', label: 'LB', x: 28, y: 68 },
   { id: 'm1', label: 'CM', x: 50, y: 45 },
-  { id: 'f1', label: 'RS', x: 30, y: 20 }, { id: 'f2', label: 'LS', x: 70, y: 20 },
+  { id: 'f1', label: 'RS', x: 70, y: 20 }, { id: 'f2', label: 'LS', x: 30, y: 20 },
 ]
 
 // U10 — GK + 7 outfield
 const POS_U10_2_3_2: PosDef[] = [
   { id: 'gk', label: 'K',  x: 50, y: 86 },
-  { id: 'd1', label: 'RB', x: 28, y: 70 }, { id: 'd2', label: 'LB', x: 72, y: 70 },
-  { id: 'm1', label: 'RH', x: 16, y: 50 }, { id: 'm2', label: 'CH', x: 50, y: 50 }, { id: 'm3', label: 'LH', x: 84, y: 50 },
-  { id: 'f1', label: 'RS', x: 30, y: 26 }, { id: 'f2', label: 'LS', x: 70, y: 26 },
+  { id: 'd1', label: 'RB', x: 72, y: 70 }, { id: 'd2', label: 'LB', x: 28, y: 70 },
+  { id: 'm1', label: 'RH', x: 84, y: 50 }, { id: 'm2', label: 'CH', x: 50, y: 50 }, { id: 'm3', label: 'LH', x: 16, y: 50 },
+  { id: 'f1', label: 'RS', x: 70, y: 26 }, { id: 'f2', label: 'LS', x: 30, y: 26 },
 ]
 const POS_U10_3_2_2: PosDef[] = [
   { id: 'gk', label: 'K',  x: 50, y: 86 },
-  { id: 'd1', label: 'RB', x: 18, y: 70 }, { id: 'd2', label: 'CB', x: 50, y: 72 }, { id: 'd3', label: 'LB', x: 82, y: 70 },
-  { id: 'm1', label: 'RH', x: 28, y: 48 }, { id: 'm2', label: 'LH', x: 72, y: 48 },
-  { id: 'f1', label: 'RS', x: 30, y: 24 }, { id: 'f2', label: 'LS', x: 70, y: 24 },
+  { id: 'd1', label: 'RB', x: 82, y: 70 }, { id: 'd2', label: 'CB', x: 50, y: 72 }, { id: 'd3', label: 'LB', x: 18, y: 70 },
+  { id: 'm1', label: 'RH', x: 72, y: 48 }, { id: 'm2', label: 'LH', x: 28, y: 48 },
+  { id: 'f1', label: 'RS', x: 70, y: 24 }, { id: 'f2', label: 'LS', x: 30, y: 24 },
 ]
 const POS_U10_2_2_3: PosDef[] = [
   { id: 'gk', label: 'K',  x: 50, y: 86 },
-  { id: 'd1', label: 'RB', x: 28, y: 68 }, { id: 'd2', label: 'LB', x: 72, y: 68 },
-  { id: 'm1', label: 'RH', x: 28, y: 46 }, { id: 'm2', label: 'LH', x: 72, y: 46 },
-  { id: 'f1', label: 'RW', x: 20, y: 24 }, { id: 'f2', label: 'ST', x: 50, y: 18 }, { id: 'f3', label: 'LW', x: 80, y: 24 },
+  { id: 'd1', label: 'RB', x: 72, y: 68 }, { id: 'd2', label: 'LB', x: 28, y: 68 },
+  { id: 'm1', label: 'RH', x: 72, y: 46 }, { id: 'm2', label: 'LH', x: 28, y: 46 },
+  { id: 'f1', label: 'RW', x: 80, y: 24 }, { id: 'f2', label: 'ST', x: 50, y: 18 }, { id: 'f3', label: 'LW', x: 20, y: 24 },
 ]
 
 // U11 — GK + 8 outfield
 const POS_U11_2_3_3: PosDef[] = [
   { id: 'gk', label: 'K',  x: 50, y: 86 },
-  { id: 'd1', label: 'RB', x: 28, y: 70 }, { id: 'd2', label: 'LB', x: 72, y: 70 },
-  { id: 'm1', label: 'RH', x: 16, y: 50 }, { id: 'm2', label: 'MH', x: 50, y: 50 }, { id: 'm3', label: 'LH', x: 84, y: 50 },
-  { id: 'f1', label: 'RW', x: 22, y: 28 }, { id: 'f2', label: 'ST', x: 50, y: 21 }, { id: 'f3', label: 'LW', x: 78, y: 28 },
+  { id: 'd1', label: 'RB', x: 72, y: 70 }, { id: 'd2', label: 'LB', x: 28, y: 70 },
+  { id: 'm1', label: 'RH', x: 84, y: 50 }, { id: 'm2', label: 'MH', x: 50, y: 50 }, { id: 'm3', label: 'LH', x: 16, y: 50 },
+  { id: 'f1', label: 'RW', x: 78, y: 28 }, { id: 'f2', label: 'ST', x: 50, y: 21 }, { id: 'f3', label: 'LW', x: 22, y: 28 },
 ]
 const POS_U11_3_3_2: PosDef[] = [
   { id: 'gk', label: 'K',  x: 50, y: 86 },
-  { id: 'd1', label: 'RB', x: 18, y: 70 }, { id: 'd2', label: 'CB', x: 50, y: 72 }, { id: 'd3', label: 'LB', x: 82, y: 70 },
-  { id: 'm1', label: 'RH', x: 22, y: 48 }, { id: 'm2', label: 'MH', x: 50, y: 48 }, { id: 'm3', label: 'LH', x: 78, y: 48 },
-  { id: 'f1', label: 'RS', x: 32, y: 22 }, { id: 'f2', label: 'LS', x: 68, y: 22 },
+  { id: 'd1', label: 'RB', x: 82, y: 70 }, { id: 'd2', label: 'CB', x: 50, y: 72 }, { id: 'd3', label: 'LB', x: 18, y: 70 },
+  { id: 'm1', label: 'RH', x: 78, y: 48 }, { id: 'm2', label: 'MH', x: 50, y: 48 }, { id: 'm3', label: 'LH', x: 22, y: 48 },
+  { id: 'f1', label: 'RS', x: 68, y: 22 }, { id: 'f2', label: 'LS', x: 32, y: 22 },
 ]
 const POS_U11_3_2_3: PosDef[] = [
   { id: 'gk', label: 'K',  x: 50, y: 86 },
-  { id: 'd1', label: 'RB', x: 18, y: 70 }, { id: 'd2', label: 'CB', x: 50, y: 72 }, { id: 'd3', label: 'LB', x: 82, y: 70 },
-  { id: 'm1', label: 'RH', x: 30, y: 48 }, { id: 'm2', label: 'LH', x: 70, y: 48 },
-  { id: 'f1', label: 'RW', x: 22, y: 22 }, { id: 'f2', label: 'ST', x: 50, y: 18 }, { id: 'f3', label: 'LW', x: 78, y: 22 },
+  { id: 'd1', label: 'RB', x: 82, y: 70 }, { id: 'd2', label: 'CB', x: 50, y: 72 }, { id: 'd3', label: 'LB', x: 18, y: 70 },
+  { id: 'm1', label: 'RH', x: 70, y: 48 }, { id: 'm2', label: 'LH', x: 30, y: 48 },
+  { id: 'f1', label: 'RW', x: 78, y: 22 }, { id: 'f2', label: 'ST', x: 50, y: 18 }, { id: 'f3', label: 'LW', x: 22, y: 22 },
 ]
 
 // U12+ (11-a-side) — GK + 10 outfield, shared by U12/U14/U16/U18/Senioren
 const POS_11_4_3_3: PosDef[] = [
   { id: 'gk', label: 'K',   x: 50, y: 86 },
-  { id: 'd1', label: 'RB',  x: 15, y: 70 }, { id: 'd2', label: 'CB', x: 38, y: 70 }, { id: 'd3', label: 'CB', x: 62, y: 70 }, { id: 'd4', label: 'LB', x: 85, y: 70 },
-  { id: 'm1', label: 'RH',  x: 22, y: 50 }, { id: 'm2', label: 'CH', x: 50, y: 50 }, { id: 'm3', label: 'LH', x: 78, y: 50 },
-  { id: 'f1', label: 'RW',  x: 22, y: 27 }, { id: 'f2', label: 'ST', x: 50, y: 20 }, { id: 'f3', label: 'LW', x: 78, y: 27 },
+  { id: 'd1', label: 'RB',  x: 85, y: 70 }, { id: 'd2', label: 'CB', x: 38, y: 70 }, { id: 'd3', label: 'CB', x: 62, y: 70 }, { id: 'd4', label: 'LB', x: 15, y: 70 },
+  { id: 'm1', label: 'RH',  x: 78, y: 50 }, { id: 'm2', label: 'CH', x: 50, y: 50 }, { id: 'm3', label: 'LH', x: 22, y: 50 },
+  { id: 'f1', label: 'RW',  x: 78, y: 27 }, { id: 'f2', label: 'ST', x: 50, y: 20 }, { id: 'f3', label: 'LW', x: 22, y: 27 },
 ]
 const POS_11_4_4_2: PosDef[] = [
   { id: 'gk', label: 'K',   x: 50, y: 86 },
-  { id: 'd1', label: 'RB',  x: 15, y: 70 }, { id: 'd2', label: 'CB', x: 38, y: 70 }, { id: 'd3', label: 'CB', x: 62, y: 70 }, { id: 'd4', label: 'LB', x: 85, y: 70 },
-  { id: 'm1', label: 'RM',  x: 15, y: 48 }, { id: 'm2', label: 'CM', x: 38, y: 48 }, { id: 'm3', label: 'CM', x: 62, y: 48 }, { id: 'm4', label: 'LM', x: 85, y: 48 },
+  { id: 'd1', label: 'RB',  x: 85, y: 70 }, { id: 'd2', label: 'CB', x: 38, y: 70 }, { id: 'd3', label: 'CB', x: 62, y: 70 }, { id: 'd4', label: 'LB', x: 15, y: 70 },
+  { id: 'm1', label: 'RM',  x: 85, y: 48 }, { id: 'm2', label: 'CM', x: 38, y: 48 }, { id: 'm3', label: 'CM', x: 62, y: 48 }, { id: 'm4', label: 'LM', x: 15, y: 48 },
   { id: 'f1', label: 'ST',  x: 35, y: 22 }, { id: 'f2', label: 'ST', x: 65, y: 22 },
 ]
 const POS_11_3_4_3: PosDef[] = [
   { id: 'gk', label: 'K',   x: 50, y: 86 },
   { id: 'd1', label: 'CB',  x: 25, y: 70 }, { id: 'd2', label: 'CB', x: 50, y: 72 }, { id: 'd3', label: 'CB', x: 75, y: 70 },
-  { id: 'm1', label: 'RM',  x: 15, y: 48 }, { id: 'm2', label: 'CM', x: 38, y: 48 }, { id: 'm3', label: 'CM', x: 62, y: 48 }, { id: 'm4', label: 'LM', x: 85, y: 48 },
-  { id: 'f1', label: 'RW',  x: 22, y: 22 }, { id: 'f2', label: 'ST', x: 50, y: 18 }, { id: 'f3', label: 'LW', x: 78, y: 22 },
+  { id: 'm1', label: 'RM',  x: 85, y: 48 }, { id: 'm2', label: 'CM', x: 38, y: 48 }, { id: 'm3', label: 'CM', x: 62, y: 48 }, { id: 'm4', label: 'LM', x: 15, y: 48 },
+  { id: 'f1', label: 'RW',  x: 78, y: 22 }, { id: 'f2', label: 'ST', x: 50, y: 18 }, { id: 'f3', label: 'LW', x: 22, y: 22 },
 ]
 
 const FORMATIONS_11: FormationVariant[] = [
@@ -1185,6 +1190,9 @@ function SetupView({ onStart, onHistory, onProfile, user }: {
               <option value="">Kies team…</option>
               {SC_MUIDEN_TEAM_NAMES.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
+            <input className="w-full rounded-xl px-3 py-2.5 text-sm mt-2" style={inputStyle}
+              value={team} onChange={e => selectTeam(e.target.value)}
+              placeholder="Staat je team er niet bij? Typ de naam handmatig…" />
             {team && (
               <>
                 <p className="text-xs mt-2 font-medium" style={{ color: '#7B90C8' }}>{AGE_CONFIG[ageGroup].label}</p>
@@ -1322,6 +1330,10 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   onBack: () => void
 }) {
   const isDual = ageGroup === 'U7' || ageGroup === 'U8'
+  // A game shared with only 'view' permission is read-only in the UI; the
+  // real enforcement is server-side (PUT rejects it regardless), this just
+  // keeps a view-only viewer from fiddling with controls that won't stick.
+  const readOnly = (initial?.permission ?? 'owner') === 'view'
 
   const [slots, setSlots] = useState<PositionSlot[]>(() => normalizeSlots(initial?.slots, ageGroup))
   const [bench, setBench] = useState<BenchEntry[]>(() => {
@@ -1352,6 +1364,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
 
   const doSub = (inId: string, posId: string) => {
+    if (readOnly) return
     const pos = slots.find(s => s.posId === posId)
     const outId = pos?.playerId ?? null
     setSlots(sl => sl.map(s => s.posId === posId ? { ...s, playerId: inId } : s))
@@ -1361,6 +1374,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   }
 
   const swapField = (posA: string, posB: string) => {
+    if (readOnly) return
     const aId = slots.find(s => s.posId === posA)?.playerId ?? null
     const bId = slots.find(s => s.posId === posB)?.playerId ?? null
     setSlots(sl => sl.map(s => {
@@ -1372,6 +1386,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   }
 
   const sendToBench = (posId: string) => {
+    if (readOnly) return
     const pid = slots.find(s => s.posId === posId)?.playerId
     if (!pid) return
     setSlots(sl => sl.map(s => s.posId === posId ? { ...s, playerId: null } : s))
@@ -1381,6 +1396,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
 
   // Freeform positioning: move a slot (and whoever's on it) to an arbitrary spot on the field.
   const movePosition = (posId: string, x: number, y: number) => {
+    if (readOnly) return
     setSlots(sl => sl.map(s => s.posId === posId ? { ...s, x, y } : s))
   }
 
@@ -1493,12 +1509,13 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   }, [])
 
   const beginDrag = (type: DragKind, id: string, e: React.PointerEvent) => {
+    if (readOnly) return
     dragInfoRef.current = { type, id }
     dragStartRef.current = { x: e.clientX, y: e.clientY }
   }
 
   const handleFieldClick = (posId: string) => {
-    if (suppressClickRef.current) return
+    if (suppressClickRef.current || readOnly) return
     const slot = slots.find(s => s.posId === posId)!
     if (selected?.type === 'bench') {
       doSub(selected.playerId, posId)
@@ -1526,7 +1543,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   }
 
   const handleBenchClick = (playerId: string) => {
-    if (suppressClickRef.current) return
+    if (suppressClickRef.current || readOnly) return
     if (selected?.type === 'field') {
       doSub(playerId, selected.posId)
     } else if (selected?.type === 'bench' && selected.playerId === playerId) {
@@ -1539,16 +1556,17 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   // Tap-to-place fallback for opponent tokens, mirroring how bench players
   // can be either dragged or click-selected-then-placed.
   const handleOppPoolClick = () => {
-    if (suppressClickRef.current) return
+    if (suppressClickRef.current || readOnly) return
     setSelected(sel => (sel?.type === 'opp-pool' ? null : { type: 'opp-pool' }))
   }
 
   const handleOppMarkerClick = (id: string) => {
-    if (suppressClickRef.current) return
+    if (suppressClickRef.current || readOnly) return
     setSelected(sel => (sel?.type === 'opp-marker' && sel.id === id ? null : { type: 'opp-marker', id }))
   }
 
   const removeOppMarker = (id: string) => {
+    if (readOnly) return
     setOppMarkers(m => m.filter(o => o.id !== id))
     setSelected(null)
   }
@@ -1572,7 +1590,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
 
   // Click-based equivalent of handleDropAt, for clicking empty grass while something is selected.
   const handleBackgroundClick = (x: number, y: number) => {
-    if (suppressClickRef.current) return
+    if (suppressClickRef.current || readOnly) return
     if (!selected) return
     // Opponent tokens are freeform — they never snap to/swap with own slots.
     if (selected.type === 'opp-pool') {
@@ -1608,6 +1626,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   const selectedFieldPlayer = selectedFieldPos ? getPlayer(slots.find(s => s.posId === selectedFieldPos)?.playerId ?? null) : null
 
   const saveGame = () => {
+    if (readOnly) return
     if (!user) {
       alert('Log in met Google om wedstrijden op te slaan (zie Profiel rechtsboven op het startscherm).')
       return
@@ -1618,6 +1637,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
       club, team, ageGroup, opponent, homeAway, squad, slots, subs, oppMarkers, goals, notes, result,
       scoreOwn, scoreOpp,
       finalTime: gameSec,
+      ownerId: initial?.ownerId ?? user.id,
+      permission: initial?.permission ?? 'owner',
     })
     alert('Wedstrijd opgeslagen!')
   }
@@ -1644,16 +1665,24 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
               {scoreOwn} - {scoreOpp}
             </div>
             <div className="font-mono font-bold text-xl tabular-nums">{fmtSec(gameSec)}</div>
-            <button onClick={e => { e.stopPropagation(); setRunning(r => !r) }}
-              className="px-3 py-1.5 rounded-lg text-xs font-bold"
-              style={{ background: running ? '#D97706' : '#16A34A', color: '#fff' }}>
-              {running ? '⏸' : '▶'}
-            </button>
-            <button onClick={e => { e.stopPropagation(); saveGame() }}
-              className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
-              style={{ background: '#1A3FAB' }}>
-              Opslaan
-            </button>
+            {!readOnly && (
+              <button onClick={e => { e.stopPropagation(); setRunning(r => !r) }}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold"
+                style={{ background: running ? '#D97706' : '#16A34A', color: '#fff' }}>
+                {running ? '⏸' : '▶'}
+              </button>
+            )}
+            {readOnly ? (
+              <span className="px-3 py-1.5 rounded-lg text-xs font-bold" style={{ background: 'rgba(255,255,255,0.12)', color: '#A8BEF0' }}>
+                Alleen-lezen
+              </span>
+            ) : (
+              <button onClick={e => { e.stopPropagation(); saveGame() }}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
+                style={{ background: '#1A3FAB' }}>
+                Opslaan
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1816,7 +1845,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                     <span className="text-xs font-bold uppercase" style={{ color: '#7B90C8', letterSpacing: '0.08em' }}>
                       Tegenstander ({oppAvailable} beschikbaar)
                     </span>
-                    {oppMarkers.length > 0 && (
+                    {oppMarkers.length > 0 && !readOnly && (
                       <button onClick={() => setOppMarkers([])} className="text-xs font-bold" style={{ color: '#DC2626' }}>
                         Wis
                       </button>
@@ -1878,22 +1907,22 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                     <div className="flex-1 text-center min-w-0">
                       <div className="text-xs font-semibold truncate" style={{ color: '#6B82B8' }}>{team || 'Eigen team'}</div>
                       <div className="flex items-center justify-center gap-2.5 mt-1">
-                        <button onClick={() => setScoreOwn(s => Math.max(0, s - 1))}
-                          className="w-7 h-7 rounded-lg font-bold text-sm" style={{ background: '#D0DCFA', color: '#1A3FAB' }}>−</button>
+                        <button onClick={() => setScoreOwn(s => Math.max(0, s - 1))} disabled={readOnly}
+                          className="w-7 h-7 rounded-lg font-bold text-sm disabled:opacity-50" style={{ background: '#D0DCFA', color: '#1A3FAB' }}>−</button>
                         <span className="font-mono font-bold text-xl w-6 text-center" style={{ color: '#1A2F6B' }}>{scoreOwn}</span>
-                        <button onClick={() => setScoreOwn(s => s + 1)}
-                          className="w-7 h-7 rounded-lg font-bold text-sm text-white" style={{ background: '#1A3FAB' }}>+</button>
+                        <button onClick={() => setScoreOwn(s => s + 1)} disabled={readOnly}
+                          className="w-7 h-7 rounded-lg font-bold text-sm text-white disabled:opacity-50" style={{ background: '#1A3FAB' }}>+</button>
                       </div>
                     </div>
                     <div className="font-bold text-sm shrink-0" style={{ color: '#A8BEF0' }}>–</div>
                     <div className="flex-1 text-center min-w-0">
                       <div className="text-xs font-semibold truncate" style={{ color: '#6B82B8' }}>{opponent || 'Tegenstander'}</div>
                       <div className="flex items-center justify-center gap-2.5 mt-1">
-                        <button onClick={() => setScoreOpp(s => Math.max(0, s - 1))}
-                          className="w-7 h-7 rounded-lg font-bold text-sm" style={{ background: '#D0DCFA', color: '#1A3FAB' }}>−</button>
+                        <button onClick={() => setScoreOpp(s => Math.max(0, s - 1))} disabled={readOnly}
+                          className="w-7 h-7 rounded-lg font-bold text-sm disabled:opacity-50" style={{ background: '#D0DCFA', color: '#1A3FAB' }}>−</button>
                         <span className="font-mono font-bold text-xl w-6 text-center" style={{ color: '#1A2F6B' }}>{scoreOpp}</span>
-                        <button onClick={() => setScoreOpp(s => s + 1)}
-                          className="w-7 h-7 rounded-lg font-bold text-sm text-white" style={{ background: '#1A3FAB' }}>+</button>
+                        <button onClick={() => setScoreOpp(s => s + 1)} disabled={readOnly}
+                          className="w-7 h-7 rounded-lg font-bold text-sm text-white disabled:opacity-50" style={{ background: '#1A3FAB' }}>+</button>
                       </div>
                     </div>
                   </div>
@@ -1901,7 +1930,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                 <div>
                   <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Doelpuntenmakers</label>
                   <div className="flex gap-2">
-                    <select className="flex-1 rounded-xl px-3 py-2 text-sm"
+                    <select className="flex-1 rounded-xl px-3 py-2 text-sm" disabled={readOnly}
                       style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: goalPlayerId ? '#1A2F6B' : '#7B90C8', outline: 'none' }}
                       value={goalPlayerId} onChange={e => setGoalPlayerId(e.target.value)}>
                       <option value="">Kies speler…</option>
@@ -1910,10 +1939,11 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                       ))}
                     </select>
                     <button onClick={() => {
-                      if (!goalPlayerId) return
+                      if (readOnly || !goalPlayerId) return
                       setGoals(g => [...g, { id: uid(), playerId: goalPlayerId }])
                     }}
-                      className="px-4 py-2 rounded-xl font-bold text-white text-lg shrink-0"
+                      disabled={readOnly}
+                      className="px-4 py-2 rounded-xl font-bold text-white text-lg shrink-0 disabled:opacity-50"
                       style={{ background: '#1A3FAB' }}>
                       +
                     </button>
@@ -1926,10 +1956,12 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                           <div key={g.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
                             style={{ background: '#F8FAFF', border: '1px solid #E8EFFD' }}>
                             <span style={{ color: '#1A2F6B' }}><HockeyBallIcon /> {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}</span>
-                            <button onClick={() => setGoals(gs => gs.filter(x => x.id !== g.id))}
-                              className="font-bold" style={{ color: '#DC2626' }}>
-                              ×
-                            </button>
+                            {!readOnly && (
+                              <button onClick={() => setGoals(gs => gs.filter(x => x.id !== g.id))}
+                                className="font-bold" style={{ color: '#DC2626' }}>
+                                ×
+                              </button>
+                            )}
                           </div>
                         )
                       })}
@@ -1943,7 +1975,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                   <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Notities</label>
                   <textarea className="w-full rounded-xl px-3 py-2 text-sm resize-none"
                     style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: '#1A2F6B', outline: 'none' }}
-                    rows={8} value={notes} onChange={e => setNotes(e.target.value)}
+                    rows={8} value={notes} onChange={e => setNotes(e.target.value)} readOnly={readOnly}
                     placeholder="Tactische notities, bijzonderheden…" />
                 </div>
               </div>
@@ -1969,6 +2001,10 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
 }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const getPlayer = (g: SavedGame, id: string) => g.squad.find(p => p.id === id)
+
+  const expandedGame = games.find(g => g.id === expanded) ?? null
+  const canManageSharing = !!expandedGame && (expandedGame.ownerId ?? user?.id) === user?.id
+  const { shares, addShare, removeShare } = useGameShares(canManageSharing ? expanded : null)
 
   return (
     <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
@@ -2024,6 +2060,11 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
                         <span className="text-xs font-bold" style={{ color: '#1A3FAB' }}>{g.result}</span>
                       ) : null}
                       <span className="text-xs font-mono" style={{ color: '#A8BEF0' }}>{fmtSec(g.finalTime)}</span>
+                      {g.ownerId && user && g.ownerId !== user.id && (
+                        <span className="text-xs font-bold px-1.5 rounded" style={{ color: '#6D28D9', background: '#EDE9FE' }}>
+                          Gedeeld · {g.permission === 'edit' ? 'Bewerken' : 'Bekijken'}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <span className="text-xs ml-4 shrink-0" style={{ color: '#C8D5F5' }}>
@@ -2099,17 +2140,26 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
                         </div>
                       )}
 
+                      {canManageSharing && (
+                        <div>
+                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: '#7B90C8' }}>Delen</h4>
+                          <GameShareManager shares={shares} onAdd={addShare} onRemove={removeShare} />
+                        </div>
+                      )}
+
                       <div className="flex gap-2">
                         <button onClick={() => onEdit(g)}
                           className="text-xs font-bold px-3 py-1.5 rounded-lg text-white"
                           style={{ background: '#1A3FAB' }}>
-                          Bewerken
+                          {(g.permission ?? 'owner') === 'view' ? 'Bekijken' : 'Bewerken'}
                         </button>
-                        <button onClick={() => { if (confirm('Wedstrijd verwijderen?')) onDelete(g.id) }}
-                          className="text-xs font-bold px-3 py-1.5 rounded-lg"
-                          style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
-                          Verwijder
-                        </button>
+                        {(!g.ownerId || g.ownerId === user?.id) && (
+                          <button onClick={() => { if (confirm('Wedstrijd verwijderen?')) onDelete(g.id) }}
+                            className="text-xs font-bold px-3 py-1.5 rounded-lg"
+                            style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
+                            Verwijder
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -2664,6 +2714,111 @@ function useRemoteGames(enabled: boolean) {
   }, [])
 
   return { games, loading, error, addGame, updateGame, deleteGame }
+}
+
+// ── Game sharing ───────────────────────────────────────────────────────────────
+// Management (list/add/remove shares) is owner-only, enforced by the API —
+// gameId is only passed in as non-null when the caller already knows the
+// viewer owns the game, so this never fires a doomed request otherwise.
+
+interface GameShare {
+  userId: string
+  email: string
+  name: string | null
+  permission: 'view' | 'edit'
+}
+
+function useGameShares(gameId: string | null) {
+  const [shares, setShares] = useState<GameShare[]>([])
+  const [loading, setLoading] = useState(false)
+
+  const refresh = useCallback(() => {
+    if (!gameId) { setShares([]); return }
+    let cancelled = false
+    setLoading(true)
+    fetch(`/api/game-shares?gameId=${encodeURIComponent(gameId)}`)
+      .then(res => (res.ok ? res.json() : { shares: [] }))
+      .then(data => { if (!cancelled) setShares(data.shares ?? []) })
+      .catch(() => { if (!cancelled) setShares([]) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [gameId])
+
+  useEffect(() => refresh(), [refresh])
+
+  const addShare = useCallback(async (email: string, permission: 'view' | 'edit') => {
+    if (!gameId) return { ok: false as const, error: 'Geen wedstrijd geselecteerd' }
+    const res = await fetch('/api/game-shares', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gameId, email, permission }),
+    })
+    if (res.ok) { refresh(); return { ok: true as const } }
+    const body = await res.json().catch(() => ({}))
+    return { ok: false as const, error: body.error ?? 'Delen mislukt' }
+  }, [gameId, refresh])
+
+  const removeShare = useCallback(async (userId: string) => {
+    if (!gameId) return
+    await fetch(`/api/game-shares?gameId=${encodeURIComponent(gameId)}&userId=${encodeURIComponent(userId)}`, { method: 'DELETE' })
+    setShares(s => s.filter(x => x.userId !== userId))
+  }, [gameId])
+
+  return { shares, loading, addShare, removeShare }
+}
+
+function GameShareManager({ shares, onAdd, onRemove }: {
+  shares: GameShare[]
+  onAdd: (email: string, permission: 'view' | 'edit') => Promise<{ ok: true } | { ok: false; error: string }>
+  onRemove: (userId: string) => void
+}) {
+  const inputStyle = { border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }
+  const [email, setEmail] = useState('')
+  const [permission, setPermission] = useState<'view' | 'edit'>('view')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const submit = async () => {
+    if (!email.trim()) return
+    setBusy(true)
+    setError(null)
+    const res = await onAdd(email.trim(), permission)
+    if (res.ok) setEmail(''); else setError(res.error)
+    setBusy(false)
+  }
+
+  return (
+    <div>
+      <div className="flex gap-2">
+        <input className="flex-1 rounded-xl px-3 py-2 text-sm" style={inputStyle} type="email"
+          value={email} onChange={e => setEmail(e.target.value)} placeholder="E-mailadres" />
+        <select className="rounded-xl px-2 py-2 text-sm" style={inputStyle}
+          value={permission} onChange={e => setPermission(e.target.value as 'view' | 'edit')}>
+          <option value="view">Bekijken</option>
+          <option value="edit">Bewerken</option>
+        </select>
+        <button onClick={submit} disabled={busy || !email.trim()}
+          className="px-3 py-2 rounded-xl font-bold text-white text-sm shrink-0 disabled:opacity-50"
+          style={{ background: '#1A3FAB' }}>
+          Delen
+        </button>
+      </div>
+      {error && <p className="text-xs font-semibold mt-1" style={{ color: '#DC2626' }}>{error}</p>}
+      {shares.length > 0 && (
+        <div className="mt-2 space-y-1">
+          {shares.map(s => (
+            <div key={s.userId} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
+              style={{ background: '#F8FAFF', border: '1px solid #E8EFFD' }}>
+              <span style={{ color: '#1A2F6B' }}>
+                {s.name ?? s.email} <span style={{ color: '#7B90C8' }}>· {s.permission === 'edit' ? 'Bewerken' : 'Bekijken'}</span>
+              </span>
+              <button onClick={() => onRemove(s.userId)} className="font-bold" style={{ color: '#DC2626' }}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ── Admin (user management) ───────────────────────────────────────────────────

@@ -9,8 +9,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!user) { res.status(401).json({ error: 'Not authenticated' }); return }
 
   if (req.method === 'GET') {
-    const rows = await sql`SELECT data FROM games WHERE user_id = ${user.id} ORDER BY created_at ASC`
-    res.status(200).json(rows.map(r => r.data))
+    // Own matches plus anything shared with this account — the viewer's
+    // effective permission for each is folded into the returned data so the
+    // frontend can gate editing without a second round trip.
+    const rows = await sql`
+      SELECT g.data, g.user_id AS owner_id, gs.permission
+      FROM games g
+      LEFT JOIN game_shares gs ON gs.game_id = g.id AND gs.user_id = ${user.id}
+      WHERE g.user_id = ${user.id} OR gs.user_id = ${user.id}
+      ORDER BY g.created_at ASC
+    `
+    res.status(200).json(rows.map(r => ({
+      ...r.data,
+      ownerId: r.owner_id,
+      permission: r.owner_id === user.id ? 'owner' : r.permission,
+    })))
     return
   }
 
@@ -18,26 +31,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const game = req.body
     if (!game?.id) { res.status(400).json({ error: 'Missing id' }); return }
     await sql`INSERT INTO games (id, data, user_id) VALUES (${game.id}, ${JSON.stringify(game)}::jsonb, ${user.id})`
-    res.status(201).json(game)
+    res.status(201).json({ ...game, ownerId: user.id, permission: 'owner' })
     return
   }
 
   if (req.method === 'PUT') {
     const game = req.body
     if (!game?.id) { res.status(400).json({ error: 'Missing id' }); return }
+    // Owner can always edit; a shared user needs an explicit 'edit' grant.
     const rows = await sql`
-      UPDATE games SET data = ${JSON.stringify(game)}::jsonb, updated_at = now()
-      WHERE id = ${game.id} AND user_id = ${user.id}
-      RETURNING data
+      UPDATE games g SET data = ${JSON.stringify(game)}::jsonb, updated_at = now()
+      WHERE g.id = ${game.id}
+        AND (g.user_id = ${user.id} OR EXISTS (
+          SELECT 1 FROM game_shares gs WHERE gs.game_id = g.id AND gs.user_id = ${user.id} AND gs.permission = 'edit'
+        ))
+      RETURNING data, g.user_id AS owner_id
     `
     if (rows.length === 0) { res.status(404).json({ error: 'Not found' }); return }
-    res.status(200).json(rows[0].data)
+    res.status(200).json({ ...rows[0].data, ownerId: rows[0].owner_id, permission: rows[0].owner_id === user.id ? 'owner' : 'edit' })
     return
   }
 
   if (req.method === 'DELETE') {
     const id = typeof req.query.id === 'string' ? req.query.id : req.body?.id
     if (!id) { res.status(400).json({ error: 'Missing id' }); return }
+    // Only the owner can delete — a shared 'edit' grant is not delete access.
     await sql`DELETE FROM games WHERE id = ${id} AND user_id = ${user.id}`
     res.status(204).end()
     return
