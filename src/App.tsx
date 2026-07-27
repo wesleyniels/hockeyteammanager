@@ -52,7 +52,7 @@ interface TacticsMarker {
   id: string
   x: number
   y: number
-  label: string
+  playerId: string
 }
 
 interface TacticsArrow {
@@ -946,33 +946,107 @@ function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, 
 }
 
 // ── Tactics board ─────────────────────────────────────────────────────────────
-// Deliberately separate from FieldView: a plain sketchpad for illustrating set
-// plays (generic markers + arrows), tap-based rather than drag-based to avoid
-// duplicating the live field's pointer-drag machinery for something that
-// isn't tied to the actual squad or on-field slots.
+// Overlaid on top of the real field (current squad positions + opponent
+// markers, read-only here) so a coach can sketch a setup that's grounded in
+// how the team is actually lined up. Markers are real squad players; arrows
+// are drawn by dragging rather than the live field's pointer-drag machinery,
+// since nothing here is tied to the actual on-field slots.
 
-function TacticsFieldEditor({ isDual, board, tool, selectedMarker, pendingArrowStart, onFieldClick, onMarkerClick }: {
+function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, selectedMarker, onFieldClick, onMarkerClick, onArrowDrawn }: {
   isDual: boolean
+  slots: PositionSlot[]
+  squad: Player[]
+  oppMarkers: OppMarker[]
   board: TacticsBoard
   tool: 'select' | 'marker' | 'arrow'
   selectedMarker: string | null
-  pendingArrowStart: { x: number; y: number } | null
   onFieldClick: (x: number, y: number) => void
   onMarkerClick: (id: string) => void
+  onArrowDrawn: (x1: number, y1: number, x2: number, y2: number) => void
 }) {
+  const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
+  const [dragArrow, setDragArrow] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null)
+  const draggingRef = useRef(false)
+
+  const toPct = (e: React.PointerEvent<HTMLDivElement> | React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = Math.min(100, Math.max(0, ((e.clientX - rect.left) / rect.width) * 100))
+    const y = Math.min(100, Math.max(0, ((e.clientY - rect.top) / rect.height) * 100))
+    return { x, y }
+  }
+
   return (
     <div
       className="relative w-full"
-      style={{ aspectRatio: isDual ? '140/97' : '62/97', maxHeight: '100%', cursor: tool !== 'select' ? 'crosshair' : 'default' }}
+      style={{ aspectRatio: isDual ? '140/97' : '62/97', maxHeight: '100%', cursor: tool !== 'select' ? 'crosshair' : 'default', touchAction: tool === 'arrow' ? 'none' : undefined }}
       onClick={e => {
-        const rect = e.currentTarget.getBoundingClientRect()
-        const x = Math.min(100, Math.max(0, ((e.clientX - rect.left) / rect.width) * 100))
-        const y = Math.min(100, Math.max(0, ((e.clientY - rect.top) / rect.height) * 100))
+        if (tool === 'arrow') return
+        const { x, y } = toPct(e)
         onFieldClick(x, y)
-      }}>
+      }}
+      onPointerDown={e => {
+        if (tool !== 'arrow') return
+        const { x, y } = toPct(e)
+        draggingRef.current = true
+        setDragArrow({ x1: x, y1: y, x2: x, y2: y })
+        e.currentTarget.setPointerCapture(e.pointerId)
+      }}
+      onPointerMove={e => {
+        if (!draggingRef.current) return
+        const { x, y } = toPct(e)
+        setDragArrow(a => a ? { ...a, x2: x, y2: y } : a)
+      }}
+      onPointerUp={() => {
+        if (!draggingRef.current) return
+        draggingRef.current = false
+        const a = dragArrow
+        setDragArrow(null)
+        if (a && Math.hypot(a.x2 - a.x1, a.y2 - a.y1) > 1.5) onArrowDrawn(a.x1, a.y1, a.x2, a.y2)
+      }}
+      onPointerCancel={() => { draggingRef.current = false; setDragArrow(null) }}>
       {isDual ? <DualFieldSVG /> : <FieldSVG />}
 
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none' }}>
+      {/* Live squad positions — visual reference only, not interactive here */}
+      {slots.map(slot => {
+        const player = getPlayer(slot.playerId)
+        const isGK = slot.posId === 'gk'
+        return (
+          <div key={slot.posId} className="absolute transform -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+            style={{ left: `${slot.x}%`, top: `${slot.y}%`, zIndex: 5 }}>
+            <div style={{
+              width: player ? '46px' : '36px',
+              height: player ? '46px' : '36px',
+              background: isGK ? '#FBBF24' : player ? '#fff' : 'rgba(255,255,255,0.18)',
+              border: player ? '2px solid rgba(255,255,255,0.85)' : '1.5px dashed rgba(255,255,255,0.45)',
+              borderRadius: '50%',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              boxShadow: player ? '0 2px 8px rgba(0,0,0,0.3)' : 'none',
+            }}>
+              {player ? (
+                <>
+                  <span style={{ fontSize: '12px', fontWeight: 800, lineHeight: 1, color: '#111' }}>
+                    {player.number ?? initials(player.name)}
+                  </span>
+                  <span style={{ fontSize: '8px', fontWeight: 600, color: '#333', marginTop: '1px', maxWidth: '42px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '0 2px' }}>
+                    {firstName(player.name)}
+                  </span>
+                </>
+              ) : (
+                <span style={{ fontSize: '8px', fontWeight: 700, color: 'rgba(255,255,255,0.6)' }}>{slot.label}</span>
+              )}
+            </div>
+          </div>
+        )
+      })}
+
+      {oppMarkers.map(o => (
+        <div key={o.id} className="absolute transform -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+          style={{ left: `${o.x}%`, top: `${o.y}%`, zIndex: 4 }}>
+          <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#DC2626', border: '2px solid rgba(255,255,255,0.85)', boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }} />
+        </div>
+      ))}
+
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none', zIndex: 8 }}>
         <defs>
           <marker id="tactics-arrowhead" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
             <path d="M0,0 L6,3 L0,6 Z" fill="#FBBF24" />
@@ -982,27 +1056,38 @@ function TacticsFieldEditor({ isDual, board, tool, selectedMarker, pendingArrowS
           <line key={a.id} x1={a.x1} y1={a.y1} x2={a.x2} y2={a.y2}
             stroke="#FBBF24" strokeWidth="0.8" markerEnd="url(#tactics-arrowhead)" />
         ))}
-        {pendingArrowStart && (
-          <circle cx={pendingArrowStart.x} cy={pendingArrowStart.y} r="1.5" fill="#FBBF24" />
+        {dragArrow && (
+          <line x1={dragArrow.x1} y1={dragArrow.y1} x2={dragArrow.x2} y2={dragArrow.y2}
+            stroke="#FBBF24" strokeWidth="0.8" strokeDasharray="2,1.5" markerEnd="url(#tactics-arrowhead)" />
         )}
       </svg>
 
-      {board.markers.map(m => (
-        <div key={m.id}
-          className="absolute transform -translate-x-1/2 -translate-y-1/2 select-none touch-none"
-          style={{ left: `${m.x}%`, top: `${m.y}%`, zIndex: 10, cursor: tool === 'select' ? 'pointer' : 'default' }}
-          onClick={e => { e.stopPropagation(); onMarkerClick(m.id) }}>
-          <div style={{
-            width: '32px', height: '32px', borderRadius: '50%',
-            background: '#fff',
-            border: selectedMarker === m.id ? '2.5px solid #1A3FAB' : '2px solid rgba(13,43,122,0.5)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: selectedMarker === m.id ? '0 0 0 3px rgba(26,63,171,0.35)' : '0 2px 6px rgba(0,0,0,0.25)',
-          }}>
-            <span style={{ fontSize: '11px', fontWeight: 800, color: '#1A2F6B' }}>{m.label}</span>
+      {board.markers.map(m => {
+        const player = getPlayer(m.playerId)
+        return (
+          <div key={m.id}
+            className="absolute transform -translate-x-1/2 -translate-y-1/2 select-none touch-none"
+            style={{ left: `${m.x}%`, top: `${m.y}%`, zIndex: 10, cursor: tool === 'select' ? 'pointer' : 'default' }}
+            onClick={e => { e.stopPropagation(); onMarkerClick(m.id) }}>
+            <div style={{
+              width: '40px', height: '40px', borderRadius: '50%',
+              background: '#fff',
+              border: selectedMarker === m.id ? '2.5px solid #1A3FAB' : '2px solid rgba(13,43,122,0.5)',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              boxShadow: selectedMarker === m.id ? '0 0 0 3px rgba(26,63,171,0.35)' : '0 2px 6px rgba(0,0,0,0.25)',
+            }}>
+              <span style={{ fontSize: '11px', fontWeight: 800, color: '#1A2F6B', lineHeight: 1 }}>
+                {player ? (player.number ?? initials(player.name)) : '?'}
+              </span>
+              {player && (
+                <span style={{ fontSize: '7px', fontWeight: 600, color: '#3B5299', marginTop: '1px', maxWidth: '36px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {firstName(player.name)}
+                </span>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -1442,12 +1527,12 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   const [cardPlayerId, setCardPlayerId] = useState('')
   const [cardColor, setCardColor] = useState<Card['color']>('green')
   const [tacticsBoards, setTacticsBoards] = useState<TacticsBoard[]>(() =>
-    initial?.tacticsBoards?.length ? initial.tacticsBoards : [{ id: uid(), name: 'Setup 1', markers: [], arrows: [] }]
+    initial?.tacticsBoards?.length ? initial.tacticsBoards : [{ id: uid(), name: 'Opstelling 1', markers: [], arrows: [] }]
   )
   const [activeBoardId, setActiveBoardId] = useState(() => tacticsBoards[0].id)
   const [tacticsTool, setTacticsTool] = useState<'select' | 'marker' | 'arrow'>('select')
   const [selectedTacticsMarker, setSelectedTacticsMarker] = useState<string | null>(null)
-  const [arrowStart, setArrowStart] = useState<{ x: number; y: number } | null>(null)
+  const [tacticsPlayerId, setTacticsPlayerId] = useState('')
   const [notes, setNotes] = useState(initial?.notes ?? '')
   const [result] = useState(initial?.result ?? '')
   const [scoreOwn, setScoreOwn] = useState(initial?.scoreOwn ?? 0)
@@ -1480,7 +1565,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
 
   const addBoard = () => {
     if (readOnly) return
-    const board: TacticsBoard = { id: uid(), name: `Setup ${tacticsBoards.length + 1}`, markers: [], arrows: [] }
+    const board: TacticsBoard = { id: uid(), name: `Opstelling ${tacticsBoards.length + 1}`, markers: [], arrows: [] }
     setTacticsBoards(bs => [...bs, board])
     setActiveBoardId(board.id)
   }
@@ -1494,19 +1579,15 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     })
   }
 
-  // Tap-based editing (no drag) — a "select" tool for repositioning markers
-  // click-then-click, a "marker" tool that drops a new one where you tap, and
-  // an "arrow" tool that needs two taps (start point, then end point).
+  // Tap-based editing for markers — a "select" tool for repositioning markers
+  // click-then-click, and a "marker" tool that places the chosen squad player
+  // where you tap. Arrows are dragged instead (handled in onArrowDrawn below).
   const handleTacticsFieldClick = (x: number, y: number) => {
     if (readOnly) return
     if (tacticsTool === 'marker') {
-      updateActiveBoard(b => ({ ...b, markers: [...b.markers, { id: uid(), x, y, label: String(b.markers.length + 1) }] }))
-      return
-    }
-    if (tacticsTool === 'arrow') {
-      if (!arrowStart) { setArrowStart({ x, y }); return }
-      updateActiveBoard(b => ({ ...b, arrows: [...b.arrows, { id: uid(), x1: arrowStart.x, y1: arrowStart.y, x2: x, y2: y }] }))
-      setArrowStart(null)
+      if (!tacticsPlayerId) return
+      updateActiveBoard(b => ({ ...b, markers: [...b.markers, { id: uid(), x, y, playerId: tacticsPlayerId }] }))
+      setTacticsPlayerId('')
       return
     }
     if (selectedTacticsMarker) {
@@ -1514,6 +1595,11 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
       updateActiveBoard(b => ({ ...b, markers: b.markers.map(m => m.id === id ? { ...m, x, y } : m) }))
       setSelectedTacticsMarker(null)
     }
+  }
+
+  const handleTacticsArrowDrawn = (x1: number, y1: number, x2: number, y2: number) => {
+    if (readOnly) return
+    updateActiveBoard(b => ({ ...b, arrows: [...b.arrows, { id: uid(), x1, y1, x2, y2 }] }))
   }
 
   const handleTacticsMarkerClick = (id: string) => {
@@ -1536,7 +1622,6 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     if (readOnly) return
     updateActiveBoard(b => ({ ...b, markers: [], arrows: [] }))
     setSelectedTacticsMarker(null)
-    setArrowStart(null)
   }
 
   const doSub = (inId: string, posId: string) => {
@@ -1895,12 +1980,15 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
             {activeTab === 'tactics' ? (
               <TacticsFieldEditor
                 isDual={isDual}
+                slots={slots}
+                squad={squad}
+                oppMarkers={oppMarkers}
                 board={activeBoard}
                 tool={tacticsTool}
                 selectedMarker={selectedTacticsMarker}
-                pendingArrowStart={arrowStart}
                 onFieldClick={handleTacticsFieldClick}
                 onMarkerClick={handleTacticsMarkerClick}
+                onArrowDrawn={handleTacticsArrowDrawn}
               />
             ) : (
               <FieldView
@@ -2227,17 +2315,17 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
               <div className="p-3 space-y-3">
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-bold uppercase" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Setups</label>
+                    <label className="text-xs font-bold uppercase" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Opstellingen</label>
                     {!readOnly && (
                       <button onClick={addBoard} className="text-xs font-bold" style={{ color: '#1A3FAB' }}>
-                        + Nieuwe setup
+                        + Nieuwe opstelling
                       </button>
                     )}
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {tacticsBoards.map(b => (
                       <div key={b.id} className="flex items-center gap-1">
-                        <button onClick={() => { setActiveBoardId(b.id); setSelectedTacticsMarker(null); setArrowStart(null) }}
+                        <button onClick={() => { setActiveBoardId(b.id); setSelectedTacticsMarker(null); setTacticsPlayerId('') }}
                           className="text-xs font-bold px-2.5 py-1.5 rounded-lg"
                           style={b.id === activeBoardId
                             ? { background: '#1A3FAB', color: '#fff' }
@@ -2245,7 +2333,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                           {b.name}
                         </button>
                         {!readOnly && tacticsBoards.length > 1 && (
-                          <button onClick={() => { if (confirm(`Setup "${b.name}" verwijderen?`)) deleteBoard(b.id) }}
+                          <button onClick={() => { if (confirm(`Opstelling "${b.name}" verwijderen?`)) deleteBoard(b.id) }}
                             className="font-bold text-xs" style={{ color: '#DC2626' }}>
                             ×
                           </button>
@@ -2264,7 +2352,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                         { key: 'marker', label: '+ Speler' },
                         { key: 'arrow', label: '+ Pijl' },
                       ] as const).map(t => (
-                        <button key={t.key} onClick={() => { setTacticsTool(t.key); setSelectedTacticsMarker(null); setArrowStart(null) }}
+                        <button key={t.key} onClick={() => { setTacticsTool(t.key); setSelectedTacticsMarker(null); setTacticsPlayerId('') }}
                           className="flex-1 py-2 rounded-lg text-xs font-bold"
                           style={tacticsTool === t.key
                             ? { background: '#1A3FAB', color: '#fff' }
@@ -2273,13 +2361,27 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                         </button>
                       ))}
                     </div>
-                    <p className="text-xs mt-1.5" style={{ color: '#A8BEF0' }}>
-                      {tacticsTool === 'marker'
-                        ? 'Tik op het veld om een speler te plaatsen.'
-                        : tacticsTool === 'arrow'
-                          ? (arrowStart ? 'Tik het eindpunt van de pijl…' : 'Tik het beginpunt van de pijl…')
+                    {tacticsTool === 'marker' ? (
+                      <div className="mt-2">
+                        <select className="w-full rounded-xl px-3 py-2 text-sm"
+                          style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: tacticsPlayerId ? '#1A2F6B' : '#7B90C8', outline: 'none' }}
+                          value={tacticsPlayerId} onChange={e => setTacticsPlayerId(e.target.value)}>
+                          <option value="">Kies speler…</option>
+                          {sortPlayers(squad.filter(p => !activeBoard.markers.some(m => m.playerId === p.id))).map(p => (
+                            <option key={p.id} value={p.id}>{p.number ? `#${p.number} ` : ''}{p.name}</option>
+                          ))}
+                        </select>
+                        <p className="text-xs mt-1.5" style={{ color: '#A8BEF0' }}>
+                          {tacticsPlayerId ? 'Tik op het veld om te plaatsen.' : 'Kies eerst een speler.'}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-xs mt-1.5" style={{ color: '#A8BEF0' }}>
+                        {tacticsTool === 'arrow'
+                          ? 'Sleep op het veld om een pijl te tekenen.'
                           : 'Tik een speler, tik daarna waar die naartoe moet.'}
-                    </p>
+                      </p>
+                    )}
                   </div>
                 )}
 
@@ -2310,9 +2412,9 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                 )}
 
                 {!readOnly && (activeBoard.markers.length > 0 || activeBoard.arrows.length > 0) && (
-                  <button onClick={() => { if (confirm('Alles op deze setup wissen?')) clearBoard() }}
+                  <button onClick={() => { if (confirm('Alles op deze opstelling wissen?')) clearBoard() }}
                     className="text-xs font-bold" style={{ color: '#DC2626' }}>
-                    Wis setup
+                    Wis opstelling
                   </button>
                 )}
               </div>
