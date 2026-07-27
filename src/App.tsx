@@ -42,6 +42,34 @@ interface Goal {
   playerId: string
 }
 
+interface Card {
+  id: string
+  playerId: string
+  color: 'green' | 'yellow' | 'red'
+}
+
+interface TacticsMarker {
+  id: string
+  x: number
+  y: number
+  label: string
+}
+
+interface TacticsArrow {
+  id: string
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+}
+
+interface TacticsBoard {
+  id: string
+  name: string
+  markers: TacticsMarker[]
+  arrows: TacticsArrow[]
+}
+
 interface SavedGame {
   id: string
   date: string
@@ -55,6 +83,8 @@ interface SavedGame {
   subs: SubRecord[]
   oppMarkers: OppMarker[]
   goals: Goal[]
+  cards: Card[]
+  tacticsBoards: TacticsBoard[]
   notes: string
   result: string
   scoreOwn: number
@@ -915,6 +945,68 @@ function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, 
   )
 }
 
+// ── Tactics board ─────────────────────────────────────────────────────────────
+// Deliberately separate from FieldView: a plain sketchpad for illustrating set
+// plays (generic markers + arrows), tap-based rather than drag-based to avoid
+// duplicating the live field's pointer-drag machinery for something that
+// isn't tied to the actual squad or on-field slots.
+
+function TacticsFieldEditor({ isDual, board, tool, selectedMarker, pendingArrowStart, onFieldClick, onMarkerClick }: {
+  isDual: boolean
+  board: TacticsBoard
+  tool: 'select' | 'marker' | 'arrow'
+  selectedMarker: string | null
+  pendingArrowStart: { x: number; y: number } | null
+  onFieldClick: (x: number, y: number) => void
+  onMarkerClick: (id: string) => void
+}) {
+  return (
+    <div
+      className="relative w-full"
+      style={{ aspectRatio: isDual ? '140/97' : '62/97', maxHeight: '100%', cursor: tool !== 'select' ? 'crosshair' : 'default' }}
+      onClick={e => {
+        const rect = e.currentTarget.getBoundingClientRect()
+        const x = Math.min(100, Math.max(0, ((e.clientX - rect.left) / rect.width) * 100))
+        const y = Math.min(100, Math.max(0, ((e.clientY - rect.top) / rect.height) * 100))
+        onFieldClick(x, y)
+      }}>
+      {isDual ? <DualFieldSVG /> : <FieldSVG />}
+
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none' }}>
+        <defs>
+          <marker id="tactics-arrowhead" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="#FBBF24" />
+          </marker>
+        </defs>
+        {board.arrows.map(a => (
+          <line key={a.id} x1={a.x1} y1={a.y1} x2={a.x2} y2={a.y2}
+            stroke="#FBBF24" strokeWidth="0.8" markerEnd="url(#tactics-arrowhead)" />
+        ))}
+        {pendingArrowStart && (
+          <circle cx={pendingArrowStart.x} cy={pendingArrowStart.y} r="1.5" fill="#FBBF24" />
+        )}
+      </svg>
+
+      {board.markers.map(m => (
+        <div key={m.id}
+          className="absolute transform -translate-x-1/2 -translate-y-1/2 select-none touch-none"
+          style={{ left: `${m.x}%`, top: `${m.y}%`, zIndex: 10, cursor: tool === 'select' ? 'pointer' : 'default' }}
+          onClick={e => { e.stopPropagation(); onMarkerClick(m.id) }}>
+          <div style={{
+            width: '32px', height: '32px', borderRadius: '50%',
+            background: '#fff',
+            border: selectedMarker === m.id ? '2.5px solid #1A3FAB' : '2px solid rgba(13,43,122,0.5)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: selectedMarker === m.id ? '0 0 0 3px rgba(26,63,171,0.35)' : '0 2px 6px rgba(0,0,0,0.25)',
+          }}>
+            <span style={{ fontSize: '11px', fontWeight: 800, color: '#1A2F6B' }}>{m.label}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ── Formation Editor ─────────────────────────────────────────────────────────
 // Lets a club drag the default position markers to match how they actually
 // line up; saved per age group in localStorage and picked up by getPositions().
@@ -1346,6 +1438,16 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   const [oppMarkers, setOppMarkers] = useState<OppMarker[]>(() => initial?.oppMarkers ?? [])
   const [goals, setGoals] = useState<Goal[]>(() => initial?.goals ?? [])
   const [goalPlayerId, setGoalPlayerId] = useState('')
+  const [cards, setCards] = useState<Card[]>(() => initial?.cards ?? [])
+  const [cardPlayerId, setCardPlayerId] = useState('')
+  const [cardColor, setCardColor] = useState<Card['color']>('green')
+  const [tacticsBoards, setTacticsBoards] = useState<TacticsBoard[]>(() =>
+    initial?.tacticsBoards?.length ? initial.tacticsBoards : [{ id: uid(), name: 'Setup 1', markers: [], arrows: [] }]
+  )
+  const [activeBoardId, setActiveBoardId] = useState(() => tacticsBoards[0].id)
+  const [tacticsTool, setTacticsTool] = useState<'select' | 'marker' | 'arrow'>('select')
+  const [selectedTacticsMarker, setSelectedTacticsMarker] = useState<string | null>(null)
+  const [arrowStart, setArrowStart] = useState<{ x: number; y: number } | null>(null)
   const [notes, setNotes] = useState(initial?.notes ?? '')
   const [result] = useState(initial?.result ?? '')
   const [scoreOwn, setScoreOwn] = useState(initial?.scoreOwn ?? 0)
@@ -1353,7 +1455,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   const [gameSec, setGameSec] = useState(initial?.finalTime ?? 0)
   const [running, setRunning] = useState(false)
   const [selected, setSelected] = useState<Selected>(null)
-  const [activeTab, setActiveTab] = useState<'bench' | 'subs' | 'notes'>('bench')
+  const [activeTab, setActiveTab] = useState<'bench' | 'subs' | 'notes' | 'tactics'>('bench')
   const [panelCollapsed, setPanelCollapsed] = useLS('fh_panel_collapsed', false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -1364,6 +1466,78 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   }, [running])
 
   const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
+
+  // ── Tactics boards ────────────────────────────────────────────────────────
+  // Separate, deliberately simple canvas for illustrating set plays to
+  // players — markers/arrows here are just visual aids, not tied to the
+  // live squad or the actual on-field slots above.
+  const activeBoard = tacticsBoards.find(b => b.id === activeBoardId) ?? tacticsBoards[0]
+
+  const updateActiveBoard = (updater: (b: TacticsBoard) => TacticsBoard) => {
+    if (readOnly) return
+    setTacticsBoards(bs => bs.map(b => b.id === activeBoard.id ? updater(b) : b))
+  }
+
+  const addBoard = () => {
+    if (readOnly) return
+    const board: TacticsBoard = { id: uid(), name: `Setup ${tacticsBoards.length + 1}`, markers: [], arrows: [] }
+    setTacticsBoards(bs => [...bs, board])
+    setActiveBoardId(board.id)
+  }
+
+  const deleteBoard = (id: string) => {
+    if (readOnly || tacticsBoards.length <= 1) return
+    setTacticsBoards(bs => {
+      const next = bs.filter(b => b.id !== id)
+      if (activeBoardId === id) setActiveBoardId(next[0].id)
+      return next
+    })
+  }
+
+  // Tap-based editing (no drag) — a "select" tool for repositioning markers
+  // click-then-click, a "marker" tool that drops a new one where you tap, and
+  // an "arrow" tool that needs two taps (start point, then end point).
+  const handleTacticsFieldClick = (x: number, y: number) => {
+    if (readOnly) return
+    if (tacticsTool === 'marker') {
+      updateActiveBoard(b => ({ ...b, markers: [...b.markers, { id: uid(), x, y, label: String(b.markers.length + 1) }] }))
+      return
+    }
+    if (tacticsTool === 'arrow') {
+      if (!arrowStart) { setArrowStart({ x, y }); return }
+      updateActiveBoard(b => ({ ...b, arrows: [...b.arrows, { id: uid(), x1: arrowStart.x, y1: arrowStart.y, x2: x, y2: y }] }))
+      setArrowStart(null)
+      return
+    }
+    if (selectedTacticsMarker) {
+      const id = selectedTacticsMarker
+      updateActiveBoard(b => ({ ...b, markers: b.markers.map(m => m.id === id ? { ...m, x, y } : m) }))
+      setSelectedTacticsMarker(null)
+    }
+  }
+
+  const handleTacticsMarkerClick = (id: string) => {
+    if (readOnly || tacticsTool !== 'select') return
+    setSelectedTacticsMarker(sel => (sel === id ? null : id))
+  }
+
+  const removeTacticsMarker = (id: string) => {
+    if (readOnly) return
+    updateActiveBoard(b => ({ ...b, markers: b.markers.filter(m => m.id !== id) }))
+    setSelectedTacticsMarker(null)
+  }
+
+  const removeTacticsArrow = (id: string) => {
+    if (readOnly) return
+    updateActiveBoard(b => ({ ...b, arrows: b.arrows.filter(a => a.id !== id) }))
+  }
+
+  const clearBoard = () => {
+    if (readOnly) return
+    updateActiveBoard(b => ({ ...b, markers: [], arrows: [] }))
+    setSelectedTacticsMarker(null)
+    setArrowStart(null)
+  }
 
   const doSub = (inId: string, posId: string) => {
     if (readOnly) return
@@ -1636,7 +1810,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     onSave({
       id: initial?.id ?? uid(),
       date: initial?.date ?? todayStr(),
-      club, team, ageGroup, opponent, homeAway, squad, slots, subs, oppMarkers, goals, notes, result,
+      club, team, ageGroup, opponent, homeAway, squad, slots, subs, oppMarkers, goals, cards, tacticsBoards, notes, result,
       scoreOwn, scoreOpp,
       finalTime: gameSec,
       ownerId: initial?.ownerId ?? user.id,
@@ -1718,21 +1892,33 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
 
           <div className="flex-1 flex items-center justify-center w-full"
             style={{ maxWidth: isDual ? (panelCollapsed ? '820px' : '540px') : (panelCollapsed ? '460px' : '290px') }}>
-            <FieldView
-              ageGroup={ageGroup}
-              slots={slots}
-              squad={squad}
-              oppMarkers={oppMarkers}
-              selected={selected}
-              dragOverPos={dragOverPos}
-              dragPreview={dragPreview}
-              fieldRef={fieldRef}
-              onFieldClick={handleFieldClick}
-              onBackgroundClick={handleBackgroundClick}
-              onMarkerPointerDown={(posId, e) => beginDrag('field', posId, e)}
-              onOppMarkerPointerDown={(id, e) => beginDrag('opp-marker', id, e)}
-              onOppMarkerClick={handleOppMarkerClick}
-            />
+            {activeTab === 'tactics' ? (
+              <TacticsFieldEditor
+                isDual={isDual}
+                board={activeBoard}
+                tool={tacticsTool}
+                selectedMarker={selectedTacticsMarker}
+                pendingArrowStart={arrowStart}
+                onFieldClick={handleTacticsFieldClick}
+                onMarkerClick={handleTacticsMarkerClick}
+              />
+            ) : (
+              <FieldView
+                ageGroup={ageGroup}
+                slots={slots}
+                squad={squad}
+                oppMarkers={oppMarkers}
+                selected={selected}
+                dragOverPos={dragOverPos}
+                dragPreview={dragPreview}
+                fieldRef={fieldRef}
+                onFieldClick={handleFieldClick}
+                onBackgroundClick={handleBackgroundClick}
+                onMarkerPointerDown={(posId, e) => beginDrag('field', posId, e)}
+                onOppMarkerPointerDown={(id, e) => beginDrag('opp-marker', id, e)}
+                onOppMarkerClick={handleOppMarkerClick}
+              />
+            )}
           </div>
 
           {selectedFieldPos && (
@@ -1790,14 +1976,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
               style={{ color: '#A8BEF0' }}>
               ›
             </button>
-            {(['bench', 'subs', 'notes'] as const).map(tab => (
+            {(['bench', 'subs', 'notes', 'tactics'] as const).map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)}
                 className="flex-1 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors"
                 style={{
                   color: activeTab === tab ? '#1A3FAB' : '#A8BEF0',
                   borderBottom: activeTab === tab ? '2.5px solid #1A3FAB' : '2.5px solid transparent',
                 }}>
-                {tab === 'bench' ? `Bank (${benchPlayers.length})` : tab === 'subs' ? `Wissels (${subs.length})` : 'Score'}
+                {tab === 'bench' ? `Bank (${benchPlayers.length})` : tab === 'subs' ? `Wissels (${subs.length})` : tab === 'notes' ? 'Score' : 'Tactiek'}
               </button>
             ))}
           </div>
@@ -1974,12 +2160,161 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                   </p>
                 </div>
                 <div>
+                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Kaarten</label>
+                  <select className="w-full rounded-xl px-3 py-2 text-sm" disabled={readOnly}
+                    style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: cardPlayerId ? '#1A2F6B' : '#7B90C8', outline: 'none' }}
+                    value={cardPlayerId} onChange={e => setCardPlayerId(e.target.value)}>
+                    <option value="">Kies speler…</option>
+                    {sortPlayers(squad).map(p => (
+                      <option key={p.id} value={p.id}>{p.number ? `#${p.number} ` : ''}{p.name}</option>
+                    ))}
+                  </select>
+                  <div className="flex gap-2 mt-2">
+                    {(['green', 'yellow', 'red'] as const).map(c => (
+                      <button key={c} onClick={() => setCardColor(c)} disabled={readOnly}
+                        className="flex-1 h-8 rounded-lg disabled:opacity-50"
+                        style={{
+                          background: c === 'green' ? '#16A34A' : c === 'yellow' ? '#EAB308' : '#DC2626',
+                          border: cardColor === c ? '2px solid #1A2F6B' : '2px solid transparent',
+                        }}
+                        aria-label={c} />
+                    ))}
+                    <button onClick={() => {
+                      if (readOnly || !cardPlayerId) return
+                      setCards(c => [...c, { id: uid(), playerId: cardPlayerId, color: cardColor }])
+                    }}
+                      disabled={readOnly}
+                      className="px-4 py-1 rounded-xl font-bold text-white text-lg shrink-0 disabled:opacity-50"
+                      style={{ background: '#1A3FAB' }}>
+                      +
+                    </button>
+                  </div>
+                  {cards.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {cards.map(c => {
+                        const p = getPlayer(c.playerId)
+                        return (
+                          <div key={c.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
+                            style={{ background: '#F8FAFF', border: '1px solid #E8EFFD' }}>
+                            <span style={{ color: '#1A2F6B' }}>
+                              <span className="inline-block w-3 h-4 rounded-sm mr-1.5 align-middle"
+                                style={{ background: c.color === 'green' ? '#16A34A' : c.color === 'yellow' ? '#EAB308' : '#DC2626' }} />
+                              {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}
+                            </span>
+                            {!readOnly && (
+                              <button onClick={() => setCards(cs => cs.filter(x => x.id !== c.id))}
+                                className="font-bold" style={{ color: '#DC2626' }}>
+                                ×
+                              </button>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+                <div>
                   <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Notities</label>
                   <textarea className="w-full rounded-xl px-3 py-2 text-sm resize-none"
                     style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: '#1A2F6B', outline: 'none' }}
                     rows={8} value={notes} onChange={e => setNotes(e.target.value)} readOnly={readOnly}
                     placeholder="Tactische notities, bijzonderheden…" />
                 </div>
+              </div>
+            )}
+
+            {activeTab === 'tactics' && (
+              <div className="p-3 space-y-3">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold uppercase" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Setups</label>
+                    {!readOnly && (
+                      <button onClick={addBoard} className="text-xs font-bold" style={{ color: '#1A3FAB' }}>
+                        + Nieuwe setup
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {tacticsBoards.map(b => (
+                      <div key={b.id} className="flex items-center gap-1">
+                        <button onClick={() => { setActiveBoardId(b.id); setSelectedTacticsMarker(null); setArrowStart(null) }}
+                          className="text-xs font-bold px-2.5 py-1.5 rounded-lg"
+                          style={b.id === activeBoardId
+                            ? { background: '#1A3FAB', color: '#fff' }
+                            : { background: '#F8FAFF', color: '#3B5299', border: '1px solid #D0DCFA' }}>
+                          {b.name}
+                        </button>
+                        {!readOnly && tacticsBoards.length > 1 && (
+                          <button onClick={() => { if (confirm(`Setup "${b.name}" verwijderen?`)) deleteBoard(b.id) }}
+                            className="font-bold text-xs" style={{ color: '#DC2626' }}>
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {!readOnly && (
+                  <div>
+                    <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Gereedschap</label>
+                    <div className="flex gap-2">
+                      {([
+                        { key: 'select', label: 'Selecteer' },
+                        { key: 'marker', label: '+ Speler' },
+                        { key: 'arrow', label: '+ Pijl' },
+                      ] as const).map(t => (
+                        <button key={t.key} onClick={() => { setTacticsTool(t.key); setSelectedTacticsMarker(null); setArrowStart(null) }}
+                          className="flex-1 py-2 rounded-lg text-xs font-bold"
+                          style={tacticsTool === t.key
+                            ? { background: '#1A3FAB', color: '#fff' }
+                            : { background: '#F8FAFF', color: '#3B5299', border: '1px solid #D0DCFA' }}>
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs mt-1.5" style={{ color: '#A8BEF0' }}>
+                      {tacticsTool === 'marker'
+                        ? 'Tik op het veld om een speler te plaatsen.'
+                        : tacticsTool === 'arrow'
+                          ? (arrowStart ? 'Tik het eindpunt van de pijl…' : 'Tik het beginpunt van de pijl…')
+                          : 'Tik een speler, tik daarna waar die naartoe moet.'}
+                    </p>
+                  </div>
+                )}
+
+                {selectedTacticsMarker && !readOnly && (
+                  <button onClick={() => removeTacticsMarker(selectedTacticsMarker)}
+                    className="text-xs font-bold px-3 py-1.5 rounded-lg" style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
+                    Verwijder geselecteerde speler
+                  </button>
+                )}
+
+                {activeBoard.arrows.length > 0 && (
+                  <div>
+                    <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Pijlen</label>
+                    <div className="space-y-1">
+                      {activeBoard.arrows.map((a, i) => (
+                        <div key={a.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
+                          style={{ background: '#F8FAFF', border: '1px solid #E8EFFD' }}>
+                          <span style={{ color: '#1A2F6B' }}>Pijl {i + 1}</span>
+                          {!readOnly && (
+                            <button onClick={() => removeTacticsArrow(a.id)} className="font-bold" style={{ color: '#DC2626' }}>
+                              ×
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {!readOnly && (activeBoard.markers.length > 0 || activeBoard.arrows.length > 0) && (
+                  <button onClick={() => { if (confirm('Alles op deze setup wissen?')) clearBoard() }}
+                    className="text-xs font-bold" style={{ color: '#DC2626' }}>
+                    Wis setup
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -2128,6 +2463,25 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
                                 <span key={playerId} className="text-xs px-2 py-1 rounded-lg font-medium"
                                   style={{ background: '#EEF3FF', color: '#1A2F6B', border: '1px solid #D0DCFA' }}>
                                   <HockeyBallIcon /> {p?.name ?? 'Onbekende speler'}{count > 1 ? ` ×${count}` : ''}
+                                </span>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {g.cards && g.cards.length > 0 && (
+                        <div>
+                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: '#7B90C8' }}>Kaarten</h4>
+                          <div className="flex flex-wrap gap-1.5">
+                            {g.cards.map(c => {
+                              const p = getPlayer(g, c.playerId)
+                              return (
+                                <span key={c.id} className="text-xs px-2 py-1 rounded-lg font-medium"
+                                  style={{ background: '#EEF3FF', color: '#1A2F6B', border: '1px solid #D0DCFA' }}>
+                                  <span className="inline-block w-3 h-4 rounded-sm mr-1 align-middle"
+                                    style={{ background: c.color === 'green' ? '#16A34A' : c.color === 'yellow' ? '#EAB308' : '#DC2626' }} />
+                                  {p?.name ?? 'Onbekende speler'}
                                 </span>
                               )
                             })}
