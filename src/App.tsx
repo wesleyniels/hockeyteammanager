@@ -76,6 +76,9 @@ interface TacticsBoard {
   name: string
   markers: TacticsMarker[]
   arrows: TacticsArrow[]
+  // True = "Strafcorner" layout: only half the pitch (one goal + D), zoomed
+  // in for sketching penalty-corner routines. Undefined/false = full pitch.
+  corner?: boolean
 }
 
 interface SavedGame {
@@ -633,7 +636,7 @@ function HockeyBallIcon({ size = 13 }: { size?: number }) {
 // ── Field Hockey Field SVG (standard portrait) ───────────────────────────────
 // viewBox="0 0 62 97" — field lines from y=4.5 to y=92.5, goals at y=0-4.5 and y=92.5-97
 
-function FieldSVG() {
+function FieldSVG({ half }: { half?: 'top' | 'bottom' } = {}) {
   // D-circle radius: 14.63m / 91.4m * 88 SVG units ≈ 14.08
   const dR = 14.08
   const cx = 31        // horizontal center
@@ -654,8 +657,12 @@ function FieldSVG() {
       fill={i % 2 === 0 ? '#1C6B38' : '#217040'} />
   ))
 
+  // Crop the same drawing to one half by panning the viewBox — every element
+  // below keeps its normal full-pitch coordinates, so nothing else changes.
+  const viewBox = half === 'top' ? '0 0 62 48.5' : half === 'bottom' ? '0 48.5 62 48.5' : '0 0 62 97'
+
   return (
-    <svg className="absolute inset-0 w-full h-full" viewBox="0 0 62 97" preserveAspectRatio="xMidYMid meet">
+    <svg className="absolute inset-0 w-full h-full" viewBox={viewBox} preserveAspectRatio="xMidYMid meet">
       {stripes}
 
       {/* Goals (behind backlines) */}
@@ -994,10 +1001,12 @@ function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, sel
     return { x, y }
   }
 
+  const isCorner = !!board.corner
+
   return (
     <div
       className="relative w-full"
-      style={{ aspectRatio: isDual ? '140/97' : '62/97', maxHeight: '100%', cursor: tool !== 'select' ? 'crosshair' : 'default', touchAction: tool === 'arrow' ? 'none' : undefined }}
+      style={{ aspectRatio: isCorner ? '62/48.5' : isDual ? '140/97' : '62/97', maxHeight: '100%', cursor: tool !== 'select' ? 'crosshair' : 'default', touchAction: tool === 'arrow' ? 'none' : undefined }}
       onClick={e => {
         if (tool === 'arrow') return
         const { x, y } = toPct(e)
@@ -1023,10 +1032,12 @@ function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, sel
         if (a && Math.hypot(a.x2 - a.x1, a.y2 - a.y1) > 1.5) onArrowDrawn(a.x1, a.y1, a.x2, a.y2)
       }}
       onPointerCancel={() => { draggingRef.current = false; setDragArrow(null) }}>
-      {isDual ? <DualFieldSVG /> : <FieldSVG />}
+      {isCorner ? <FieldSVG half="bottom" /> : isDual ? <DualFieldSVG /> : <FieldSVG />}
 
-      {/* Live squad positions — visual reference only, not interactive here */}
-      {slots.map(slot => {
+      {/* Live squad positions — visual reference only, not interactive here.
+          Skipped for a Strafcorner board: its coordinates are calibrated for
+          the full pitch and would land in the wrong spot once cropped. */}
+      {!isCorner && slots.map(slot => {
         const player = getPlayer(slot.playerId)
         const isGK = slot.posId === 'gk'
         return (
@@ -1058,7 +1069,7 @@ function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, sel
         )
       })}
 
-      {oppMarkers.map(o => (
+      {!isCorner && oppMarkers.map(o => (
         <div key={o.id} className="absolute transform -translate-x-1/2 -translate-y-1/2 pointer-events-none"
           style={{ left: `${o.x}%`, top: `${o.y}%`, zIndex: 4 }}>
           <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#DC2626', border: '2px solid rgba(255,255,255,0.85)', boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }} />
@@ -1598,9 +1609,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     setTacticsBoards(bs => bs.map(b => b.id === activeBoard.id ? updater(b) : b))
   }
 
-  const addBoard = () => {
+  const addBoard = (corner: boolean) => {
     if (readOnly) return
-    const board: TacticsBoard = { id: uid(), name: `Opstelling ${tacticsBoards.length + 1}`, markers: [], arrows: [] }
+    const sameType = tacticsBoards.filter(b => !!b.corner === corner).length + 1
+    const board: TacticsBoard = {
+      id: uid(),
+      name: corner ? `Strafcorner ${sameType}` : `Opstelling ${sameType}`,
+      markers: [], arrows: [], corner,
+    }
     setTacticsBoards(bs => [...bs, board])
     setActiveBoardId(board.id)
   }
@@ -2411,9 +2427,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-xs font-bold uppercase" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Opstellingen</label>
                     {!readOnly && (
-                      <button onClick={addBoard} className="text-xs font-bold" style={{ color: '#1A3FAB' }}>
-                        + Nieuwe opstelling
-                      </button>
+                      <div className="flex gap-2">
+                        <button onClick={() => addBoard(false)} className="text-xs font-bold" style={{ color: '#1A3FAB' }}>
+                          + Opstelling
+                        </button>
+                        <button onClick={() => addBoard(true)} className="text-xs font-bold" style={{ color: '#1A3FAB' }}>
+                          + Strafcorner
+                        </button>
+                      </div>
                     )}
                   </div>
                   <div className="flex flex-wrap gap-1.5">
@@ -2427,7 +2448,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                           {b.name}
                         </button>
                         {!readOnly && tacticsBoards.length > 1 && (
-                          <button onClick={() => { if (confirm(`Opstelling "${b.name}" verwijderen?`)) deleteBoard(b.id) }}
+                          <button onClick={() => { if (confirm(`"${b.name}" verwijderen?`)) deleteBoard(b.id) }}
                             className="font-bold text-xs" style={{ color: '#DC2626' }}>
                             ×
                           </button>
