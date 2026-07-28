@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { upload as uploadToBlob } from '@vercel/blob/client'
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -1919,19 +1920,12 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   // Uploads go straight from the browser to Vercel Blob storage (not through
   // this function, which would hit the ~4.5MB serverless body-size limit) —
   // /api/blob/upload only hands out a short-lived authorization token.
-  // Dynamically imported so a missing @vercel/blob dependency doesn't break
-  // the rest of the app, only the upload action itself.
   const handleMediaUpload = async (files: FileList | null) => {
     if (readOnly || !files || files.length === 0) return
     setUploading(true)
     try {
-      // Built at runtime (not a string literal) so bundlers/dep-scanners can't
-      // trip over this module before `pnpm add @vercel/blob` has been run —
-      // see the comment on this function for why it's dynamic in the first place.
-      const blobClientModule = ['@vercel/blob', 'client'].join('/')
-      const { upload } = await import(blobClientModule)
       for (const file of Array.from(files)) {
-        const blob = await upload(`games/${initial?.id ?? uid()}/${uid()}-${file.name}`, file, {
+        const blob = await uploadToBlob(`games/${initial?.id ?? uid()}/${uid()}-${file.name}`, file, {
           access: 'public',
           handleUploadUrl: '/api/blob/upload',
         })
