@@ -1552,6 +1552,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   const [playedSeconds, setPlayedSeconds] = useState<Record<string, number>>(() => initial?.playedSeconds ?? {})
   const [media, setMedia] = useState<MediaItem[]>(() => initial?.media ?? [])
   const [uploading, setUploading] = useState(false)
+  const mediaFileInputRef = useRef<HTMLInputElement>(null)
   const [notes, setNotes] = useState(initial?.notes ?? '')
   const [result] = useState(initial?.result ?? '')
   const [scoreOwn, setScoreOwn] = useState(initial?.scoreOwn ?? 0)
@@ -1922,6 +1923,10 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   // /api/blob/upload only hands out a short-lived authorization token.
   const handleMediaUpload = async (files: FileList | null) => {
     if (readOnly || !files || files.length === 0) return
+    if (!user) {
+      alert('Log in met Google om media te uploaden (zie Profiel rechtsboven op het startscherm).')
+      return
+    }
     setUploading(true)
     try {
       for (const file of Array.from(files)) {
@@ -2509,37 +2514,39 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
             {activeTab === 'media' && (
               <div className="p-3 space-y-3">
                 {!readOnly && (
-                  <div>
-                    <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Toevoegen</label>
-                    <input type="file" accept="image/*,video/*" multiple disabled={uploading}
-                      onChange={e => { handleMediaUpload(e.target.files); e.target.value = '' }}
-                      className="w-full text-xs" style={{ color: '#3B5299' }} />
-                    {uploading && <p className="text-xs mt-1.5" style={{ color: '#A8BEF0' }}>Uploaden…</p>}
-                  </div>
+                  <input ref={mediaFileInputRef} type="file" accept="image/*,video/*" multiple
+                    className="hidden" onChange={e => { handleMediaUpload(e.target.files); e.target.value = '' }} />
                 )}
-                {media.length === 0 ? (
+                {readOnly && media.length === 0 ? (
                   <div className="text-xs text-center py-8 rounded-xl border-2 border-dashed"
                     style={{ color: '#A8BEF0', borderColor: '#D0DCFA' }}>
-                    Nog geen foto's of video's
+                    Geen foto's of video's
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-2">
+                    {!readOnly && (
+                      <button onClick={() => mediaFileInputRef.current?.click()} disabled={uploading}
+                        className="flex flex-col items-center justify-center gap-1 h-24 rounded-xl border-2 border-dashed disabled:opacity-50"
+                        style={{ borderColor: '#D0DCFA', color: '#7B90C8' }}>
+                        <span className="text-2xl leading-none font-bold">+</span>
+                        <span className="text-xs font-bold">{uploading ? 'Uploaden…' : 'Toevoegen'}</span>
+                      </button>
+                    )}
                     {media.map(item => (
-                      <div key={item.id} className="relative rounded-xl overflow-hidden"
-                        style={{ border: '1px solid #D0DCFA', background: '#0D2B7A' }}>
+                      <button key={item.id} onClick={() => !readOnly && handleDeleteMedia(item)}
+                        className="relative rounded-xl overflow-hidden h-24 group" style={{ border: '1px solid #D0DCFA', background: '#0D2B7A' }}>
                         {item.type === 'image' ? (
                           <img src={item.url} alt={item.name} className="w-full h-24 object-cover" />
                         ) : (
-                          <video src={item.url} controls className="w-full h-24 object-cover" />
+                          <video src={item.url} className="w-full h-24 object-cover" />
                         )}
                         {!readOnly && (
-                          <button onClick={() => handleDeleteMedia(item)}
-                            className="absolute top-1 right-1 w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center leading-none"
-                            style={{ background: 'rgba(220,38,38,0.9)', color: '#fff' }}>
-                            ×
-                          </button>
+                          <span className="absolute inset-0 flex items-center justify-center text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity"
+                            style={{ background: 'rgba(13,43,122,0.75)', color: '#fff' }}>
+                            Verwijderen
+                          </span>
                         )}
-                      </div>
+                      </button>
                     ))}
                   </div>
                 )}
