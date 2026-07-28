@@ -48,6 +48,13 @@ interface Card {
   color: 'green' | 'yellow' | 'red'
 }
 
+interface MediaItem {
+  id: string
+  url: string
+  type: 'image' | 'video'
+  name: string
+}
+
 interface TacticsMarker {
   id: string
   x: number
@@ -85,6 +92,8 @@ interface SavedGame {
   goals: Goal[]
   cards: Card[]
   tacticsBoards: TacticsBoard[]
+  playedSeconds: Record<string, number>
+  media: MediaItem[]
   notes: string
   result: string
   scoreOwn: number
@@ -529,6 +538,12 @@ function getPositions(ag: AgeGroup): PosDef[] {
 const uid = () => Math.random().toString(36).slice(2, 11)
 const p2 = (n: number) => n.toString().padStart(2, '0')
 const fmtSec = (s: number) => `${p2(Math.floor(s / 60))}:${p2(s % 60)}`
+const fmtHM = (s: number) => {
+  const totalMin = Math.round(s / 60)
+  const h = Math.floor(totalMin / 60)
+  const m = totalMin % 60
+  return h > 0 ? `${h}u ${m}m` : `${m}m`
+}
 const todayStr = () => new Date().toISOString().slice(0, 10)
 const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name
 const initials = (name: string) => name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()
@@ -1533,6 +1548,9 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   const [tacticsTool, setTacticsTool] = useState<'select' | 'marker' | 'arrow'>('select')
   const [selectedTacticsMarker, setSelectedTacticsMarker] = useState<string | null>(null)
   const [tacticsPlayerId, setTacticsPlayerId] = useState('')
+  const [playedSeconds, setPlayedSeconds] = useState<Record<string, number>>(() => initial?.playedSeconds ?? {})
+  const [media, setMedia] = useState<MediaItem[]>(() => initial?.media ?? [])
+  const [uploading, setUploading] = useState(false)
   const [notes, setNotes] = useState(initial?.notes ?? '')
   const [result] = useState(initial?.result ?? '')
   const [scoreOwn, setScoreOwn] = useState(initial?.scoreOwn ?? 0)
@@ -1540,12 +1558,24 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   const [gameSec, setGameSec] = useState(initial?.finalTime ?? 0)
   const [running, setRunning] = useState(false)
   const [selected, setSelected] = useState<Selected>(null)
-  const [activeTab, setActiveTab] = useState<'bench' | 'subs' | 'notes' | 'tactics'>('bench')
+  const [activeTab, setActiveTab] = useState<'bench' | 'subs' | 'notes' | 'tactics' | 'media'>('bench')
   const [panelCollapsed, setPanelCollapsed] = useLS('fh_panel_collapsed', false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // slotsRef (declared further below, kept fresh on every render) lets this
+  // interval — only recreated when `running` toggles — see substitutions that
+  // happen mid-match without resetting the tick cadence.
   useEffect(() => {
-    if (running) intervalRef.current = setInterval(() => setGameSec(s => s + 1), 1000)
+    if (running) intervalRef.current = setInterval(() => {
+      setGameSec(s => s + 1)
+      setPlayedSeconds(ps => {
+        const onField = slotsRef.current.filter(s => s.playerId)
+        if (onField.length === 0) return ps
+        const next = { ...ps }
+        for (const slot of onField) next[slot.playerId!] = (next[slot.playerId!] ?? 0) + 1
+        return next
+      })
+    }, 1000)
     else if (intervalRef.current) clearInterval(intervalRef.current)
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
   }, [running])
@@ -1886,6 +1916,50 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   const selectedFieldPos = selected?.type === 'field' ? selected.posId : null
   const selectedFieldPlayer = selectedFieldPos ? getPlayer(slots.find(s => s.posId === selectedFieldPos)?.playerId ?? null) : null
 
+  // Uploads go straight from the browser to Vercel Blob storage (not through
+  // this function, which would hit the ~4.5MB serverless body-size limit) —
+  // /api/blob/upload only hands out a short-lived authorization token.
+  // Dynamically imported so a missing @vercel/blob dependency doesn't break
+  // the rest of the app, only the upload action itself.
+  const handleMediaUpload = async (files: FileList | null) => {
+    if (readOnly || !files || files.length === 0) return
+    setUploading(true)
+    try {
+      // Built at runtime (not a string literal) so bundlers/dep-scanners can't
+      // trip over this module before `pnpm add @vercel/blob` has been run —
+      // see the comment on this function for why it's dynamic in the first place.
+      const blobClientModule = ['@vercel/blob', 'client'].join('/')
+      const { upload } = await import(blobClientModule)
+      for (const file of Array.from(files)) {
+        const blob = await upload(`games/${initial?.id ?? uid()}/${uid()}-${file.name}`, file, {
+          access: 'public',
+          handleUploadUrl: '/api/blob/upload',
+        })
+        setMedia(m => [...m, { id: uid(), url: blob.url, type: file.type.startsWith('video') ? 'video' : 'image', name: file.name }])
+      }
+    } catch (err) {
+      alert('Uploaden mislukt: ' + (err instanceof Error ? err.message : 'onbekende fout'))
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const handleDeleteMedia = async (item: MediaItem) => {
+    if (readOnly) return
+    if (!confirm(`"${item.name}" verwijderen?`)) return
+    try {
+      const res = await fetch('/api/blob/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: item.url }),
+      })
+      if (!res.ok) throw new Error('Verwijderen mislukt')
+      setMedia(m => m.filter(x => x.id !== item.id))
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Verwijderen mislukt')
+    }
+  }
+
   const saveGame = () => {
     if (readOnly) return
     if (!user) {
@@ -1895,7 +1969,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     onSave({
       id: initial?.id ?? uid(),
       date: initial?.date ?? todayStr(),
-      club, team, ageGroup, opponent, homeAway, squad, slots, subs, oppMarkers, goals, cards, tacticsBoards, notes, result,
+      club, team, ageGroup, opponent, homeAway, squad, slots, subs, oppMarkers, goals, cards, tacticsBoards, playedSeconds, media, notes, result,
       scoreOwn, scoreOpp,
       finalTime: gameSec,
       ownerId: initial?.ownerId ?? user.id,
@@ -2064,14 +2138,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
               style={{ color: '#A8BEF0' }}>
               ›
             </button>
-            {(['bench', 'subs', 'notes', 'tactics'] as const).map(tab => (
+            {(['bench', 'subs', 'notes', 'tactics', 'media'] as const).map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)}
                 className="flex-1 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors"
                 style={{
                   color: activeTab === tab ? '#1A3FAB' : '#A8BEF0',
                   borderBottom: activeTab === tab ? '2.5px solid #1A3FAB' : '2.5px solid transparent',
                 }}>
-                {tab === 'bench' ? `Bank (${benchPlayers.length})` : tab === 'subs' ? `Wissels (${subs.length})` : tab === 'notes' ? 'Score' : 'Tactiek'}
+                {tab === 'bench' ? `Bank (${benchPlayers.length})` : tab === 'subs' ? `Wissels (${subs.length})` : tab === 'notes' ? 'Score' : tab === 'tactics' ? 'Tactiek' : 'Media'}
               </button>
             ))}
           </div>
@@ -2302,6 +2376,24 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                   )}
                 </div>
                 <div>
+                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Speeltijd</label>
+                  <div className="space-y-1">
+                    {sortPlayers(squad).map(p => {
+                      const onField = slots.some(s => s.playerId === p.id)
+                      return (
+                        <div key={p.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
+                          style={{ background: '#F8FAFF', border: '1px solid #E8EFFD' }}>
+                          <span style={{ color: '#1A2F6B' }}>
+                            {onField && <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5" style={{ background: '#16A34A' }} />}
+                            {p.number ? `#${p.number} ` : ''}{p.name}
+                          </span>
+                          <span className="font-mono font-bold" style={{ color: '#3B5299' }}>{fmtSec(playedSeconds[p.id] ?? 0)}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+                <div>
                   <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Notities</label>
                   <textarea className="w-full rounded-xl px-3 py-2 text-sm resize-none"
                     style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: '#1A2F6B', outline: 'none' }}
@@ -2419,6 +2511,46 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                 )}
               </div>
             )}
+
+            {activeTab === 'media' && (
+              <div className="p-3 space-y-3">
+                {!readOnly && (
+                  <div>
+                    <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Toevoegen</label>
+                    <input type="file" accept="image/*,video/*" multiple disabled={uploading}
+                      onChange={e => { handleMediaUpload(e.target.files); e.target.value = '' }}
+                      className="w-full text-xs" style={{ color: '#3B5299' }} />
+                    {uploading && <p className="text-xs mt-1.5" style={{ color: '#A8BEF0' }}>Uploaden…</p>}
+                  </div>
+                )}
+                {media.length === 0 ? (
+                  <div className="text-xs text-center py-8 rounded-xl border-2 border-dashed"
+                    style={{ color: '#A8BEF0', borderColor: '#D0DCFA' }}>
+                    Nog geen foto's of video's
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    {media.map(item => (
+                      <div key={item.id} className="relative rounded-xl overflow-hidden"
+                        style={{ border: '1px solid #D0DCFA', background: '#0D2B7A' }}>
+                        {item.type === 'image' ? (
+                          <img src={item.url} alt={item.name} className="w-full h-24 object-cover" />
+                        ) : (
+                          <video src={item.url} controls className="w-full h-24 object-cover" />
+                        )}
+                        {!readOnly && (
+                          <button onClick={() => handleDeleteMedia(item)}
+                            className="absolute top-1 right-1 w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center leading-none"
+                            style={{ background: 'rgba(220,38,38,0.9)', color: '#fff' }}>
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
         )}
@@ -2440,6 +2572,24 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
 }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const getPlayer = (g: SavedGame, id: string) => g.squad.find(p => p.id === id)
+
+  // Sum minutes played across every saved match — `games` is already ordered
+  // oldest-first (per the API), so overwriting on each pass keeps the most
+  // recent name/number for a player whose squad entry changed over time.
+  const seasonPlaytime = (() => {
+    const totals: Record<string, number> = {}
+    const info: Record<string, { name: string; number?: number }> = {}
+    for (const g of games) {
+      for (const p of g.squad) info[p.id] = { name: p.name, number: p.number }
+      for (const [pid, sec] of Object.entries(g.playedSeconds ?? {})) {
+        totals[pid] = (totals[pid] ?? 0) + sec
+      }
+    }
+    return Object.entries(totals)
+      .map(([id, sec]) => ({ id, sec, ...info[id] }))
+      .filter(p => p.name)
+      .sort((a, b) => (a.number ?? Infinity) - (b.number ?? Infinity) || a.name.localeCompare(b.name))
+  })()
 
   const expandedGame = games.find(g => g.id === expanded) ?? null
   const canManageSharing = !!expandedGame && (expandedGame.ownerId ?? user?.id) === user?.id
@@ -2479,6 +2629,22 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
           </div>
         ) : (
           <div className="space-y-3">
+            {seasonPlaytime.length > 0 && (
+              <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid #D0DCFA' }}>
+                <h2 className="font-display text-sm font-bold uppercase mb-3" style={{ color: '#7B90C8', letterSpacing: '0.08em' }}>
+                  Speeltijd — alle wedstrijden
+                </h2>
+                <div className="flex flex-wrap gap-1.5">
+                  {seasonPlaytime.map(p => (
+                    <span key={p.id} className="text-xs px-2 py-1 rounded-lg font-medium"
+                      style={{ background: '#EEF3FF', color: '#1A2F6B', border: '1px solid #D0DCFA' }}>
+                      {p.number != null && <span className="font-mono font-bold" style={{ color: '#1A3FAB' }}>#{p.number} </span>}
+                      {p.name} <span style={{ color: '#3B5299' }}>· {fmtHM(p.sec)}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
             {[...games].reverse().map(g => (
               <div key={g.id} className="bg-white rounded-2xl overflow-hidden shadow-sm"
                 style={{ border: '1px solid #D0DCFA' }}>
@@ -2587,6 +2753,42 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
                                 </span>
                               )
                             })}
+                          </div>
+                        </div>
+                      )}
+
+                      {g.playedSeconds && Object.keys(g.playedSeconds).length > 0 && (
+                        <div>
+                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: '#7B90C8' }}>Speeltijd</h4>
+                          <div className="flex flex-wrap gap-1.5">
+                            {Object.entries(g.playedSeconds)
+                              .map(([playerId, sec]) => ({ playerId, sec, player: getPlayer(g, playerId) }))
+                              .filter((x): x is { playerId: string; sec: number; player: Player } => !!x.player)
+                              .sort((a, b) => (a.player.number ?? Infinity) - (b.player.number ?? Infinity) || a.player.name.localeCompare(b.player.name))
+                              .map(x => (
+                                <span key={x.playerId} className="text-xs px-2 py-1 rounded-lg font-medium"
+                                  style={{ background: '#EEF3FF', color: '#1A2F6B', border: '1px solid #D0DCFA' }}>
+                                  {x.player.name} <span style={{ color: '#3B5299' }}>· {fmtSec(x.sec)}</span>
+                                </span>
+                              ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {g.media && g.media.length > 0 && (
+                        <div>
+                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: '#7B90C8' }}>Media</h4>
+                          <div className="grid grid-cols-4 gap-1.5">
+                            {g.media.map(item => (
+                              <a key={item.id} href={item.url} target="_blank" rel="noreferrer"
+                                className="block rounded-lg overflow-hidden" style={{ border: '1px solid #D0DCFA', background: '#0D2B7A' }}>
+                                {item.type === 'image' ? (
+                                  <img src={item.url} alt={item.name} className="w-full h-16 object-cover" />
+                                ) : (
+                                  <video src={item.url} className="w-full h-16 object-cover" />
+                                )}
+                              </a>
+                            ))}
                           </div>
                         </div>
                       )}
