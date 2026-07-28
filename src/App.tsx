@@ -537,6 +537,9 @@ function getPositions(ag: AgeGroup): PosDef[] {
 // ── Utils ────────────────────────────────────────────────────────────────────
 
 const uid = () => Math.random().toString(36).slice(2, 11)
+// The Blob store is private, so raw blob URLs 404 without auth — everything
+// reads media through this proxy instead (see api/blob/[action].ts's 'view').
+const mediaSrc = (url: string) => `/api/blob/view?url=${encodeURIComponent(url)}`
 const p2 = (n: number) => n.toString().padStart(2, '0')
 const fmtSec = (s: number) => `${p2(Math.floor(s / 60))}:${p2(s % 60)}`
 const fmtHM = (s: number) => {
@@ -1931,7 +1934,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     try {
       for (const file of Array.from(files)) {
         const blob = await uploadToBlob(`games/${initial?.id ?? uid()}/${uid()}-${file.name}`, file, {
-          access: 'public',
+          access: 'private',
           handleUploadUrl: '/api/blob/upload',
         })
         setMedia(m => [...m, { id: uid(), url: blob.url, type: file.type.startsWith('video') ? 'video' : 'image', name: file.name }])
@@ -2536,9 +2539,9 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                       <button key={item.id} onClick={() => !readOnly && handleDeleteMedia(item)}
                         className="relative rounded-xl overflow-hidden h-24 group" style={{ border: '1px solid #D0DCFA', background: '#0D2B7A' }}>
                         {item.type === 'image' ? (
-                          <img src={item.url} alt={item.name} className="w-full h-24 object-cover" />
+                          <img src={mediaSrc(item.url)} alt={item.name} className="w-full h-24 object-cover" />
                         ) : (
-                          <video src={item.url} className="w-full h-24 object-cover" />
+                          <video src={mediaSrc(item.url)} className="w-full h-24 object-cover" />
                         )}
                         {!readOnly && (
                           <span className="absolute inset-0 flex items-center justify-center text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity"
@@ -2781,12 +2784,12 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
                           <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: '#7B90C8' }}>Media</h4>
                           <div className="grid grid-cols-4 gap-1.5">
                             {g.media.map(item => (
-                              <a key={item.id} href={item.url} target="_blank" rel="noreferrer"
+                              <a key={item.id} href={mediaSrc(item.url)} target="_blank" rel="noreferrer"
                                 className="block rounded-lg overflow-hidden" style={{ border: '1px solid #D0DCFA', background: '#0D2B7A' }}>
                                 {item.type === 'image' ? (
-                                  <img src={item.url} alt={item.name} className="w-full h-16 object-cover" />
+                                  <img src={mediaSrc(item.url)} alt={item.name} className="w-full h-16 object-cover" />
                                 ) : (
-                                  <video src={item.url} className="w-full h-16 object-cover" />
+                                  <video src={mediaSrc(item.url)} className="w-full h-16 object-cover" />
                                 )}
                               </a>
                             ))}

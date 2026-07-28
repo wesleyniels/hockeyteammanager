@@ -1,11 +1,16 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { del } from '@vercel/blob'
+import { Readable } from 'node:stream'
+import { del, get } from '@vercel/blob'
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client'
 import { getSessionFromCookies } from '../_lib/session.js'
 
-// /api/blob/upload and /api/blob/delete collapsed into one dynamic-segment
-// file — see the comment in api/auth/[action].ts for why (Hobby plan's
-// 12-function cap). URLs callers hit are unchanged.
+// /api/blob/upload, /api/blob/delete and /api/blob/view collapsed into one
+// dynamic-segment file — see the comment in api/auth/[action].ts for why
+// (Hobby plan's 12-function cap). URLs callers hit are unchanged.
+
+// The store is private (deliberately — these are photos/videos of minors),
+// so blob URLs aren't fetchable directly by <img>/<video> tags. Everything
+// here uses 'private' access and reads are proxied through handleViewAction.
 
 // @vercel/blob defaults to process.env.BLOB_READ_WRITE_TOKEN, but connecting
 // a store with a custom name/prefix in the Vercel dashboard (e.g. a "test"
@@ -62,6 +67,27 @@ async function handleDeleteAction(req: VercelRequest, res: VercelResponse) {
   }
 }
 
+// Streams a private blob back through this function — anyone already
+// authenticated into the app (same bar as viewing match history at all) can
+// view it. Doesn't forward Range requests, so video seeking is best-effort;
+// fine for short match clips.
+async function handleViewAction(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'GET') { res.status(405).json({ error: 'Method not allowed' }); return }
+
+  const url = typeof req.query.url === 'string' ? req.query.url : ''
+  if (!url) { res.status(400).json({ error: 'Missing url' }); return }
+
+  try {
+    const result = await get(url, { access: 'private', token: blobToken() })
+    if (!result || result.statusCode !== 200) { res.status(404).end(); return }
+    res.setHeader('Content-Type', result.blob.contentType)
+    res.setHeader('Cache-Control', 'private, max-age=3600')
+    Readable.fromWeb(result.stream as any).pipe(res)
+  } catch {
+    res.status(404).end()
+  }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const user = getSessionFromCookies(req.headers.cookie)
   if (!user) { res.status(401).json({ error: 'Not authenticated' }); return }
@@ -69,6 +95,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   switch (req.query.action) {
     case 'upload': return handleUploadAction(req, res)
     case 'delete': return handleDeleteAction(req, res)
+    case 'view': return handleViewAction(req, res)
     default: res.status(404).json({ error: 'Not found' })
   }
 }
