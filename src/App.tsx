@@ -1567,6 +1567,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   const [media, setMedia] = useState<MediaItem[]>(() => initial?.media ?? [])
   const [uploading, setUploading] = useState(false)
   const mediaFileInputRef = useRef<HTMLInputElement>(null)
+  const [previewMedia, setPreviewMedia] = useState<MediaItem | null>(null)
   const [notes, setNotes] = useState(initial?.notes ?? '')
   const [result] = useState(initial?.result ?? '')
   const [scoreOwn, setScoreOwn] = useState(initial?.scoreOwn ?? 0)
@@ -1962,9 +1963,9 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     }
   }
 
-  const handleDeleteMedia = async (item: MediaItem) => {
-    if (readOnly) return
-    if (!confirm(`"${item.name}" verwijderen?`)) return
+  const handleDeleteMedia = async (item: MediaItem): Promise<boolean> => {
+    if (readOnly) return false
+    if (!confirm(`"${item.name}" verwijderen?`)) return false
     try {
       const res = await fetch('/api/blob/delete', {
         method: 'POST',
@@ -1973,8 +1974,10 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
       })
       if (!res.ok) throw new Error('Verwijderen mislukt')
       setMedia(m => m.filter(x => x.id !== item.id))
+      return true
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Verwijderen mislukt')
+      return false
     }
   }
 
@@ -2557,18 +2560,12 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                       </button>
                     )}
                     {media.map(item => (
-                      <button key={item.id} onClick={() => !readOnly && handleDeleteMedia(item)}
-                        className="relative rounded-xl overflow-hidden h-24 group" style={{ border: '1px solid #D0DCFA', background: '#0D2B7A' }}>
+                      <button key={item.id} onClick={() => setPreviewMedia(item)}
+                        className="relative rounded-xl overflow-hidden h-24" style={{ border: '1px solid #D0DCFA', background: '#0D2B7A' }}>
                         {item.type === 'image' ? (
                           <img src={mediaSrc(item.url)} alt={item.name} className="w-full h-24 object-cover" />
                         ) : (
                           <video src={mediaSrc(item.url)} className="w-full h-24 object-cover" />
-                        )}
-                        {!readOnly && (
-                          <span className="absolute inset-0 flex items-center justify-center text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity"
-                            style={{ background: 'rgba(13,43,122,0.75)', color: '#fff' }}>
-                            Verwijderen
-                          </span>
                         )}
                       </button>
                     ))}
@@ -2580,6 +2577,29 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
         </div>
         )}
       </div>
+
+      {previewMedia && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6"
+          style={{ background: 'rgba(13,20,43,0.85)' }}
+          onClick={() => setPreviewMedia(null)}>
+          <div className="relative max-w-full max-h-full" onClick={e => e.stopPropagation()}>
+            {previewMedia.type === 'image' ? (
+              <img src={mediaSrc(previewMedia.url)} alt={previewMedia.name}
+                className="rounded-xl" style={{ maxWidth: '90vw', maxHeight: '85vh' }} />
+            ) : (
+              <video src={mediaSrc(previewMedia.url)} controls autoPlay
+                className="rounded-xl" style={{ maxWidth: '90vw', maxHeight: '85vh' }} />
+            )}
+            {!readOnly && (
+              <button onClick={async () => { if (await handleDeleteMedia(previewMedia)) setPreviewMedia(null) }}
+                className="absolute -top-3 -right-3 w-9 h-9 rounded-full text-lg font-bold flex items-center justify-center"
+                style={{ background: '#DC2626', color: '#fff', boxShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>
+                ×
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
