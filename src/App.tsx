@@ -2961,7 +2961,7 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
 // hang a photo on. SetupView re-resolves these by name whenever a team is
 // loaded, so a photo uploaded here shows up in matches automatically.
 
-function TeamPlayerPhotos({ team }: { team: string }) {
+function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean }) {
   const roster = SC_MUIDEN_TEAMS[team] ?? []
   const [photos, setPhotos] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
@@ -3024,8 +3024,15 @@ function TeamPlayerPhotos({ team }: { team: string }) {
 
   return (
     <div>
-      <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
-        onChange={e => { onFileChange(e.target.files?.[0]); e.target.value = '' }} />
+      {canEdit && (
+        <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
+          onChange={e => { onFileChange(e.target.files?.[0]); e.target.value = '' }} />
+      )}
+      {!canEdit && (
+        <p className="text-xs mb-3" style={{ color: '#7B90C8' }}>
+          Alleen coaches kunnen foto's toevoegen of wijzigen.
+        </p>
+      )}
       {error && <p className="text-xs font-semibold mb-2" style={{ color: '#DC2626' }}>{error}</p>}
       {roster.length === 0 ? (
         <p className="text-sm" style={{ color: '#7B90C8' }}>Geen spelers gevonden voor dit team.</p>
@@ -3034,25 +3041,30 @@ function TeamPlayerPhotos({ team }: { team: string }) {
           {roster.map(name => {
             const url = photos[slugify(name)]
             const busy = busyName === name
+            const avatar = url ? (
+              <img src={mediaSrc(url)} alt={name} className="w-11 h-11 rounded-full object-cover" />
+            ) : (
+              <div className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-sm" style={{ background: '#1A3FAB' }}>
+                {initials(name)}
+              </div>
+            )
             return (
               <div key={name} className="flex items-center gap-3 p-2.5 rounded-xl"
                 style={{ background: '#F8FAFF', border: '1px solid #E8EFFD' }}>
-                <button onClick={() => triggerUpload(name)} disabled={busy}
-                  className="relative w-11 h-11 rounded-full shrink-0 group overflow-hidden disabled:opacity-50" title="Foto wijzigen">
-                  {url ? (
-                    <img src={mediaSrc(url)} alt={name} className="w-11 h-11 rounded-full object-cover" />
-                  ) : (
-                    <div className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-sm" style={{ background: '#1A3FAB' }}>
-                      {initials(name)}
-                    </div>
-                  )}
-                  <span className="absolute inset-0 rounded-full flex items-center justify-center text-white text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity"
-                    style={{ background: 'rgba(13,43,122,0.55)' }}>
-                    {busy ? '…' : '✎'}
-                  </span>
-                </button>
+                {canEdit ? (
+                  <button onClick={() => triggerUpload(name)} disabled={busy}
+                    className="relative w-11 h-11 rounded-full shrink-0 group overflow-hidden disabled:opacity-50" title="Foto wijzigen">
+                    {avatar}
+                    <span className="absolute inset-0 rounded-full flex items-center justify-center text-white text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity"
+                      style={{ background: 'rgba(13,43,122,0.55)' }}>
+                      {busy ? '…' : '✎'}
+                    </span>
+                  </button>
+                ) : (
+                  <div className="w-11 h-11 rounded-full shrink-0 overflow-hidden">{avatar}</div>
+                )}
                 <span className="flex-1 text-sm font-semibold truncate" style={{ color: '#1A2F6B' }}>{name}</span>
-                {url && !busy && (
+                {canEdit && url && !busy && (
                   <button onClick={() => removePhoto(name)} className="font-bold text-sm" style={{ color: '#DC2626' }}>×</button>
                 )}
               </div>
@@ -3237,9 +3249,9 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
               Spelers — {user.defaultTeam}
             </h2>
             <p className="text-xs mb-4" style={{ color: '#7B90C8' }}>
-              Voeg een foto per speler toe — deze verschijnt dan tijdens wedstrijden op het veld en de bank.
+              Foto's per speler verschijnen tijdens wedstrijden op het veld en de bank.
             </p>
-            <TeamPlayerPhotos team={user.defaultTeam} />
+            <TeamPlayerPhotos team={user.defaultTeam} canEdit={user.role === 'Coach' || user.role === 'Trainer & Coach'} />
           </section>
         )}
 
