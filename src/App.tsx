@@ -3520,23 +3520,25 @@ function GameShareManager({ shares, onAdd, onRemove }: {
 
   return (
     <div>
-      <div className="flex gap-2">
-        <select className="flex-1 rounded-xl px-3 py-2 text-sm"
+      <div className="space-y-2">
+        <select className="w-full min-w-0 rounded-xl px-3 py-2 text-sm"
           style={{ ...inputStyle, color: userId ? '#1A2F6B' : '#7B90C8' }}
           value={userId} onChange={e => setUserId(e.target.value)}>
           <option value="">Kies gebruiker…</option>
-          {available.map(u => <option key={u.id} value={u.id}>{u.name ? `${u.name} (${u.email})` : u.email}</option>)}
+          {available.map(u => <option key={u.id} value={u.id}>{u.name ?? u.email}</option>)}
         </select>
-        <select className="rounded-xl px-2 py-2 text-sm" style={inputStyle}
-          value={permission} onChange={e => setPermission(e.target.value as 'view' | 'edit')}>
-          <option value="view">Bekijken</option>
-          <option value="edit">Bewerken</option>
-        </select>
-        <button onClick={submit} disabled={busy || !userId}
-          className="px-3 py-2 rounded-xl font-bold text-white text-sm shrink-0 disabled:opacity-50"
-          style={{ background: '#1A3FAB' }}>
-          Delen
-        </button>
+        <div className="flex gap-2">
+          <select className="flex-1 min-w-0 rounded-xl px-2 py-2 text-sm" style={inputStyle}
+            value={permission} onChange={e => setPermission(e.target.value as 'view' | 'edit')}>
+            <option value="view">Bekijken</option>
+            <option value="edit">Bewerken</option>
+          </select>
+          <button onClick={submit} disabled={busy || !userId}
+            className="px-3 py-2 rounded-xl font-bold text-white text-sm shrink-0 disabled:opacity-50"
+            style={{ background: '#1A3FAB' }}>
+            Delen
+          </button>
+        </div>
       </div>
       {available.length === 0 && (
         <p className="text-xs mt-1" style={{ color: '#A8BEF0' }}>Geen andere gebruikers gevonden om mee te delen.</p>

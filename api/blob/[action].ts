@@ -69,8 +69,12 @@ async function handleDeleteAction(req: VercelRequest, res: VercelResponse) {
 
 // Streams a private blob back through this function — anyone already
 // authenticated into the app (same bar as viewing match history at all) can
-// view it. Doesn't forward Range requests, so video seeking is best-effort;
-// fine for short match clips.
+// view it. Forwards the client's Range header to the blob origin (S3-backed,
+// so it supports real byte ranges) — mobile video players issue a Range
+// probe before they'll play anything at all, and without this they were
+// falling back to a native "open externally" view instead of inline playback.
+// Also forces Content-Disposition: inline — Blob objects default to
+// "attachment", which made browsers download instead of display them.
 async function handleViewAction(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') { res.status(405).json({ error: 'Method not allowed' }); return }
 
@@ -78,10 +82,24 @@ async function handleViewAction(req: VercelRequest, res: VercelResponse) {
   if (!url) { res.status(400).json({ error: 'Missing url' }); return }
 
   try {
-    const result = await get(url, { access: 'private', token: blobToken() })
-    if (!result || result.statusCode !== 200) { res.status(404).end(); return }
-    res.setHeader('Content-Type', result.blob.contentType)
+    const range = typeof req.headers.range === 'string' ? req.headers.range : undefined
+    const result = await get(url, {
+      access: 'private',
+      token: blobToken(),
+      headers: range ? { Range: range } : undefined,
+    })
+    if (!result || !result.stream) { res.status(404).end(); return }
+
+    const contentRange = result.headers.get('content-range')
+    res.setHeader('Accept-Ranges', result.headers.get('accept-ranges') ?? 'bytes')
+    res.setHeader('Content-Type', result.blob.contentType || 'application/octet-stream')
+    res.setHeader('Content-Disposition', 'inline')
     res.setHeader('Cache-Control', 'private, max-age=3600')
+    if (result.blob.size) res.setHeader('Content-Length', String(result.blob.size))
+    if (contentRange) {
+      res.status(206)
+      res.setHeader('Content-Range', contentRange)
+    }
     Readable.fromWeb(result.stream as any).pipe(res)
   } catch {
     res.status(404).end()
