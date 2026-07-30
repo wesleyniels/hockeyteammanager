@@ -10,6 +10,10 @@ interface Player {
   id: string
   name: string
   number?: number
+  // A private Blob URL (proxied through mediaSrc()), looked up by team+name
+  // slug — see fetchTeamPhotos(). Not persisted on the Player object itself
+  // beyond the current session; it's re-resolved whenever a team is loaded.
+  photoUrl?: string
 }
 
 interface PositionSlot {
@@ -357,6 +361,8 @@ const SC_MUIDEN_TEAM_NAMES = Object.keys(SC_MUIDEN_TEAMS).sort((a, b) => {
   return ma[3].localeCompare(mb[3])
 })
 
+const ROLE_OPTIONS = ['Trainer', 'Coach', 'Trainer & Coach', 'Player', 'Supporter'] as const
+
 // ── Field positions ──────────────────────────────────────────────────────────
 // x/y are % of the SVG container (0–100)
 // Standard field SVG viewBox="0 0 62 97", dual viewBox="0 0 140 97"
@@ -543,6 +549,31 @@ const uid = () => Math.random().toString(36).slice(2, 11)
 // The Blob store is private, so raw blob URLs 404 without auth — everything
 // reads media through this proxy instead (see api/blob/[action].ts's 'view').
 const mediaSrc = (url: string) => `/api/blob/view?url=${encodeURIComponent(url)}`
+
+// Player photos live in the Blob store at a stable, predictable pathname
+// (players/{team-slug}/{name-slug}.jpg, re-uploaded in place) rather than a
+// DB row — there's no stable Player.id across sessions (squad is rebuilt
+// from SC_MUIDEN_TEAMS by name every time a team is selected), but a
+// player's name+team is stable enough to key a photo on.
+const slugify = (s: string) =>
+  s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+const playerPhotoPathname = (team: string, name: string) => `players/${slugify(team)}/${slugify(name)}.jpg`
+
+async function fetchTeamPhotos(team: string): Promise<Record<string, string>> {
+  try {
+    const res = await fetch(`/api/blob/list?prefix=${encodeURIComponent(`players/${slugify(team)}/`)}`)
+    if (!res.ok) return {}
+    const { blobs } = await res.json() as { blobs: { pathname: string; url: string }[] }
+    const byNameSlug: Record<string, string> = {}
+    for (const b of blobs) {
+      const fileName = b.pathname.split('/').pop() ?? ''
+      byNameSlug[fileName.replace(/\.[^.]+$/, '')] = b.url
+    }
+    return byNameSlug
+  } catch {
+    return {}
+  }
+}
 const p2 = (n: number) => n.toString().padStart(2, '0')
 const fmtSec = (s: number) => `${p2(Math.floor(s / 60))}:${p2(s % 60)}`
 const fmtHM = (s: number) => {
@@ -889,14 +920,18 @@ function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, 
                 transition: isBeingDragged ? 'none' : 'transform 0.1s, box-shadow 0.1s',
               }}>
               {player ? (
-                <>
-                  <span style={{ fontSize: '12px', fontWeight: 800, lineHeight: 1, color: '#111' }}>
-                    {player.number ?? initials(player.name)}
-                  </span>
-                  <span style={{ fontSize: '8px', fontWeight: 600, color: '#333', marginTop: '1px', maxWidth: '42px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '0 2px' }}>
-                    {firstName(player.name)}
-                  </span>
-                </>
+                player.photoUrl ? (
+                  <img src={mediaSrc(player.photoUrl)} alt={player.name} className="w-full h-full rounded-full object-cover" />
+                ) : (
+                  <>
+                    <span style={{ fontSize: '12px', fontWeight: 800, lineHeight: 1, color: '#111' }}>
+                      {player.number ?? initials(player.name)}
+                    </span>
+                    <span style={{ fontSize: '8px', fontWeight: 600, color: '#333', marginTop: '1px', maxWidth: '42px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '0 2px' }}>
+                      {firstName(player.name)}
+                    </span>
+                  </>
+                )
               ) : (
                 <span style={{ fontSize: '8px', fontWeight: 700, color: 'rgba(255,255,255,0.6)' }}>
                   {slot.label}
@@ -918,12 +953,18 @@ function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, 
               display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
               boxShadow: '0 6px 20px rgba(0,0,0,0.45)', transform: 'scale(1.18)', opacity: 0.95,
             }}>
-            <span style={{ fontSize: '12px', fontWeight: 800, lineHeight: 1, color: '#111' }}>
-              {draggedBenchPlayer.number ?? initials(draggedBenchPlayer.name)}
-            </span>
-            <span style={{ fontSize: '8px', fontWeight: 600, color: '#333', marginTop: '1px', maxWidth: '42px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '0 2px' }}>
-              {firstName(draggedBenchPlayer.name)}
-            </span>
+            {draggedBenchPlayer.photoUrl ? (
+              <img src={mediaSrc(draggedBenchPlayer.photoUrl)} alt={draggedBenchPlayer.name} className="w-full h-full rounded-full object-cover" />
+            ) : (
+              <>
+                <span style={{ fontSize: '12px', fontWeight: 800, lineHeight: 1, color: '#111' }}>
+                  {draggedBenchPlayer.number ?? initials(draggedBenchPlayer.name)}
+                </span>
+                <span style={{ fontSize: '8px', fontWeight: 600, color: '#333', marginTop: '1px', maxWidth: '42px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '0 2px' }}>
+                  {firstName(draggedBenchPlayer.name)}
+                </span>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -1053,14 +1094,18 @@ function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, sel
               boxShadow: player ? '0 2px 8px rgba(0,0,0,0.3)' : 'none',
             }}>
               {player ? (
-                <>
-                  <span style={{ fontSize: '12px', fontWeight: 800, lineHeight: 1, color: '#111' }}>
-                    {player.number ?? initials(player.name)}
-                  </span>
-                  <span style={{ fontSize: '8px', fontWeight: 600, color: '#333', marginTop: '1px', maxWidth: '42px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '0 2px' }}>
-                    {firstName(player.name)}
-                  </span>
-                </>
+                player.photoUrl ? (
+                  <img src={mediaSrc(player.photoUrl)} alt={player.name} className="w-full h-full rounded-full object-cover" />
+                ) : (
+                  <>
+                    <span style={{ fontSize: '12px', fontWeight: 800, lineHeight: 1, color: '#111' }}>
+                      {player.number ?? initials(player.name)}
+                    </span>
+                    <span style={{ fontSize: '8px', fontWeight: 600, color: '#333', marginTop: '1px', maxWidth: '42px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '0 2px' }}>
+                      {firstName(player.name)}
+                    </span>
+                  </>
+                )
               ) : (
                 <span style={{ fontSize: '8px', fontWeight: 700, color: 'rgba(255,255,255,0.6)' }}>{slot.label}</span>
               )}
@@ -1106,13 +1151,19 @@ function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, sel
               display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
               boxShadow: selectedMarker === m.id ? '0 0 0 3px rgba(26,63,171,0.35)' : '0 2px 6px rgba(0,0,0,0.25)',
             }}>
-              <span style={{ fontSize: '11px', fontWeight: 800, color: '#1A2F6B', lineHeight: 1 }}>
-                {player ? (player.number ?? initials(player.name)) : '?'}
-              </span>
-              {player && (
-                <span style={{ fontSize: '7px', fontWeight: 600, color: '#3B5299', marginTop: '1px', maxWidth: '36px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {firstName(player.name)}
-                </span>
+              {player?.photoUrl ? (
+                <img src={mediaSrc(player.photoUrl)} alt={player.name} className="w-full h-full rounded-full object-cover" />
+              ) : (
+                <>
+                  <span style={{ fontSize: '11px', fontWeight: 800, color: '#1A2F6B', lineHeight: 1 }}>
+                    {player ? (player.number ?? initials(player.name)) : '?'}
+                  </span>
+                  {player && (
+                    <span style={{ fontSize: '7px', fontWeight: 600, color: '#3B5299', marginTop: '1px', maxWidth: '36px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {firstName(player.name)}
+                    </span>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -1307,6 +1358,25 @@ function SetupView({ onStart, onHistory, onProfile, user }: {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.defaultTeam])
+
+  // Photos are uploaded from Profile, keyed by team+name (see slugify /
+  // fetchTeamPhotos) rather than Player.id, since squad ids are regenerated
+  // every time a team's roster is (re)loaded. Re-fetch and merge by name
+  // whenever the active team changes, so photos uploaded in Profile show up
+  // here without needing to re-select the team.
+  useEffect(() => {
+    if (!team || !SC_MUIDEN_TEAMS[team]) return
+    let cancelled = false
+    fetchTeamPhotos(team).then(photos => {
+      if (cancelled || Object.keys(photos).length === 0) return
+      setSquad(s => s.map(p => {
+        const photoUrl = photos[slugify(p.name)]
+        return photoUrl ? { ...p, photoUrl } : p
+      }))
+    })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [team])
 
   const minPlayers = AGE_CONFIG[ageGroup].total
   const canStart = (club || clubSearch) && team && (opponent || opponentTeam.trim())
@@ -2194,9 +2264,13 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                         }}
                         onPointerDown={e => beginDrag('bench', playerId, e)}
                         onClick={() => handleBenchClick(playerId)}>
-                        <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0"
+                        <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden"
                           style={{ background: '#1A3FAB' }}>
-                          {player.number ?? initials(player.name)}
+                          {player.photoUrl ? (
+                            <img src={mediaSrc(player.photoUrl)} alt={player.name} className="w-full h-full object-cover" />
+                          ) : (
+                            player.number ?? initials(player.name)
+                          )}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-semibold truncate" style={{ color: '#1A2F6B' }}>{player.name}</div>
@@ -2880,6 +2954,116 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
 
 // ── Profile View ─────────────────────────────────────────────────────────────
 
+// ── Team player photos ──────────────────────────────────────────────────────
+// Shown in Profile for the user's "voorkeursteam" — uploads go to a stable
+// players/{team}/{name}.jpg pathname (see playerPhotoPathname/slugify) rather
+// than a database row, since there's no other stable per-player record to
+// hang a photo on. SetupView re-resolves these by name whenever a team is
+// loaded, so a photo uploaded here shows up in matches automatically.
+
+function TeamPlayerPhotos({ team }: { team: string }) {
+  const roster = SC_MUIDEN_TEAMS[team] ?? []
+  const [photos, setPhotos] = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState(true)
+  const [busyName, setBusyName] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const uploadTargetRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetchTeamPhotos(team).then(p => { if (!cancelled) { setPhotos(p); setLoading(false) } })
+    return () => { cancelled = true }
+  }, [team])
+
+  const triggerUpload = (name: string) => {
+    uploadTargetRef.current = name
+    fileInputRef.current?.click()
+  }
+
+  const onFileChange = async (file: File | undefined) => {
+    const name = uploadTargetRef.current
+    if (!file || !name) return
+    setError(null)
+    setBusyName(name)
+    try {
+      const dataUrl = await resizeImageToDataUrl(file)
+      const blob = await (await fetch(dataUrl)).blob()
+      const result = await uploadToBlob(playerPhotoPathname(team, name), blob, {
+        access: 'private',
+        handleUploadUrl: '/api/blob/upload',
+      })
+      setPhotos(p => ({ ...p, [slugify(name)]: result.url }))
+    } catch {
+      setError('Kon foto niet uploaden. Probeer het opnieuw.')
+    } finally {
+      setBusyName(null)
+    }
+  }
+
+  const removePhoto = async (name: string) => {
+    const url = photos[slugify(name)]
+    if (!url || !confirm(`Foto van ${name} verwijderen?`)) return
+    setBusyName(name)
+    try {
+      await fetch('/api/blob/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      })
+      setPhotos(p => { const next = { ...p }; delete next[slugify(name)]; return next })
+    } catch {
+      setError('Kon foto niet verwijderen.')
+    } finally {
+      setBusyName(null)
+    }
+  }
+
+  if (loading) return <p className="text-sm text-center py-4" style={{ color: '#A8BEF0' }}>Laden…</p>
+
+  return (
+    <div>
+      <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
+        onChange={e => { onFileChange(e.target.files?.[0]); e.target.value = '' }} />
+      {error && <p className="text-xs font-semibold mb-2" style={{ color: '#DC2626' }}>{error}</p>}
+      {roster.length === 0 ? (
+        <p className="text-sm" style={{ color: '#7B90C8' }}>Geen spelers gevonden voor dit team.</p>
+      ) : (
+        <div className="space-y-2">
+          {roster.map(name => {
+            const url = photos[slugify(name)]
+            const busy = busyName === name
+            return (
+              <div key={name} className="flex items-center gap-3 p-2.5 rounded-xl"
+                style={{ background: '#F8FAFF', border: '1px solid #E8EFFD' }}>
+                <button onClick={() => triggerUpload(name)} disabled={busy}
+                  className="relative w-11 h-11 rounded-full shrink-0 group overflow-hidden disabled:opacity-50" title="Foto wijzigen">
+                  {url ? (
+                    <img src={mediaSrc(url)} alt={name} className="w-11 h-11 rounded-full object-cover" />
+                  ) : (
+                    <div className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-sm" style={{ background: '#1A3FAB' }}>
+                      {initials(name)}
+                    </div>
+                  )}
+                  <span className="absolute inset-0 rounded-full flex items-center justify-center text-white text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity"
+                    style={{ background: 'rgba(13,43,122,0.55)' }}>
+                    {busy ? '…' : '✎'}
+                  </span>
+                </button>
+                <span className="flex-1 text-sm font-semibold truncate" style={{ color: '#1A2F6B' }}>{name}</span>
+                {url && !busy && (
+                  <button onClick={() => removePhoto(name)} className="font-bold text-sm" style={{ color: '#DC2626' }}>×</button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword, onResendVerification, onLogout, onBack, onHistory, gameCount, onUpdateProfile }: {
   user: AuthUser | null
   loading: boolean
@@ -3010,8 +3194,11 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
               </div>
               <div>
                 <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Rol</label>
-                <input className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle}
-                  value={role} onChange={e => setRole(e.target.value)} placeholder="Bijv. Coach, Trainer, Manager" />
+                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: role ? '#1A2F6B' : '#7B90C8' }}
+                  value={role} onChange={e => setRole(e.target.value)}>
+                  <option value="">Kies rol…</option>
+                  {ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
               </div>
               <div className="flex items-center gap-3">
                 <button onClick={saveDetails}
@@ -3043,6 +3230,18 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
             </div>
           )}
         </section>
+
+        {user && user.defaultTeam && SC_MUIDEN_TEAMS[user.defaultTeam] && (
+          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid #D0DCFA' }}>
+            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-1" style={{ color: '#0D2B7A' }}>
+              Spelers — {user.defaultTeam}
+            </h2>
+            <p className="text-xs mb-4" style={{ color: '#7B90C8' }}>
+              Voeg een foto per speler toe — deze verschijnt dan tijdens wedstrijden op het veld en de bank.
+            </p>
+            <TeamPlayerPhotos team={user.defaultTeam} />
+          </section>
+        )}
 
         {isAdmin && (
           <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid #D0DCFA' }}>

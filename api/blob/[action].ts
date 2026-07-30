@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { Readable } from 'node:stream'
-import { del, get } from '@vercel/blob'
+import { del, get, list } from '@vercel/blob'
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client'
 import { getSessionFromCookies } from '../_lib/session.js'
 
@@ -38,11 +38,19 @@ async function handleUploadAction(req: VercelRequest, res: VercelResponse) {
       // handleUpload only reads a couple of headers off this — Vercel's own
       // Node.js/Pages-Router examples pass the plain req object the same way.
       request: req as any,
-      onBeforeGenerateToken: async () => ({
-        allowedContentTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/gif', 'video/mp4', 'video/quicktime', 'video/webm'],
-        maximumSizeInBytes: 200 * 1024 * 1024,
-        addRandomSuffix: true,
-      }),
+      onBeforeGenerateToken: async pathname => {
+        // Player photos live at a stable, predictable pathname (players/...)
+        // so re-uploading one replaces it in place instead of accumulating
+        // random-suffixed orphans — everything else (match media) keeps a
+        // random suffix since a game can have many photos/videos.
+        const isPlayerPhoto = pathname.startsWith('players/')
+        return {
+          allowedContentTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/gif', 'video/mp4', 'video/quicktime', 'video/webm'],
+          maximumSizeInBytes: isPlayerPhoto ? 10 * 1024 * 1024 : 200 * 1024 * 1024,
+          addRandomSuffix: !isPlayerPhoto,
+          allowOverwrite: isPlayerPhoto,
+        }
+      },
     })
     res.status(200).json(jsonResponse)
   } catch (err) {
@@ -106,6 +114,22 @@ async function handleViewAction(req: VercelRequest, res: VercelResponse) {
   }
 }
 
+// Used to look up which players on a team already have a photo — e.g.
+// list({prefix: 'players/mo11-blauw/'}) — since there's no DB row to query.
+async function handleListAction(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'GET') { res.status(405).json({ error: 'Method not allowed' }); return }
+
+  const prefix = typeof req.query.prefix === 'string' ? req.query.prefix : ''
+  if (!prefix) { res.status(400).json({ error: 'Missing prefix' }); return }
+
+  try {
+    const { blobs } = await list({ prefix, token: blobToken() })
+    res.status(200).json({ blobs: blobs.map(b => ({ pathname: b.pathname, url: b.url })) })
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message })
+  }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const user = getSessionFromCookies(req.headers.cookie)
   if (!user) { res.status(401).json({ error: 'Not authenticated' }); return }
@@ -114,6 +138,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     case 'upload': return handleUploadAction(req, res)
     case 'delete': return handleDeleteAction(req, res)
     case 'view': return handleViewAction(req, res)
+    case 'list': return handleListAction(req, res)
     default: res.status(404).json({ error: 'Not found' })
   }
 }
