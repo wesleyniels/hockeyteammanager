@@ -1570,7 +1570,7 @@ function SetupView({ onStart, onHistory, onProfile, user }: {
 
         <button
           disabled={!canStart}
-          onClick={() => onStart({ club: club || clubSearch, team, ageGroup, opponent: opponentTeam.trim() || opponent, homeAway, squad })}
+          onClick={() => onStart({ club: club || clubSearch, team, ageGroup, opponent: [opponent, opponentTeam.trim()].filter(Boolean).join(' '), homeAway, squad })}
           className="w-full py-4 rounded-2xl font-display text-xl font-bold uppercase tracking-widest text-white shadow-lg"
           style={{ background: canStart ? '#1A3FAB' : '#B8C8F0', cursor: canStart ? 'pointer' : 'not-allowed' }}>
           Wedstrijd starten →
