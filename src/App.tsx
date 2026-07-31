@@ -347,6 +347,7 @@ const SC_MUIDEN_TEAMS: Record<string, string[]> = {
 }
 
 function ageGroupFromTeamName(team: string): AgeGroup {
+  if (team === 'Senioren') return 'Senioren'
   const m = team.match(/^[MJ]O(\d+)/i)
   const candidate = m ? (`U${m[1]}` as AgeGroup) : null
   return candidate && candidate in AGE_CONFIG ? candidate : 'U7'
@@ -360,6 +361,18 @@ const SC_MUIDEN_TEAM_NAMES = Object.keys(SC_MUIDEN_TEAMS).sort((a, b) => {
   if (na !== nb) return na - nb
   return ma[3].localeCompare(mb[3])
 })
+
+// Generic age/gender categories (no specific team, no real roster) shown to
+// logged-out visitors instead of the official team list — lets them start a
+// match and get the right player-count target without exposing any child's
+// name from SC_MUIDEN_TEAMS, which is bundled client-side and viewable by
+// anyone regardless of login.
+const GENERIC_AGE_NUMBERS = [7, 8, 9, 10, 11, 12, 14, 16, 18]
+const GENERIC_TEAM_CATEGORIES = [
+  ...GENERIC_AGE_NUMBERS.map(n => `MO${n}`),
+  ...GENERIC_AGE_NUMBERS.map(n => `JO${n}`),
+  'Senioren',
+]
 
 const ROLE_OPTIONS = ['Trainer', 'Coach', 'Trainer & Coach', 'Player', 'Supporter'] as const
 
@@ -1305,11 +1318,12 @@ function FormationVariantEditor({ ageGroup, variant, onBack }: { ageGroup: AgeGr
 
 // ── Setup View ───────────────────────────────────────────────────────────────
 
-function SetupView({ onStart, onHistory, onProfile, user }: {
+function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
   onStart: (p: GameParams) => void
   onHistory: () => void
   onProfile: () => void
   user: AuthUser | null
+  authLoading: boolean
 }) {
   const [club, setClub] = useLS('fh_club', 'SC Muiden')
   const [team, setTeam] = useLS('fh_team', '')
@@ -1467,19 +1481,34 @@ function SetupView({ onStart, onHistory, onProfile, user }: {
 
           <div>
             <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Teamnaam</label>
-            <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: team ? '#1A2F6B' : '#7B90C8' }}
-              value={team} onChange={e => selectTeam(e.target.value)}>
-              <option value="">Kies team…</option>
-              {SC_MUIDEN_TEAM_NAMES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-            {team && (
+            {authLoading ? (
+              <div className="rounded-xl px-3 py-3 text-sm text-center" style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: '#A8BEF0' }}>
+                Laden…
+              </div>
+            ) : (
               <>
-                <p className="text-xs mt-2 font-medium" style={{ color: '#7B90C8' }}>{AGE_CONFIG[ageGroup].label}</p>
-                <button onClick={() => setShowFormationEditor(true)}
-                  className="text-xs font-bold mt-1"
-                  style={{ color: '#1A3FAB' }}>
-                  Opstelling aanpassen →
-                </button>
+                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: team ? '#1A2F6B' : '#7B90C8' }}
+                  value={team} onChange={e => selectTeam(e.target.value)}>
+                  <option value="">Kies team…</option>
+                  {(user ? SC_MUIDEN_TEAM_NAMES : GENERIC_TEAM_CATEGORIES).map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                {!user && (
+                  <p className="text-xs mt-1.5" style={{ color: '#7B90C8' }}>
+                    Dit is een algemene categorie zonder spelerslijst.{' '}
+                    <button onClick={onProfile} className="font-bold" style={{ color: '#1A3FAB' }}>Log in</button>
+                    {' '}voor de officiële teamnamen en spelerslijst.
+                  </p>
+                )}
+                {team && (
+                  <>
+                    <p className="text-xs mt-2 font-medium" style={{ color: '#7B90C8' }}>{AGE_CONFIG[ageGroup].label}</p>
+                    <button onClick={() => setShowFormationEditor(true)}
+                      className="text-xs font-bold mt-1"
+                      style={{ color: '#1A3FAB' }}>
+                      Opstelling aanpassen →
+                    </button>
+                  </>
+                )}
               </>
             )}
           </div>
@@ -3928,6 +3957,7 @@ export default function App() {
         onHistory={() => setView('history')}
         onProfile={() => setView('profile')}
         user={user}
+        authLoading={authLoading}
       />
       {gamesError && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 text-xs font-semibold px-4 py-2 rounded-xl shadow-lg"
