@@ -1305,11 +1305,12 @@ function FormationVariantEditor({ ageGroup, variant, onBack }: { ageGroup: AgeGr
 
 // ── Setup View ───────────────────────────────────────────────────────────────
 
-function SetupView({ onStart, onHistory, onProfile, user }: {
+function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
   onStart: (p: GameParams) => void
   onHistory: () => void
   onProfile: () => void
   user: AuthUser | null
+  authLoading: boolean
 }) {
   const [club, setClub] = useLS('fh_club', 'SC Muiden')
   const [team, setTeam] = useLS('fh_team', '')
@@ -1379,7 +1380,10 @@ function SetupView({ onStart, onHistory, onProfile, user }: {
   }, [team])
 
   const minPlayers = AGE_CONFIG[ageGroup].total
-  const canStart = (club || clubSearch) && team && (opponent || opponentTeam.trim())
+  // Requiring `user` here (not just hiding the team dropdown) means a stale
+  // `team` value cached in localStorage from a previous logged-in session
+  // can't be used to start a match after logging out.
+  const canStart = !!user && (club || clubSearch) && team && (opponent || opponentTeam.trim())
 
   const inputStyle = { border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }
 
@@ -1467,20 +1471,35 @@ function SetupView({ onStart, onHistory, onProfile, user }: {
 
           <div>
             <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Teamnaam</label>
-            <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: team ? '#1A2F6B' : '#7B90C8' }}
-              value={team} onChange={e => selectTeam(e.target.value)}>
-              <option value="">Kies team…</option>
-              {SC_MUIDEN_TEAM_NAMES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-            {team && (
+            {authLoading ? (
+              <div className="rounded-xl px-3 py-3 text-sm text-center" style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: '#A8BEF0' }}>
+                Laden…
+              </div>
+            ) : user ? (
               <>
-                <p className="text-xs mt-2 font-medium" style={{ color: '#7B90C8' }}>{AGE_CONFIG[ageGroup].label}</p>
-                <button onClick={() => setShowFormationEditor(true)}
-                  className="text-xs font-bold mt-1"
-                  style={{ color: '#1A3FAB' }}>
-                  Opstelling aanpassen →
-                </button>
+                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: team ? '#1A2F6B' : '#7B90C8' }}
+                  value={team} onChange={e => selectTeam(e.target.value)}>
+                  <option value="">Kies team…</option>
+                  {SC_MUIDEN_TEAM_NAMES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                {team && (
+                  <>
+                    <p className="text-xs mt-2 font-medium" style={{ color: '#7B90C8' }}>{AGE_CONFIG[ageGroup].label}</p>
+                    <button onClick={() => setShowFormationEditor(true)}
+                      className="text-xs font-bold mt-1"
+                      style={{ color: '#1A3FAB' }}>
+                      Opstelling aanpassen →
+                    </button>
+                  </>
+                )}
               </>
+            ) : (
+              <div className="rounded-xl px-3 py-3 text-sm text-center" style={{ border: '1.5px dashed #D0DCFA', background: '#F8FAFF', color: '#7B90C8' }}>
+                Log in om een team te kiezen
+                <button onClick={onProfile} className="block mx-auto mt-1 text-xs font-bold" style={{ color: '#1A3FAB' }}>
+                  Naar profiel →
+                </button>
+              </div>
             )}
           </div>
         </section>
@@ -3928,6 +3947,7 @@ export default function App() {
         onHistory={() => setView('history')}
         onProfile={() => setView('profile')}
         user={user}
+        authLoading={authLoading}
       />
       {gamesError && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 text-xs font-semibold px-4 py-2 rounded-xl shadow-lg"
