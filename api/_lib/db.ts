@@ -1,6 +1,75 @@
 import { neon } from '@neondatabase/serverless'
+import { list as listBlobs } from '@vercel/blob'
+import { randomUUID } from './crypto.js'
+import { slugify } from './slug.js'
+import { SEED_TEAMS } from './seed-teams.js'
 
 export const sql = neon(process.env.POSTGRES_URL!)
+
+function blobToken(): string | undefined {
+  return process.env.BLOB_READ_WRITE_TOKEN
+    ?? process.env.TEST_BLOB_READ_WRITE_TOKEN
+    ?? process.env.PROD_BLOB_READ_WRITE_TOKEN
+}
+
+// Runs exactly once, the first time team_players is empty (a brand new
+// database, or the moment this migration first reaches an existing one).
+// Player photos previously lived at deterministic Blob paths keyed by
+// team+name slugs (players/{team-slug}/{name-slug}.jpg); this adopts any
+// that already exist into the new DB-tracked photo_url column so uploads
+// made before this migration don't just disappear.
+async function seedTeams() {
+  const teamNames = Object.keys(SEED_TEAMS)
+  const teamIds = teamNames.map(slugify)
+  await sql`
+    INSERT INTO teams (id, name)
+    SELECT * FROM unnest(${teamIds}::text[], ${teamNames}::text[])
+    ON CONFLICT (id) DO NOTHING
+  `
+
+  const playerIds: string[] = []
+  const playerTeamIds: string[] = []
+  const playerNames: string[] = []
+  const playerOrders: number[] = []
+  teamNames.forEach((name, ti) => {
+    SEED_TEAMS[name].forEach((playerName, i) => {
+      playerIds.push(randomUUID())
+      playerTeamIds.push(teamIds[ti])
+      playerNames.push(playerName)
+      playerOrders.push(i)
+    })
+  })
+  await sql`
+    INSERT INTO team_players (id, team_id, name, sort_order)
+    SELECT * FROM unnest(${playerIds}::text[], ${playerTeamIds}::text[], ${playerNames}::text[], ${playerOrders}::int[])
+  `
+
+  try {
+    const allPlayers = await sql`
+      SELECT tp.id, tp.name, tp.team_id FROM team_players tp
+    `
+    const bySlug = new Map(allPlayers.map(p => [`${p.team_id}/${slugify(p.name)}`, p.id as string]))
+    const { blobs } = await listBlobs({ prefix: 'players/', token: blobToken() })
+    const matchedIds: string[] = []
+    const matchedUrls: string[] = []
+    for (const b of blobs) {
+      const key = b.pathname.replace(/^players\//, '').replace(/\.[^./]+$/, '')
+      const playerId = bySlug.get(key)
+      if (playerId) { matchedIds.push(playerId); matchedUrls.push(b.url) }
+    }
+    if (matchedIds.length > 0) {
+      await sql`
+        UPDATE team_players AS tp SET photo_url = u.url
+        FROM (SELECT * FROM unnest(${matchedIds}::text[], ${matchedUrls}::text[]) AS t(id, url)) AS u
+        WHERE tp.id = u.id
+      `
+    }
+  } catch (err) {
+    // Best-effort — a missing/misconfigured Blob token shouldn't block the
+    // rest of schema setup, it would just mean old photos need re-uploading.
+    console.error('Player-photo backfill skipped:', err)
+  }
+}
 
 // Every serverless invocation is a cold-start candidate, so this runs on
 // (almost) every request; `??=` memoizes it per warm instance rather than
@@ -49,6 +118,38 @@ export function ensureSchema() {
         PRIMARY KEY (game_id, user_id)
       )
     `
+    // id is slugify(name) — stable and human-readable, and lets team_players
+    // reference a team without an extra lookup when seeding.
+    await sql`
+      CREATE TABLE IF NOT EXISTS teams (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `
+    await sql`
+      CREATE TABLE IF NOT EXISTS team_players (
+        id TEXT PRIMARY KEY,
+        team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        photo_url TEXT,
+        sort_order INT NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `
+    await sql`CREATE INDEX IF NOT EXISTS team_players_team_idx ON team_players (team_id)`
+
+    // A failure here must not take the rest of the app down with it — every
+    // route calls ensureSchema(), so an unhandled rejection here would 500
+    // login/games/everything, not just teams. It's also safe to retry: the
+    // "is it seeded yet" check runs again on the next cold start, and the
+    // inserts inside seedTeams() are all-or-nothing per statement.
+    try {
+      const seeded = await sql`SELECT 1 FROM team_players LIMIT 1`
+      if (seeded.length === 0) await seedTeams()
+    } catch (err) {
+      console.error('Team seeding failed:', err)
+    }
   })()
   return schemaReady
 }
