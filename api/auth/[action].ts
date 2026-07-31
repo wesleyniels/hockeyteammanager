@@ -77,6 +77,9 @@ async function handleGoogle(req: VercelRequest, res: VercelResponse) {
   res.status(200).json({ user: toUser(u) })
 }
 
+const LOGIN_LOCK_THRESHOLD = 5
+const LOGIN_LOCK_MS = 15 * 60 * 1000
+
 async function handleLogin(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return }
 
@@ -85,13 +88,39 @@ async function handleLogin(req: VercelRequest, res: VercelResponse) {
 
   const rows = await sql`SELECT * FROM users WHERE lower(email) = ${email}`
   const row = rows[0]
+
+  // Locked accounts are rejected before touching the password hash at all —
+  // this stops a brute-force loop from continuing to burn scrypt cycles once
+  // it's already tripped the limit.
+  if (row?.login_locked_until && new Date(row.login_locked_until) > new Date()) {
+    res.status(429).json({ error: 'Te veel mislukte inlogpogingen. Probeer het over 15 minuten opnieuw.' })
+    return
+  }
+
   if (!row || !row.password_hash || !verifyPassword(password, row.password_hash)) {
+    // Only accounts that actually exist accumulate a counter — there's no
+    // row to rate-limit for an email nobody registered, and the response is
+    // identical either way so this can't be used to probe which emails exist.
+    if (row) {
+      const attempts = (row.failed_logins ?? 0) + 1
+      const locked = attempts >= LOGIN_LOCK_THRESHOLD
+      await sql`
+        UPDATE users SET
+          failed_logins = ${locked ? 0 : attempts},
+          login_locked_until = ${locked ? new Date(Date.now() + LOGIN_LOCK_MS).toISOString() : null}
+        WHERE id = ${row.id}
+      `
+    }
     res.status(401).json({ error: 'Onjuiste e-mail of wachtwoord' })
     return
   }
   if (!row.email_verified) {
     res.status(403).json({ error: 'Bevestig eerst je e-mailadres via de link die we je gestuurd hebben.', code: 'unverified' })
     return
+  }
+
+  if (row.failed_logins || row.login_locked_until) {
+    await sql`UPDATE users SET failed_logins = 0, login_locked_until = NULL WHERE id = ${row.id}`
   }
 
   res.setHeader('Set-Cookie', sessionCookieHeader(signSession({ id: row.id, email: row.email, name: row.name, picture: row.picture })))

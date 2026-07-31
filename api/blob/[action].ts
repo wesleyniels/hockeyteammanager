@@ -2,7 +2,31 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { Readable } from 'node:stream'
 import { del, get, list } from '@vercel/blob'
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client'
-import { getSessionFromCookies } from '../_lib/session.js'
+import { getSessionFromCookies, type SessionUser } from '../_lib/session.js'
+import { sql, ensureSchema } from '../_lib/db.js'
+
+// Mirrors src/App.tsx's slugify() exactly — needed here to check whether a
+// players/{team-slug}/... pathname belongs to the caller's own team.
+const slugify = (s: string) =>
+  s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+
+// Player-photo pathnames are deterministic (players/{team-slug}/{name-slug}.jpg,
+// not random-suffixed like other media) so they're guessable/enumerable from
+// SC_MUIDEN_TEAMS, which is bundled client-side and public. The upload/delete
+// UI already hides itself from non-coaches, but that's cosmetic only — without
+// this check, any authenticated account (including a plain "Player" or
+// "Supporter" role) could overwrite or delete another team's photos of minors
+// by calling these endpoints directly. Viewing/listing stays open to any
+// authenticated user by design (see fetchTeamPhotos' caller in ProfileView).
+async function canEditPlayerPhoto(user: SessionUser, pathname: string): Promise<boolean> {
+  const teamSlug = pathname.split('/')[1]
+  if (!teamSlug) return false
+  const rows = await sql`SELECT role, default_team FROM users WHERE id = ${user.id}`
+  const row = rows[0]
+  if (!row) return false
+  const isCoach = row.role === 'Coach' || row.role === 'Trainer & Coach'
+  return isCoach && !!row.default_team && slugify(row.default_team) === teamSlug
+}
 
 // /api/blob/upload, /api/blob/delete and /api/blob/view collapsed into one
 // dynamic-segment file — see the comment in api/auth/[action].ts for why
@@ -27,7 +51,7 @@ function blobToken(): string | undefined {
 // never have to pass through this function's body (which is capped around
 // 4.5MB) — the client SDK calls here first for a short-lived token, then PUTs
 // the file straight to Blob storage.
-async function handleUploadAction(req: VercelRequest, res: VercelResponse) {
+async function handleUploadAction(req: VercelRequest, res: VercelResponse, user: SessionUser) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return }
 
   try {
@@ -44,6 +68,9 @@ async function handleUploadAction(req: VercelRequest, res: VercelResponse) {
         // random-suffixed orphans — everything else (match media) keeps a
         // random suffix since a game can have many photos/videos.
         const isPlayerPhoto = pathname.startsWith('players/')
+        if (isPlayerPhoto && !(await canEditPlayerPhoto(user, pathname))) {
+          throw new Error('Alleen de coach van dit team kan spelersfoto\'s wijzigen')
+        }
         return {
           allowedContentTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/gif', 'video/mp4', 'video/quicktime', 'video/webm'],
           maximumSizeInBytes: isPlayerPhoto ? 10 * 1024 * 1024 : 200 * 1024 * 1024,
@@ -58,14 +85,22 @@ async function handleUploadAction(req: VercelRequest, res: VercelResponse) {
   }
 }
 
-// Not scoped to game ownership — Blob URLs carry an unguessable random
-// suffix, and (like users-list.ts) this is a small, closed club roster where
-// "authenticated" is an acceptable bar for a basic media feature.
-async function handleDeleteAction(req: VercelRequest, res: VercelResponse) {
+// Match media (games/...) isn't scoped to game ownership — those Blob URLs
+// carry an unguessable random suffix, and (like users-list.ts) this is a
+// small, closed club roster where "authenticated" is an acceptable bar for a
+// basic media feature. Player photos (players/...) are the exception — see
+// canEditPlayerPhoto above — since their pathnames are guessable.
+async function handleDeleteAction(req: VercelRequest, res: VercelResponse, user: SessionUser) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return }
 
   const url = req.body?.url
   if (!url || typeof url !== 'string') { res.status(400).json({ error: 'Missing url' }); return }
+
+  const pathname = (() => { try { return new URL(url).pathname.replace(/^\//, '') } catch { return '' } })()
+  if (pathname.startsWith('players/') && !(await canEditPlayerPhoto(user, pathname))) {
+    res.status(403).json({ error: 'Alleen de coach van dit team kan spelersfoto\'s verwijderen' })
+    return
+  }
 
   try {
     await del(url, { token: blobToken() })
@@ -131,12 +166,13 @@ async function handleListAction(req: VercelRequest, res: VercelResponse) {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  await ensureSchema()
   const user = getSessionFromCookies(req.headers.cookie)
   if (!user) { res.status(401).json({ error: 'Not authenticated' }); return }
 
   switch (req.query.action) {
-    case 'upload': return handleUploadAction(req, res)
-    case 'delete': return handleDeleteAction(req, res)
+    case 'upload': return handleUploadAction(req, res, user)
+    case 'delete': return handleDeleteAction(req, res, user)
     case 'view': return handleViewAction(req, res)
     case 'list': return handleListAction(req, res)
     default: res.status(404).json({ error: 'Not found' })
