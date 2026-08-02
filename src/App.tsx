@@ -10,9 +10,9 @@ interface Player {
   id: string
   name: string
   number?: number
-  // A private Blob URL (proxied through mediaSrc()), looked up by team+name
-  // slug — see fetchTeamPhotos(). Not persisted on the Player object itself
-  // beyond the current session; it's re-resolved whenever a team is loaded.
+  // A private Blob URL (proxied through mediaSrc()), sourced from the
+  // team_players DB row — see fetchTeamRoster(). Not persisted directly;
+  // re-resolved whenever a team is (re)loaded.
   photoUrl?: string
 }
 
@@ -233,118 +233,13 @@ const AGE_CONFIG: Record<AgeGroup, { total: number; field: number; label: string
   Senioren:{ total: 11, field: 10, label: 'Sr. — 11 spelers (10 veld + 1 keeper)' },
 }
 
-// ── SC Muiden Teams (seizoen 2026-2027) ──────────────────────────────────────
+// ── SC Muiden Teams ───────────────────────────────────────────────────────────
 // Team name encodes gender (M/J = Meisjes/Jongens) and KNHB age category
-// (O<n> = Onder <n>), e.g. MO11-Wit = Meisjes Onder 11, team "Wit".
-
-const SC_MUIDEN_TEAMS: Record<string, string[]> = {
-  'MO18-1': [
-    'Annika Aalbersberg', 'Kee Bruckel', 'Felicia Chow', 'Cato Frencken', 'Koosje Gerritsen',
-    'Nova Hooijer', 'Lieve van der Hucht', 'Neele Jansen', 'Nina Kuiper', 'Amber Mansvelder',
-    'Julia Monticelli', 'Kiek van Os', 'Jolie Ottervanger', 'Diya Schuffelers', 'Pien Stam',
-  ],
-  'MO14-1': [
-    'Marie Bak', 'Isabelle Bautz', 'Elin Berkes', 'Pien Boer', 'Roos Boer',
-    'Mila Eikelboom', 'Julia-Fien Kaak', 'Cato Kreuger', 'Lis van Lotringen', 'Niki Smit',
-    'Elisa amelie Troncoso Schach', 'Jasmijn Verbeek', 'Rosa Wierenga', 'Eline Zoetekouw',
-  ],
-  'MO14-2': [
-    'Victoria Aalbersberg', 'Fenna Barrero', 'Sophie Beukeboom', 'Izabella Ciocan', 'Lise de Graaf',
-    'Alicia Hoedt', 'Pomme van Loosbroek', 'Jacky Nova Nelissen', 'Zena Sarryeh', 'Phéline van Schaik',
-    'Valentina Sichtman', 'Florine Smit', 'Olivia Van Oord', 'Isabelle Weijers',
-  ],
-  'MO12-1': [
-    'Jetta von der Assen', 'Lot Benink', 'Hedwig Coepijn', 'Juule Dielemans', 'Olivia van Dorp',
-    'Thinka de Graaff', 'Mijntje Ketting', 'Mijntje Ketting', 'Roos Lubbinge', 'Isa van der Maat',
-    'Hannah Naaijkens', 'Filippa Nordman', 'Pippa Teunissen', 'Keke van de Weijer',
-  ],
-  'MO12-2': [
-    'Mare Bruning', 'Lilly Crouch', 'Noa Dekker', 'Lea Hendry', 'Tess Jansen',
-    'Sara Kanabar', 'Olli van Lotringen', 'Lucy Meijer', 'Anna-mae Rog', 'Elisa Schönfeld',
-    'Philippine Verhoeff', 'Puck de Weerdt', 'Cato Wenning', 'Emma marie Werner',
-  ],
-  'MO11-Blauw': [
-    'Felien Bruning', 'Mabel Eerhardt', 'Micky Geersing', 'Sienna Jacques', 'Eva de Jong',
-    'Anna Smeets', 'Faye Stoop', 'Annika Teeuwen', 'Jolien Toom', 'Roos Verbeek', 'Nouk van de Weijer',
-  ],
-  'MO11-Wit': [
-    'Saar Barrero Galesloot', 'Maya Bleeker', 'Bobbie Bosman', 'Bo Gille', 'Sofia Koppenens',
-    'Sophie Kroezen', 'Gigi Niels', 'Juune van Os', 'Celine Sarryeh', 'Pippa van Daalen', 'Evi Wolfs',
-  ],
-  'MO10-Blauw': [
-    'Kiki Aerts', 'Sofie Barrero galesloot', 'Lara Brouwer', 'Elsbeth Coepijn', 'Storm Rosie Kampman',
-    'Mijntje Lak', 'Fem van der Maat', 'Sophie Prinsen', 'Elise Roodenburg', 'Zoë Steltenpool', 'Cato Visser',
-  ],
-  'MO9-Blauw': [
-    'Nola Crouch', 'Brune van Dorp', 'Sam van Keulen', 'Fientje Klick', 'Olivia Lindelauf',
-    'Isa Nordman', 'Thysa de Rijk', 'Romee Tai', 'Lexi Tittel', 'Milou Wagenmans',
-  ],
-  'MO9-Geel': [
-    'Pippa Berenschot', 'Nena Breek', 'Julie Burggraaff', 'Ada Cavell', 'Feline Coenraads',
-    'Elin van Dijk', 'Louise Eiting', 'Bente Methorst', 'Maeve Postma', 'Mae Sepmeijer',
-  ],
-  'MO9-Oranje': [
-    'Fleur Bangma', 'Kiki Groeneveld', 'Philou Huisman', 'Stella Matthijssens', 'Bente Meijer',
-    'Julia Prinsen', 'Elisa Timmer', 'Bo Vonderbank', 'Loren Willems',
-  ],
-  'MO9-Wit': [
-    'Lauren De Rijk Marschalk', 'Yuli van Erk', 'Loeka van t Hek', 'Jans Houwen', "Rim M'rabti",
-    'Coco Quak', 'Fien Siemerink', 'Izzie van Spronsen', 'Philippa kate Wiggers', 'Lauren van Woerkum',
-  ],
-  'MO8-Blauw': [
-    'Emilie Aerts', 'Amy Bautz', 'Diana Bloemarts', 'Kiki Eikelboom', 'Maren van Heumen',
-    'Mayran Koning', 'Tess van den Nieuwboer', 'Jules de Rijk', 'Charlotte Teeuwen',
-  ],
-  'MO8-Geel': [
-    'Liza van Baarsen', 'Sientje Brand', 'Julie Edens', 'Coco Geersing', 'Bowie de Lang',
-    'Julie mae Oei', 'Lois Schoo noordzij', 'Robin Toom', 'Emma Van vliet',
-  ],
-  'MO8-Rood': [
-    'Féline Beenen', 'Lize Brinkers', 'Evi Buijs', 'Pleun Gille', 'Tess Lurvink',
-    'Charlie van Sabben', 'Betje roos Siecker', 'Doris Smit',
-  ],
-  'MO8-Wit': [
-    'Kato Boerma', 'Liva Dopmeijer', 'Yfke Gijsman', 'Julie Hofman', 'Sofia Rijkse',
-    'Lilli Smeets', 'Bo Timmermans', 'Florence Verhoef',
-  ],
-  'MO7-Blauw': [
-    'Sophie Au yeung', 'Evy Huisman', 'Inez Koelemij', 'Lua Lakner', 'Mae Quak',
-    'Bella Soepboer', 'Charlie Visser', 'Sasha Wagenmans', 'Janne van Wees',
-  ],
-  'MO7-Geel': [
-    'Lara Bolsius', 'Ruby Coppen', 'Bo van Dalfsen', 'Danique Kuys', 'Julia Roodenburg',
-    'Sammie Schmittmann', 'Maeve van Spronsen', 'Sophia Stoop', 'Emma Vonderbank',
-  ],
-  'MO7-Rood': [
-    'Madelon Coenraads', 'Sophie Houthuys', 'Valerie Kooijman', 'Luce Kuipers', 'Isabelle Perotti',
-    'Ella van der Ploeg', 'Harper Roosblad', 'Lara Westedt', 'Puck Wikkerman',
-  ],
-  'JO11-Blauw': [
-    'Boudie Bautz', 'Felix Bernink', 'Doeke Eikelboom', 'Marc Eiting', 'Louis Jacobs',
-    'Teun Klick', 'Melle Kloet', 'Julius Langerak', 'Lex van der Linde', 'Felix van Oss', 'Melle Siemerink',
-  ],
-  'JO10-Blauw': [
-    'Storm Bastel', 'Hugo van Boetzelaer', 'Rafael Hermans', 'Liam Hofman', 'Jack Kuys',
-    'Lodi van der Linde', 'Pepijn van Oss', 'Hugo van Schaik', 'Luc Spijkervet', 'Quin Teunissen',
-    'Federico Troncoso Schach', 'James Wagenmans', 'Hugo nico de Wolf', 'Raphael Worms',
-  ],
-  'JO9-Blauw': [
-    'Beckett Bushman', 'Zef Gezelle Meerburg', 'Jack Huttinga', 'Adam Naaijkens',
-    'Joep Nieuwendijk', 'Teun Van den berg', 'Chris Wilders',
-  ],
-  'JO9-Wit': [
-    'Joep Bosman', 'Bowie Botter', 'Benjamin Guissouma', 'Luca Hendry', 'Victor Langerak',
-    'Morris van Oss', 'Daniel Puskas diaz',
-  ],
-  'JO8-Blauw': [
-    'Alexander Burgerhout', 'Eric Domnica', 'Boaz Spijkervet', 'Alexander Steeksma',
-    'Matz van der Veer', 'Boris Versteeg', 'Julian Winter',
-  ],
-  'JO7-Blauw': [
-    'Hugo Brandon', 'Freddie le Conge kleyn', 'Lewis van Dijk', 'Tom van Dorp',
-    'Ludo Eerhardt', 'Miles Gabriel', 'David Schröder',
-  ],
-}
+// (O<n> = Onder <n>), e.g. MO11-Wit = Meisjes Onder 11, team "Wit". Team and
+// roster data used to be a client-bundled constant here — visible in the JS
+// bundle to anyone, logged in or not. It now lives in the database
+// (api/teams/[action].ts) and is fetched per logged-in session instead; see
+// fetchTeamNames()/fetchTeamRoster() below.
 
 function ageGroupFromTeamName(team: string): AgeGroup {
   if (team === 'Senioren') return 'Senioren'
@@ -353,20 +248,10 @@ function ageGroupFromTeamName(team: string): AgeGroup {
   return candidate && candidate in AGE_CONFIG ? candidate : 'U7'
 }
 
-const SC_MUIDEN_TEAM_NAMES = Object.keys(SC_MUIDEN_TEAMS).sort((a, b) => {
-  const ma = a.match(/^([MJ])O(\d+)-(.+)$/)!
-  const mb = b.match(/^([MJ])O(\d+)-(.+)$/)!
-  if (ma[1] !== mb[1]) return ma[1] === 'M' ? -1 : 1
-  const na = parseInt(ma[2]), nb = parseInt(mb[2])
-  if (na !== nb) return na - nb
-  return ma[3].localeCompare(mb[3])
-})
-
 // Generic age/gender categories (no specific team, no real roster) shown to
 // logged-out visitors instead of the official team list — lets them start a
-// match and get the right player-count target without exposing any child's
-// name from SC_MUIDEN_TEAMS, which is bundled client-side and viewable by
-// anyone regardless of login.
+// match and get the right player-count target without exposing any team or
+// player data, which now requires a login to fetch at all.
 const GENERIC_AGE_NUMBERS = [7, 8, 9, 10, 11, 12, 14, 16, 18]
 const GENERIC_TEAM_CATEGORIES = [
   ...GENERIC_AGE_NUMBERS.map(n => `MO${n}`),
@@ -563,30 +448,35 @@ const uid = () => Math.random().toString(36).slice(2, 11)
 // reads media through this proxy instead (see api/blob/[action].ts's 'view').
 const mediaSrc = (url: string) => `/api/blob/view?url=${encodeURIComponent(url)}`
 
-// Player photos live in the Blob store at a stable, predictable pathname
-// (players/{team-slug}/{name-slug}.jpg, re-uploaded in place) rather than a
-// DB row — there's no stable Player.id across sessions (squad is rebuilt
-// from SC_MUIDEN_TEAMS by name every time a team is selected), but a
-// player's name+team is stable enough to key a photo on.
-const slugify = (s: string) =>
-  s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
-const playerPhotoPathname = (team: string, name: string) => `players/${slugify(team)}/${slugify(name)}.jpg`
+// Teams, rosters and photos all live in the database now (api/teams/[action].ts)
+// rather than a client-bundled constant — a player's Blob photo lives at
+// players/{playerId}/photo.jpg and its URL is stored on the team_players row,
+// so a roster fetch returns everything needed in one call.
+interface RosterPlayer { id: string; name: string; photoUrl: string | null }
 
-async function fetchTeamPhotos(team: string): Promise<Record<string, string>> {
+async function fetchTeamNames(): Promise<string[]> {
   try {
-    const res = await fetch(`/api/blob/list?prefix=${encodeURIComponent(`players/${slugify(team)}/`)}`)
-    if (!res.ok) return {}
-    const { blobs } = await res.json() as { blobs: { pathname: string; url: string }[] }
-    const byNameSlug: Record<string, string> = {}
-    for (const b of blobs) {
-      const fileName = b.pathname.split('/').pop() ?? ''
-      byNameSlug[fileName.replace(/\.[^.]+$/, '')] = b.url
-    }
-    return byNameSlug
+    const res = await fetch('/api/teams/list')
+    if (!res.ok) return []
+    const { teams } = await res.json() as { teams: { id: string; name: string }[] }
+    return teams.map(t => t.name)
   } catch {
-    return {}
+    return []
   }
 }
+
+async function fetchTeamRoster(team: string): Promise<RosterPlayer[]> {
+  try {
+    const res = await fetch(`/api/teams/roster?team=${encodeURIComponent(team)}`)
+    if (!res.ok) return []
+    const { players } = await res.json() as { players: RosterPlayer[] }
+    return players
+  } catch {
+    return []
+  }
+}
+
+const playerPhotoPathname = (playerId: string) => `players/${playerId}/photo.jpg`
 const p2 = (n: number) => n.toString().padStart(2, '0')
 const fmtSec = (s: number) => `${p2(Math.floor(s / 60))}:${p2(s % 60)}`
 const fmtHM = (s: number) => {
@@ -1327,6 +1217,7 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
 }) {
   const [club, setClub] = useLS('fh_club', 'SC Muiden')
   const [team, setTeam] = useLS('fh_team', '')
+  const [teamNames, setTeamNames] = useState<string[]>([])
   const ageGroup = team ? ageGroupFromTeamName(team) : 'U7'
   const [opponent, setOpponent] = useState('')
   const [opponentTeam, setOpponentTeam] = useState('')
@@ -1354,37 +1245,44 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
     setEditId(null)
   }
 
+  // The official team list (and its rosters) requires login to fetch at all
+  // — logged-out visitors only ever see GENERIC_TEAM_CATEGORIES.
+  useEffect(() => {
+    if (!user) { setTeamNames([]); return }
+    fetchTeamNames().then(setTeamNames)
+  }, [user])
+
   // Selecting a team fills Selectie with its official roster; players can
   // still be added or removed manually afterwards. This only affects the
   // current match setup — it never touches the profile's preferred team,
   // which is only changed explicitly from the Profile page.
   const selectTeam = (newTeam: string) => {
     setTeam(newTeam)
-    const roster = SC_MUIDEN_TEAMS[newTeam]
-    if (roster) setSquad(roster.map(name => ({ id: uid(), name })))
+    if (!user) return
+    fetchTeamRoster(newTeam).then(players => {
+      if (players.length) setSquad(players.map(p => ({ id: p.id, name: p.name, photoUrl: p.photoUrl ?? undefined })))
+    })
   }
 
   // Once signed in, pre-select the coach's remembered team (from their
   // profile) if nothing's been picked locally yet — works across devices.
   useEffect(() => {
-    if (user?.defaultTeam && !team && SC_MUIDEN_TEAMS[user.defaultTeam]) {
-      selectTeam(user.defaultTeam)
-    }
+    if (user?.defaultTeam && !team) selectTeam(user.defaultTeam)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.defaultTeam])
 
-  // Photos are uploaded from Profile, keyed by team+name (see slugify /
-  // fetchTeamPhotos) rather than Player.id, since squad ids are regenerated
-  // every time a team's roster is (re)loaded. Re-fetch and merge by name
-  // whenever the active team changes, so photos uploaded in Profile show up
-  // here without needing to re-select the team.
+  // Photos are uploaded from Profile onto the same team_players rows a
+  // squad's players are drawn from. Re-fetch the roster and merge photos by
+  // name whenever the active team changes, so photos uploaded in Profile
+  // show up here without needing to re-select the team.
   useEffect(() => {
-    if (!team || !SC_MUIDEN_TEAMS[team]) return
+    if (!team || !user) return
     let cancelled = false
-    fetchTeamPhotos(team).then(photos => {
-      if (cancelled || Object.keys(photos).length === 0) return
+    fetchTeamRoster(team).then(players => {
+      if (cancelled || players.length === 0) return
+      const photoByName = new Map(players.map(p => [p.name, p.photoUrl]))
       setSquad(s => s.map(p => {
-        const photoUrl = photos[slugify(p.name)]
+        const photoUrl = photoByName.get(p.name)
         return photoUrl ? { ...p, photoUrl } : p
       }))
     })
@@ -1490,7 +1388,7 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
                 <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: team ? '#1A2F6B' : '#7B90C8' }}
                   value={team} onChange={e => selectTeam(e.target.value)}>
                   <option value="">Kies team…</option>
-                  {(user ? SC_MUIDEN_TEAM_NAMES : GENERIC_TEAM_CATEGORIES).map(t => <option key={t} value={t}>{t}</option>)}
+                  {(user ? teamNames : GENERIC_TEAM_CATEGORIES).map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
                 {!user && (
                   <p className="text-xs mt-1.5" style={{ color: '#7B90C8' }}>
@@ -2984,68 +2882,124 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
 // ── Profile View ─────────────────────────────────────────────────────────────
 
 // ── Team player photos ──────────────────────────────────────────────────────
-// Shown in Profile for the user's "voorkeursteam" — uploads go to a stable
-// players/{team}/{name}.jpg pathname (see playerPhotoPathname/slugify) rather
-// than a database row, since there's no other stable per-player record to
-// hang a photo on. SetupView re-resolves these by name whenever a team is
-// loaded, so a photo uploaded here shows up in matches automatically.
+// Shown in Profile for the user's "voorkeursteam". Roster, names and photo
+// URLs all live in the database now (api/teams/[action].ts) — this is also
+// where a coach adds/renames/removes players, since there's no more source
+// file to edit for roster changes. SetupView re-fetches by team name
+// whenever one is loaded, so changes made here show up in matches
+// automatically.
 
 function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean }) {
-  const roster = SC_MUIDEN_TEAMS[team] ?? []
-  const [photos, setPhotos] = useState<Record<string, string>>({})
+  const [players, setPlayers] = useState<RosterPlayer[]>([])
   const [loading, setLoading] = useState(true)
-  const [busyName, setBusyName] = useState<string | null>(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [newName, setNewName] = useState('')
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const uploadTargetRef = useRef<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    fetchTeamPhotos(team).then(p => { if (!cancelled) { setPhotos(p); setLoading(false) } })
+    fetchTeamRoster(team).then(p => { if (!cancelled) { setPlayers(p); setLoading(false) } })
     return () => { cancelled = true }
   }, [team])
 
-  const triggerUpload = (name: string) => {
-    uploadTargetRef.current = name
+  const triggerUpload = (id: string) => {
+    uploadTargetRef.current = id
     fileInputRef.current?.click()
   }
 
   const onFileChange = async (file: File | undefined) => {
-    const name = uploadTargetRef.current
-    if (!file || !name) return
+    const id = uploadTargetRef.current
+    if (!file || !id) return
     setError(null)
-    setBusyName(name)
+    setBusyId(id)
     try {
       const dataUrl = await resizeImageToDataUrl(file)
       const blob = await (await fetch(dataUrl)).blob()
-      const result = await uploadToBlob(playerPhotoPathname(team, name), blob, {
+      const result = await uploadToBlob(playerPhotoPathname(id), blob, {
         access: 'private',
         handleUploadUrl: '/api/blob/upload',
       })
-      setPhotos(p => ({ ...p, [slugify(name)]: result.url }))
+      const res = await fetch('/api/teams/set-player-photo', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, url: result.url }),
+      })
+      if (!res.ok) throw new Error()
+      setPlayers(ps => ps.map(p => p.id === id ? { ...p, photoUrl: result.url } : p))
     } catch {
       setError('Kon foto niet uploaden. Probeer het opnieuw.')
     } finally {
-      setBusyName(null)
+      setBusyId(null)
     }
   }
 
-  const removePhoto = async (name: string) => {
-    const url = photos[slugify(name)]
-    if (!url || !confirm(`Foto van ${name} verwijderen?`)) return
-    setBusyName(name)
+  const removePhoto = async (id: string, name: string) => {
+    if (!confirm(`Foto van ${name} verwijderen?`)) return
+    setBusyId(id)
     try {
-      await fetch('/api/blob/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
-      })
-      setPhotos(p => { const next = { ...p }; delete next[slugify(name)]; return next })
+      const res = await fetch(`/api/teams/remove-player-photo?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error()
+      setPlayers(ps => ps.map(p => p.id === id ? { ...p, photoUrl: null } : p))
     } catch {
       setError('Kon foto niet verwijderen.')
     } finally {
-      setBusyName(null)
+      setBusyId(null)
+    }
+  }
+
+  const addPlayer = async () => {
+    const name = newName.trim()
+    if (!name) return
+    setError(null)
+    try {
+      const res = await fetch('/api/teams/add-player', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ team, name }),
+      })
+      if (!res.ok) throw new Error()
+      const player = await res.json() as { id: string; name: string }
+      setPlayers(ps => [...ps, { id: player.id, name: player.name, photoUrl: null }])
+      setNewName('')
+    } catch {
+      setError('Kon speler niet toevoegen.')
+    }
+  }
+
+  const saveRename = async (id: string) => {
+    const name = editName.trim()
+    if (!name) { setEditId(null); return }
+    try {
+      const res = await fetch('/api/teams/rename-player', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, name }),
+      })
+      if (!res.ok) throw new Error()
+      setPlayers(ps => ps.map(p => p.id === id ? { ...p, name } : p))
+    } catch {
+      setError('Kon naam niet wijzigen.')
+    } finally {
+      setEditId(null)
+    }
+  }
+
+  const removePlayer = async (id: string, name: string) => {
+    if (!confirm(`${name} verwijderen uit dit team?`)) return
+    setBusyId(id)
+    try {
+      const res = await fetch(`/api/teams/remove-player?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error()
+      setPlayers(ps => ps.filter(p => p.id !== id))
+    } catch {
+      setError('Kon speler niet verwijderen.')
+    } finally {
+      setBusyId(null)
     }
   }
 
@@ -3059,29 +3013,28 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
       )}
       {!canEdit && (
         <p className="text-xs mb-3" style={{ color: '#7B90C8' }}>
-          Alleen coaches kunnen foto's toevoegen of wijzigen.
+          Alleen coaches kunnen spelers en foto's beheren.
         </p>
       )}
       {error && <p className="text-xs font-semibold mb-2" style={{ color: '#DC2626' }}>{error}</p>}
-      {roster.length === 0 ? (
+      {players.length === 0 ? (
         <p className="text-sm" style={{ color: '#7B90C8' }}>Geen spelers gevonden voor dit team.</p>
       ) : (
         <div className="space-y-2">
-          {roster.map(name => {
-            const url = photos[slugify(name)]
-            const busy = busyName === name
-            const avatar = url ? (
-              <img src={mediaSrc(url)} alt={name} className="w-11 h-11 rounded-full object-cover" />
+          {players.map(p => {
+            const busy = busyId === p.id
+            const avatar = p.photoUrl ? (
+              <img src={mediaSrc(p.photoUrl)} alt={p.name} className="w-11 h-11 rounded-full object-cover" />
             ) : (
               <div className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-sm" style={{ background: '#1A3FAB' }}>
-                {initials(name)}
+                {initials(p.name)}
               </div>
             )
             return (
-              <div key={name} className="flex items-center gap-3 p-2.5 rounded-xl"
+              <div key={p.id} className="flex items-center gap-3 p-2.5 rounded-xl"
                 style={{ background: '#F8FAFF', border: '1px solid #E8EFFD' }}>
                 {canEdit ? (
-                  <button onClick={() => triggerUpload(name)} disabled={busy}
+                  <button onClick={() => triggerUpload(p.id)} disabled={busy}
                     className="relative w-11 h-11 rounded-full shrink-0 group overflow-hidden disabled:opacity-50" title="Foto wijzigen">
                     {avatar}
                     <span className="absolute inset-0 rounded-full flex items-center justify-center text-white text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity"
@@ -3092,13 +3045,35 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
                 ) : (
                   <div className="w-11 h-11 rounded-full shrink-0 overflow-hidden">{avatar}</div>
                 )}
-                <span className="flex-1 text-sm font-semibold truncate" style={{ color: '#1A2F6B' }}>{name}</span>
-                {canEdit && url && !busy && (
-                  <button onClick={() => removePhoto(name)} className="font-bold text-sm" style={{ color: '#DC2626' }}>×</button>
+                {editId === p.id ? (
+                  <input autoFocus className="flex-1 text-sm font-semibold rounded-lg px-2 py-1" style={{ border: '1.5px solid #D0DCFA' }}
+                    value={editName} onChange={e => setEditName(e.target.value)}
+                    onBlur={() => saveRename(p.id)}
+                    onKeyDown={e => { if (e.key === 'Enter') saveRename(p.id); if (e.key === 'Escape') setEditId(null) }} />
+                ) : (
+                  <span className="flex-1 text-sm font-semibold truncate" style={{ color: '#1A2F6B', cursor: canEdit ? 'pointer' : 'default' }}
+                    onClick={() => { if (canEdit) { setEditId(p.id); setEditName(p.name) } }}>
+                    {p.name}
+                  </span>
+                )}
+                {canEdit && p.photoUrl && !busy && (
+                  <button onClick={() => removePhoto(p.id, p.name)} className="font-bold text-sm" style={{ color: '#DC2626' }} title="Foto verwijderen">×</button>
+                )}
+                {canEdit && !busy && (
+                  <button onClick={() => removePlayer(p.id, p.name)} className="text-xs font-bold" style={{ color: '#A8BEF0' }} title="Speler verwijderen">🗑</button>
                 )}
               </div>
             )
           })}
+        </div>
+      )}
+      {canEdit && (
+        <div className="flex gap-2 mt-3">
+          <input className="flex-1 rounded-xl px-3 py-2 text-sm" style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }}
+            value={newName} onChange={e => setNewName(e.target.value)}
+            placeholder="Naam nieuwe speler"
+            onKeyDown={e => e.key === 'Enter' && addPlayer()} />
+          <button onClick={addPlayer} className="px-4 py-2 rounded-xl font-bold text-white text-lg" style={{ background: '#1A3FAB' }}>+</button>
         </div>
       )}
     </div>
@@ -3133,6 +3108,11 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
     setRole(user?.role ?? '')
   }, [user?.firstName, user?.lastName, user?.role])
 
+  const [teamNames, setTeamNames] = useState<string[]>([])
+  useEffect(() => {
+    if (user) fetchTeamNames().then(setTeamNames)
+  }, [user])
+
   const saveDetails = () => {
     onUpdateProfile({ firstName: firstName || null, lastName: lastName || null, role: role || null })
     setSaved(true)
@@ -3155,6 +3135,8 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
 
   const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL
   const { users: adminUsers, loading: adminLoading, error: adminError, deleteUser, setAdmin } = useAdminUsers(isAdmin)
+  const { teams: adminTeams, loading: adminTeamsLoading, error: adminTeamsError, createTeam, renameTeam, deleteTeam } = useAdminTeams(isAdmin)
+  const [newTeamName, setNewTeamName] = useState('')
 
   return (
     <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
@@ -3216,7 +3198,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                   value={user.defaultTeam ?? ''}
                   onChange={e => onUpdateProfile({ defaultTeam: e.target.value || null })}>
                   <option value="">Kies team…</option>
-                  {SC_MUIDEN_TEAM_NAMES.map(t => <option key={t} value={t}>{t}</option>)}
+                  {teamNames.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
                 <p className="text-xs mt-1.5" style={{ color: '#7B90C8' }}>Wordt automatisch geselecteerd bij het starten van een wedstrijd.</p>
               </div>
@@ -3272,7 +3254,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
           )}
         </section>
 
-        {user && user.defaultTeam && SC_MUIDEN_TEAMS[user.defaultTeam] && (
+        {user && user.defaultTeam && (
           <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid #D0DCFA' }}>
             <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-1" style={{ color: '#0D2B7A' }}>
               Spelers — {user.defaultTeam}
@@ -3363,6 +3345,48 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                 ))}
               </div>
             )}
+          </section>
+        )}
+
+        {isAdmin && (
+          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid #D0DCFA' }}>
+            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-4" style={{ color: '#0D2B7A' }}>
+              Beheer — Teams
+            </h2>
+            {adminTeamsLoading ? (
+              <p className="text-sm text-center py-4" style={{ color: '#A8BEF0' }}>Laden…</p>
+            ) : adminTeamsError ? (
+              <p className="text-sm font-semibold" style={{ color: '#DC2626' }}>{adminTeamsError}</p>
+            ) : (
+              <div className="space-y-2">
+                {adminTeams.length === 0 && (
+                  <p className="text-sm" style={{ color: '#7B90C8' }}>Nog geen teams.</p>
+                )}
+                {adminTeams.map(t => (
+                  <div key={t.id} className="flex items-center gap-2 p-2.5 rounded-xl"
+                    style={{ border: '1px solid #E8EFFD', background: '#F8FAFF' }}>
+                    <input className="flex-1 text-sm font-semibold rounded-lg px-2 py-1.5" style={{ border: '1.5px solid #D0DCFA', color: '#1A2F6B' }}
+                      defaultValue={t.name} key={`${t.id}-${t.name}`}
+                      onBlur={e => { const name = e.target.value.trim(); if (name && name !== t.name) renameTeam(t.id, name) }} />
+                    <button onClick={() => {
+                      if (confirm(`Team ${t.name} verwijderen? Alle spelers en foto's van dit team gaan verloren.`)) deleteTeam(t.id)
+                    }}
+                      className="text-xs font-bold px-2.5 py-1.5 rounded-lg shrink-0"
+                      style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
+                      Verwijder
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2 mt-3">
+              <input className="flex-1 rounded-xl px-3 py-2 text-sm" style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }}
+                value={newTeamName} onChange={e => setNewTeamName(e.target.value)}
+                placeholder="Naam nieuw team, bv. MO13-1"
+                onKeyDown={e => { if (e.key === 'Enter' && newTeamName.trim()) { createTeam(newTeamName.trim()); setNewTeamName('') } }} />
+              <button onClick={() => { if (newTeamName.trim()) { createTeam(newTeamName.trim()); setNewTeamName('') } }}
+                className="px-4 py-2 rounded-xl font-bold text-white text-lg" style={{ background: '#1A3FAB' }}>+</button>
+            </div>
           </section>
         )}
       </div>
@@ -3859,6 +3883,58 @@ function useAdminUsers(enabled: boolean) {
   }, [])
 
   return { users, loading, error, deleteUser, setAdmin }
+}
+
+// Adding/renaming/deleting a whole team is rare (once a season, or fixing a
+// typo) and admin-only — everyday roster changes go through
+// TeamPlayerPhotos/api/teams instead (coach-scoped, no admin needed).
+function useAdminTeams(enabled: boolean) {
+  const [teams, setTeams] = useState<{ id: string; name: string }[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const refresh = useCallback(() => {
+    if (!enabled) return
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    fetch('/api/teams/list')
+      .then(res => { if (!res.ok) throw new Error(); return res.json() })
+      .then(data => { if (!cancelled) setTeams(data.teams) })
+      .catch(() => { if (!cancelled) setError('Kon teams niet laden') })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [enabled])
+
+  useEffect(() => refresh(), [refresh])
+
+  const createTeam = useCallback(async (name: string) => {
+    const res = await fetch('/api/teams/create-team', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    })
+    if (res.ok) { const t = await res.json(); setTeams(ts => [...ts, t]) }
+    return res.ok
+  }, [])
+
+  const renameTeam = useCallback(async (id: string, name: string) => {
+    const res = await fetch('/api/teams/rename-team', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, name }),
+    })
+    if (res.ok) setTeams(ts => ts.map(t => t.id === id ? { ...t, name } : t))
+    return res.ok
+  }, [])
+
+  const deleteTeam = useCallback(async (id: string) => {
+    const res = await fetch(`/api/teams/delete-team?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+    if (res.ok) setTeams(ts => ts.filter(t => t.id !== id))
+    return res.ok
+  }, [])
+
+  return { teams, loading, error, createTeam, renameTeam, deleteTeam }
 }
 
 // ── Splash screen ─────────────────────────────────────────────────────────────

@@ -1,8 +1,22 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { Readable } from 'node:stream'
-import { del, get, list } from '@vercel/blob'
+import { del, get } from '@vercel/blob'
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client'
-import { getSessionFromCookies } from '../_lib/session.js'
+import { getSessionFromCookies, type SessionUser } from '../_lib/session.js'
+import { ensureSchema } from '../_lib/db.js'
+import { canEditPlayer } from '../_lib/team-access.js'
+
+// Player-photo pathnames are players/{playerId}/photo.ext, where playerId is
+// a server-generated team_players.id (not derivable from any public data —
+// unlike the earlier team+name-slug scheme this replaced), so there's no
+// enumeration risk in allowOverwrite here. The upload/delete UI already
+// hides itself from non-coaches, but that's cosmetic only — this check is
+// what actually stops another authenticated account from overwriting or
+// deleting a different team's player photos.
+async function canEditPlayerPhoto(user: SessionUser, pathname: string): Promise<boolean> {
+  const playerId = pathname.split('/')[1]
+  return !!playerId && canEditPlayer(user, playerId)
+}
 
 // /api/blob/upload, /api/blob/delete and /api/blob/view collapsed into one
 // dynamic-segment file — see the comment in api/auth/[action].ts for why
@@ -27,7 +41,7 @@ function blobToken(): string | undefined {
 // never have to pass through this function's body (which is capped around
 // 4.5MB) — the client SDK calls here first for a short-lived token, then PUTs
 // the file straight to Blob storage.
-async function handleUploadAction(req: VercelRequest, res: VercelResponse) {
+async function handleUploadAction(req: VercelRequest, res: VercelResponse, user: SessionUser) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return }
 
   try {
@@ -39,11 +53,14 @@ async function handleUploadAction(req: VercelRequest, res: VercelResponse) {
       // Node.js/Pages-Router examples pass the plain req object the same way.
       request: req as any,
       onBeforeGenerateToken: async pathname => {
-        // Player photos live at a stable, predictable pathname (players/...)
+        // Player photos live at a stable pathname (players/{playerId}/photo.jpg)
         // so re-uploading one replaces it in place instead of accumulating
-        // random-suffixed orphans — everything else (match media) keeps a
-        // random suffix since a game can have many photos/videos.
+        // orphans — everything else (match media) keeps a random suffix since
+        // a game can have many photos/videos.
         const isPlayerPhoto = pathname.startsWith('players/')
+        if (isPlayerPhoto && !(await canEditPlayerPhoto(user, pathname))) {
+          throw new Error('Alleen de coach van dit team kan spelersfoto\'s wijzigen')
+        }
         return {
           allowedContentTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/gif', 'video/mp4', 'video/quicktime', 'video/webm'],
           maximumSizeInBytes: isPlayerPhoto ? 10 * 1024 * 1024 : 200 * 1024 * 1024,
@@ -58,14 +75,22 @@ async function handleUploadAction(req: VercelRequest, res: VercelResponse) {
   }
 }
 
-// Not scoped to game ownership — Blob URLs carry an unguessable random
-// suffix, and (like users-list.ts) this is a small, closed club roster where
-// "authenticated" is an acceptable bar for a basic media feature.
-async function handleDeleteAction(req: VercelRequest, res: VercelResponse) {
+// Match media (games/...) isn't scoped to game ownership — those Blob URLs
+// carry an unguessable random suffix, and (like users-list.ts) this is a
+// small, closed club roster where "authenticated" is an acceptable bar for a
+// basic media feature. Player photos (players/...) go through the coach
+// ownership check above instead, since those are photos of minors.
+async function handleDeleteAction(req: VercelRequest, res: VercelResponse, user: SessionUser) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return }
 
   const url = req.body?.url
   if (!url || typeof url !== 'string') { res.status(400).json({ error: 'Missing url' }); return }
+
+  const pathname = (() => { try { return new URL(url).pathname.replace(/^\//, '') } catch { return '' } })()
+  if (pathname.startsWith('players/') && !(await canEditPlayerPhoto(user, pathname))) {
+    res.status(403).json({ error: 'Alleen de coach van dit team kan spelersfoto\'s verwijderen' })
+    return
+  }
 
   try {
     await del(url, { token: blobToken() })
@@ -114,31 +139,15 @@ async function handleViewAction(req: VercelRequest, res: VercelResponse) {
   }
 }
 
-// Used to look up which players on a team already have a photo — e.g.
-// list({prefix: 'players/mo11-blauw/'}) — since there's no DB row to query.
-async function handleListAction(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'GET') { res.status(405).json({ error: 'Method not allowed' }); return }
-
-  const prefix = typeof req.query.prefix === 'string' ? req.query.prefix : ''
-  if (!prefix) { res.status(400).json({ error: 'Missing prefix' }); return }
-
-  try {
-    const { blobs } = await list({ prefix, token: blobToken() })
-    res.status(200).json({ blobs: blobs.map(b => ({ pathname: b.pathname, url: b.url })) })
-  } catch (err) {
-    res.status(400).json({ error: (err as Error).message })
-  }
-}
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  await ensureSchema()
   const user = getSessionFromCookies(req.headers.cookie)
   if (!user) { res.status(401).json({ error: 'Not authenticated' }); return }
 
   switch (req.query.action) {
-    case 'upload': return handleUploadAction(req, res)
-    case 'delete': return handleDeleteAction(req, res)
+    case 'upload': return handleUploadAction(req, res, user)
+    case 'delete': return handleDeleteAction(req, res, user)
     case 'view': return handleViewAction(req, res)
-    case 'list': return handleListAction(req, res)
     default: res.status(404).json({ error: 'Not found' })
   }
 }
