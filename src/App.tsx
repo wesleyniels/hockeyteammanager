@@ -456,7 +456,7 @@ interface RosterPlayer { id: string; name: string; photoUrl: string | null }
 
 async function fetchTeamNames(): Promise<string[]> {
   try {
-    const res = await fetch('/api/teams?action=list')
+    const res = await fetch('/api/teams/list')
     if (!res.ok) return []
     const { teams } = await res.json() as { teams: { id: string; name: string }[] }
     return teams.map(t => t.name)
@@ -467,7 +467,7 @@ async function fetchTeamNames(): Promise<string[]> {
 
 async function fetchTeamRoster(team: string): Promise<RosterPlayer[]> {
   try {
-    const res = await fetch(`/api/teams?action=roster&team=${encodeURIComponent(team)}`)
+    const res = await fetch(`/api/teams/roster?team=${encodeURIComponent(team)}`)
     if (!res.ok) return []
     const { players } = await res.json() as { players: RosterPlayer[] }
     return players
@@ -2924,7 +2924,7 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
         access: 'private',
         handleUploadUrl: '/api/blob/upload',
       })
-      const res = await fetch('/api/teams?action=set-player-photo', {
+      const res = await fetch('/api/teams/set-player-photo', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, url: result.url }),
@@ -2942,7 +2942,7 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
     if (!confirm(`Foto van ${name} verwijderen?`)) return
     setBusyId(id)
     try {
-      const res = await fetch(`/api/teams?action=remove-player-photo&id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+      const res = await fetch(`/api/teams/remove-player-photo?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
       if (!res.ok) throw new Error()
       setPlayers(ps => ps.map(p => p.id === id ? { ...p, photoUrl: null } : p))
     } catch {
@@ -2957,7 +2957,7 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
     if (!name) return
     setError(null)
     try {
-      const res = await fetch('/api/teams?action=add-player', {
+      const res = await fetch('/api/teams/add-player', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ team, name }),
@@ -2975,7 +2975,7 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
     const name = editName.trim()
     if (!name) { setEditId(null); return }
     try {
-      const res = await fetch('/api/teams?action=rename-player', {
+      const res = await fetch('/api/teams/rename-player', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, name }),
@@ -2993,7 +2993,7 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
     if (!confirm(`${name} verwijderen uit dit team?`)) return
     setBusyId(id)
     try {
-      const res = await fetch(`/api/teams?action=remove-player&id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+      const res = await fetch(`/api/teams/remove-player?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
       if (!res.ok) throw new Error()
       setPlayers(ps => ps.filter(p => p.id !== id))
     } catch {
@@ -3898,7 +3898,7 @@ function useAdminTeams(enabled: boolean) {
     let cancelled = false
     setLoading(true)
     setError(null)
-    fetch('/api/teams?action=list')
+    fetch('/api/teams/list')
       .then(res => { if (!res.ok) throw new Error(); return res.json() })
       .then(data => { if (!cancelled) setTeams(data.teams) })
       .catch(() => { if (!cancelled) setError('Kon teams niet laden') })
@@ -3909,7 +3909,7 @@ function useAdminTeams(enabled: boolean) {
   useEffect(() => refresh(), [refresh])
 
   const createTeam = useCallback(async (name: string) => {
-    const res = await fetch('/api/teams?action=create-team', {
+    const res = await fetch('/api/teams/create-team', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
@@ -3919,7 +3919,7 @@ function useAdminTeams(enabled: boolean) {
   }, [])
 
   const renameTeam = useCallback(async (id: string, name: string) => {
-    const res = await fetch('/api/teams?action=rename-team', {
+    const res = await fetch('/api/teams/rename-team', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, name }),
@@ -3929,7 +3929,7 @@ function useAdminTeams(enabled: boolean) {
   }, [])
 
   const deleteTeam = useCallback(async (id: string) => {
-    const res = await fetch(`/api/teams?action=delete-team&id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+    const res = await fetch(`/api/teams/delete-team?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
     if (res.ok) setTeams(ts => ts.filter(t => t.id !== id))
     return res.ok
   }, [])
