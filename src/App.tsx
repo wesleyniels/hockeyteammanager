@@ -3137,6 +3137,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   const { users: adminUsers, loading: adminLoading, error: adminError, deleteUser, setAdmin } = useAdminUsers(isAdmin)
   const { teams: adminTeams, loading: adminTeamsLoading, error: adminTeamsError, createTeam, renameTeam, deleteTeam } = useAdminTeams(isAdmin)
   const [newTeamName, setNewTeamName] = useState('')
+  const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null)
 
   return (
     <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
@@ -3363,18 +3364,28 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                   <p className="text-sm" style={{ color: '#7B90C8' }}>Nog geen teams.</p>
                 )}
                 {adminTeams.map(t => (
-                  <div key={t.id} className="flex items-center gap-2 p-2.5 rounded-xl"
-                    style={{ border: '1px solid #E8EFFD', background: '#F8FAFF' }}>
-                    <input className="flex-1 text-sm font-semibold rounded-lg px-2 py-1.5" style={{ border: '1.5px solid #D0DCFA', color: '#1A2F6B' }}
-                      defaultValue={t.name} key={`${t.id}-${t.name}`}
-                      onBlur={e => { const name = e.target.value.trim(); if (name && name !== t.name) renameTeam(t.id, name) }} />
-                    <button onClick={() => {
-                      if (confirm(`Team ${t.name} verwijderen? Alle spelers en foto's van dit team gaan verloren.`)) deleteTeam(t.id)
-                    }}
-                      className="text-xs font-bold px-2.5 py-1.5 rounded-lg shrink-0"
-                      style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
-                      Verwijder
-                    </button>
+                  <div key={t.id} className="rounded-xl overflow-hidden" style={{ border: '1px solid #E8EFFD', background: '#F8FAFF' }}>
+                    <div className="flex items-center gap-2 p-2.5">
+                      <input className="flex-1 text-sm font-semibold rounded-lg px-2 py-1.5" style={{ border: '1.5px solid #D0DCFA', color: '#1A2F6B' }}
+                        defaultValue={t.name} key={`${t.id}-${t.name}`}
+                        onBlur={e => { const name = e.target.value.trim(); if (name && name !== t.name) renameTeam(t.id, name) }} />
+                      <button onClick={() => setExpandedTeamId(id => id === t.id ? null : t.id)}
+                        className="text-xs font-bold px-2.5 py-1.5 rounded-lg shrink-0" style={{ color: '#1A3FAB', border: '1px solid #D0DCFA' }}>
+                        {expandedTeamId === t.id ? 'Verberg spelers' : 'Spelers'}
+                      </button>
+                      <button onClick={() => {
+                        if (confirm(`Team ${t.name} verwijderen? Alle spelers en foto's van dit team gaan verloren.`)) deleteTeam(t.id)
+                      }}
+                        className="text-xs font-bold px-2.5 py-1.5 rounded-lg shrink-0"
+                        style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
+                        Verwijder
+                      </button>
+                    </div>
+                    {expandedTeamId === t.id && (
+                      <div className="px-2.5 pb-2.5">
+                        <TeamPlayerPhotos team={t.name} canEdit={true} />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -3886,8 +3897,9 @@ function useAdminUsers(enabled: boolean) {
 }
 
 // Adding/renaming/deleting a whole team is rare (once a season, or fixing a
-// typo) and admin-only — everyday roster changes go through
-// TeamPlayerPhotos/api/teams instead (coach-scoped, no admin needed).
+// typo) and admin-only. Everyday roster changes still go through the same
+// TeamPlayerPhotos component a coach uses for their own team — an admin can
+// open it here for any team too (api/teams/[action].ts accepts either).
 function useAdminTeams(enabled: boolean) {
   const [teams, setTeams] = useState<{ id: string; name: string }[]>([])
   const [loading, setLoading] = useState(false)
