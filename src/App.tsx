@@ -1340,13 +1340,13 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
       <header style={{ background: '#0D2B7A' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
           <div className="flex items-center gap-3">
-            <SCMuidenLogo size={46} />
+            {user ? <SCMuidenLogo size={46} /> : <H1Logo height={46} />}
             <div>
               <h1 className="font-display font-bold uppercase leading-none" style={{ fontSize: '22px', letterSpacing: '0.08em' }}>
-                SC Muiden
+                {user ? 'SC Muiden' : 'Hockey One'}
               </h1>
               <p className="text-xs leading-none mt-0.5" style={{ color: '#A8BEF0', letterSpacing: '0.12em' }}>
-                HOCKEY ONE
+                {user ? 'HOCKEY ONE' : 'Hockey Team Manager'}
               </p>
             </div>
           </div>
@@ -3215,7 +3215,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   onBack: () => void
   onHistory: () => void
   gameCount: number
-  onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => void
+  onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => void
 }) {
   const inputStyle = { border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }
   const [firstName, setFirstName] = useState(user?.firstName ?? '')
@@ -3318,7 +3318,17 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
               {photoError && <p className="text-xs font-semibold" style={{ color: '#DC2626' }}>{photoError}</p>}
 
               <div>
-                <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Voorkeursteam</label>
+                <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Club</label>
+                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: user.defaultClub ? '#1A2F6B' : '#7B90C8' }}
+                  value={user.defaultClub ?? ''}
+                  onChange={e => onUpdateProfile({ defaultClub: e.target.value || null })}>
+                  <option value="">Kies club…</option>
+                  {KNHB_CLUBS.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Team</label>
                 <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: user.defaultTeam ? '#1A2F6B' : '#7B90C8' }}
                   value={user.defaultTeam ?? ''}
                   onChange={e => onUpdateProfile({ defaultTeam: e.target.value || null })}>
@@ -3543,6 +3553,7 @@ interface AuthUser {
   name: string | null
   picture: string | null
   defaultTeam: string | null
+  defaultClub: string | null
   firstName: string | null
   lastName: string | null
   role: string | null
@@ -3623,7 +3634,7 @@ function useAuth() {
   // Persists profile fields (team preference, name, role, photo) so they're
   // available next time this coach logs in, on any device. Only the fields
   // passed in are changed — the API leaves the rest untouched.
-  const updateProfile = useCallback(async (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => {
+  const updateProfile = useCallback(async (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => {
     const res = await fetch('/api/auth/me', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

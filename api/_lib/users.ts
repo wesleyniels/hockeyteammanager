@@ -4,6 +4,7 @@ export interface ProfileUser {
   name: string | null
   picture: string | null
   defaultTeam: string | null
+  defaultClub: string | null
   firstName: string | null
   lastName: string | null
   role: string | null
@@ -18,6 +19,7 @@ export function toUser(row: any): ProfileUser {
     name: row.name,
     picture: row.picture,
     defaultTeam: row.default_team,
+    defaultClub: row.default_club,
     firstName: row.first_name,
     lastName: row.last_name,
     role: row.role,
