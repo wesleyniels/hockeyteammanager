@@ -3,8 +3,9 @@ import { OAuth2Client } from 'google-auth-library'
 import { sql, ensureSchema } from '../_lib/db.js'
 import { hashPassword, verifyPassword, newToken, randomUUID } from '../_lib/crypto.js'
 import { signSession, sessionCookieHeader, clearSessionCookieHeader, getSessionFromCookies } from '../_lib/session.js'
-import { sendVerificationEmail } from '../_lib/email.js'
+import { sendVerificationEmail, sendNewRegistrationEmail } from '../_lib/email.js'
 import { toUser } from '../_lib/users.js'
+import { getAdminEmails } from '../_lib/admin.js'
 
 // All /api/auth/* routes are collapsed into this single dynamic-segment file
 // (dispatching on the [action] path piece below) — Vercel's Hobby plan caps
@@ -21,6 +22,15 @@ const MAX_PICTURE_LENGTH = 2_000_000 // ~1.5MB decoded — the client resizes ph
 function originOf(req: VercelRequest): string {
   const proto = (req.headers['x-forwarded-proto'] as string) ?? 'https'
   return `${proto}://${req.headers.host}`
+}
+
+// Best-effort — a failure here shouldn't affect the new user's own request.
+async function notifyAdminsOfNewRegistration(email: string, name: string | null) {
+  try {
+    await sendNewRegistrationEmail(await getAdminEmails(), email, name)
+  } catch (err) {
+    console.error('Failed to notify admins of new registration', err)
+  }
 }
 
 async function handleGoogle(req: VercelRequest, res: VercelResponse) {
@@ -70,6 +80,7 @@ async function handleGoogle(req: VercelRequest, res: VercelResponse) {
       VALUES (${payload.sub}, ${email}, ${name}, ${picture}, ${verified})
       RETURNING id, email, name, picture, default_team, first_name, last_name, role
     `
+    await notifyAdminsOfNewRegistration(email, name)
   }
 
   const u = rows[0]
@@ -209,6 +220,7 @@ async function handleRegister(req: VercelRequest, res: VercelResponse) {
     INSERT INTO users (id, email, name, password_hash, email_verified, verification_token, verification_expires)
     VALUES (${id}, ${email}, ${name}, ${hashPassword(password)}, false, ${token}, ${expires})
   `
+  await notifyAdminsOfNewRegistration(email, name)
 
   try {
     await sendVerificationEmail(email, name, `${originOf(req)}/api/auth/verify-email?token=${token}`)
