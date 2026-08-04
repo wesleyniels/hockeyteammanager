@@ -448,6 +448,108 @@ const uid = () => Math.random().toString(36).slice(2, 11)
 // reads media through this proxy instead (see api/blob/[action].ts's 'view').
 const mediaSrc = (url: string) => `/api/blob/view?url=${encodeURIComponent(url)}`
 
+// ── Club theme (derived from the selected club's logo) ──────────────────────
+// The CSS variables below (defined in index.css, one per "brand blue" hex
+// used across the app) default to the app's original palette. With no club
+// selected, nothing overrides them. When one is, applyClubTheme re-derives
+// every shade at the *same* saturation/lightness as its original color —
+// only the hue shifts — so contrast and the light↔dark relationships between
+// shades stay exactly as designed.
+const BRAND_TOKENS: { name: string; s: number; l: number }[] = [
+  { name: '--brand-0d2b7a', s: 0.8074, l: 0.2647 },
+  { name: '--brand-1a2f6b', s: 0.6090, l: 0.2608 },
+  { name: '--brand-1a3fab', s: 0.7360, l: 0.3863 },
+  { name: '--brand-2563eb', s: 0.8319, l: 0.5333 },
+  { name: '--brand-3b4f7a', s: 0.3481, l: 0.3549 },
+  { name: '--brand-3b5299', s: 0.4434, l: 0.4157 },
+  { name: '--brand-6b82b8', s: 0.3516, l: 0.5706 },
+  { name: '--brand-7b90c8', s: 0.4118, l: 0.6333 },
+  { name: '--brand-7b9de0', s: 0.6196, l: 0.6804 },
+  { name: '--brand-a8bef0', s: 0.7059, l: 0.8000 },
+  { name: '--brand-b8c8f0', s: 0.6512, l: 0.8314 },
+  { name: '--brand-c8d5f5', s: 0.6923, l: 0.8725 },
+  { name: '--brand-d0dcfa', s: 0.8077, l: 0.8980 },
+  { name: '--brand-dbeafe', s: 0.9459, l: 0.9275 },
+  { name: '--brand-e4ecfe', s: 0.9286, l: 0.9451 },
+  { name: '--brand-e8effd', s: 0.8400, l: 0.9510 },
+  { name: '--brand-eef3ff', s: 1.0000, l: 0.9667 },
+  { name: '--brand-f0f5ff', s: 1.0000, l: 0.9706 },
+  { name: '--brand-f8faff', s: 1.0000, l: 0.9863 },
+]
+
+function hslToHex(h: number, s: number, l: number): string {
+  const c = (1 - Math.abs(2 * l - 1)) * s
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1))
+  const m = l - c / 2
+  let r = 0, g = 0, b = 0
+  if (h < 60) { r = c; g = x; b = 0 }
+  else if (h < 120) { r = x; g = c; b = 0 }
+  else if (h < 180) { r = 0; g = c; b = x }
+  else if (h < 240) { r = 0; g = x; b = c }
+  else if (h < 300) { r = x; g = 0; b = c }
+  else { r = c; g = 0; b = x }
+  const toHex = (v: number) => Math.round((v + m) * 255).toString(16).padStart(2, '0')
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`
+}
+
+function applyClubTheme(hue: number) {
+  for (const t of BRAND_TOKENS) document.documentElement.style.setProperty(t.name, hslToHex(hue, t.s, t.l))
+}
+
+function clearClubTheme() {
+  for (const t of BRAND_TOKENS) document.documentElement.style.removeProperty(t.name)
+}
+
+// Samples the club's logo (already same-origin via mediaSrc, so the canvas
+// isn't tainted) and returns its dominant hue, ignoring near-white/near-black/
+// low-saturation pixels — a crest is mostly background/outline, and including
+// those would just pull the average toward gray. Resolves null if the image
+// fails to load or has no colorful pixels at all (e.g. a purely black/white
+// crest), so the caller can fall back to the default theme.
+function extractDominantHue(imgSrc: string): Promise<number | null> {
+  return new Promise(resolve => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      try {
+        const size = 48
+        const canvas = document.createElement('canvas')
+        canvas.width = size
+        canvas.height = size
+        const ctx = canvas.getContext('2d')
+        if (!ctx) { resolve(null); return }
+        ctx.drawImage(img, 0, 0, size, size)
+        const { data } = ctx.getImageData(0, 0, size, size)
+        let rSum = 0, gSum = 0, bSum = 0, weight = 0
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3]
+          if (a < 128) continue
+          const max = Math.max(r, g, b), min = Math.min(r, g, b)
+          const lightness = (max + min) / 2 / 255
+          const sat = max === min ? 0 : (max - min) / (255 - Math.abs(max + min - 255))
+          if (lightness > 0.92 || lightness < 0.08 || sat < 0.15) continue
+          rSum += r * sat; gSum += g * sat; bSum += b * sat; weight += sat
+        }
+        if (weight < 1) { resolve(null); return }
+        const r = rSum / weight / 255, g = gSum / weight / 255, b = bSum / weight / 255
+        const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min
+        if (d === 0) { resolve(null); return }
+        let h: number
+        switch (max) {
+          case r: h = (g - b) / d + (g < b ? 6 : 0); break
+          case g: h = (b - r) / d + 2; break
+          default: h = (r - g) / d + 4
+        }
+        resolve(h * 60)
+      } catch {
+        resolve(null)
+      }
+    }
+    img.onerror = () => resolve(null)
+    img.src = imgSrc
+  })
+}
+
 // Teams, rosters and photos all live in the database now (api/teams/[action].ts)
 // rather than a client-bundled constant — a player's Blob photo lives at
 // players/{playerId}/photo.jpg and its URL is stored on the team_players row,
@@ -1410,7 +1512,7 @@ function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, sel
             <div style={{
               width: '40px', height: '40px', borderRadius: '50%',
               background: '#fff',
-              border: selectedMarker === m.id ? '2.5px solid #1A3FAB' : '2px solid rgba(13,43,122,0.5)',
+              border: selectedMarker === m.id ? '2.5px solid var(--brand-1a3fab)' : '2px solid rgba(13,43,122,0.5)',
               display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
               boxShadow: selectedMarker === m.id ? '0 0 0 3px rgba(26,63,171,0.35)' : '0 2px 6px rgba(0,0,0,0.25)',
             }}>
@@ -1418,11 +1520,11 @@ function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, sel
                 <img src={mediaSrc(player.photoUrl)} alt={player.name} className="w-full h-full rounded-full object-cover" />
               ) : (
                 <>
-                  <span style={{ fontSize: '11px', fontWeight: 800, color: '#1A2F6B', lineHeight: 1 }}>
+                  <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--brand-1a2f6b)', lineHeight: 1 }}>
                     {player ? (player.number ?? initials(player.name)) : '?'}
                   </span>
                   {player && (
-                    <span style={{ fontSize: '7px', fontWeight: 600, color: '#3B5299', marginTop: '1px', maxWidth: '36px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontSize: '7px', fontWeight: 600, color: 'var(--brand-3b5299)', marginTop: '1px', maxWidth: '36px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {firstName(player.name)}
                     </span>
                   )}
@@ -1446,14 +1548,14 @@ function FormationEditorView({ ageGroup, onBack }: { ageGroup: AgeGroup; onBack:
   const activeVariant = variants.find(v => v.id === variantId) ?? variants[0]
 
   return (
-    <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
-      <header style={{ background: '#0D2B7A' }} className="text-white sticky top-0 z-20 shadow-lg">
+    <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
+      <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
           <div className="flex items-center gap-4">
-            <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: '#7B9DE0' }}>← Terug</button>
+            <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>← Terug</button>
             <div>
               <h1 className="font-display text-2xl font-bold uppercase tracking-widest leading-none">Opstelling aanpassen</h1>
-              <p className="text-xs mt-1" style={{ color: '#7B9DE0' }}>{AGE_CONFIG[ageGroup].label}</p>
+              <p className="text-xs mt-1" style={{ color: 'var(--brand-7b9de0)' }}>{AGE_CONFIG[ageGroup].label}</p>
             </div>
           </div>
           <div className="flex justify-center">
@@ -1464,17 +1566,17 @@ function FormationEditorView({ ageGroup, onBack }: { ageGroup: AgeGroup; onBack:
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
-        <p className="text-sm text-center" style={{ color: '#6B82B8' }}>
+        <p className="text-sm text-center" style={{ color: 'var(--brand-6b82b8)' }}>
           Sleep de posities naar de gewenste plek op het veld. Dit wordt de standaardopstelling voor {ageGroupLabel(ageGroup)}.
         </p>
 
         {variants.length > 1 && (
-          <div className="bg-white rounded-2xl p-4 shadow-sm" style={{ border: '1px solid #D0DCFA' }}>
-            <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>
+          <div className="bg-white rounded-2xl p-4 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>
               Opstellingsvariant
             </label>
             <select className="w-full rounded-xl px-3 py-2.5 text-sm"
-              style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: '#1A2F6B', outline: 'none' }}
+              style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: 'var(--brand-1a2f6b)', outline: 'none' }}
               value={activeVariant.id} onChange={e => setVariantId(e.target.value)}>
               {variants.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
@@ -1517,7 +1619,7 @@ function FormationVariantEditor({ ageGroup, variant, onBack }: { ageGroup: AgeGr
 
   return (
     <>
-      <div className="bg-white rounded-2xl p-6 shadow-sm flex items-center justify-center" style={{ border: '1px solid #D0DCFA' }}>
+      <div className="bg-white rounded-2xl p-6 shadow-sm flex items-center justify-center" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
         <div
           ref={containerRef}
           className="relative w-full touch-none"
@@ -1539,11 +1641,11 @@ function FormationVariantEditor({ ageGroup, variant, onBack }: { ageGroup: AgeGr
                 style={{
                   width: '36px', height: '36px', borderRadius: '50%',
                   background: pos.id === 'gk' ? '#FBBF24' : '#fff',
-                  border: '2px solid #1A3FAB',
+                  border: '2px solid var(--brand-1a3fab)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
                 }}>
-                <span style={{ fontSize: '11px', fontWeight: 800, color: '#1A3FAB' }}>{pos.label}</span>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--brand-1a3fab)' }}>{pos.label}</span>
               </div>
             </div>
           ))}
@@ -1553,12 +1655,12 @@ function FormationVariantEditor({ ageGroup, variant, onBack }: { ageGroup: AgeGr
       <div className="flex gap-2">
         <button onClick={() => setPositions(base)}
           className="flex-1 py-3 rounded-xl font-semibold text-sm"
-          style={{ background: '#F8FAFF', color: '#3B5299', border: '1.5px solid #D0DCFA' }}>
+          style={{ background: 'var(--brand-f8faff)', color: 'var(--brand-3b5299)', border: '1.5px solid var(--brand-d0dcfa)' }}>
           Standaardopstelling herstellen
         </button>
         <button onClick={onBack}
           className="flex-1 py-3 rounded-xl font-bold text-sm text-white"
-          style={{ background: '#1A3FAB' }}>
+          style={{ background: 'var(--brand-1a3fab)' }}>
           Klaar
         </button>
       </div>
@@ -1694,15 +1796,15 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
   const minPlayers = AGE_CONFIG[ageGroup].total
   const canStart = club && team && (opponent || opponentTeam.trim())
 
-  const inputStyle = { border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }
+  const inputStyle = { border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }
 
   if (showFormationEditor) {
     return <FormationEditorView ageGroup={ageGroup} onBack={() => setShowFormationEditor(false)} />
   }
 
   return (
-    <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
-      <header style={{ background: '#0D2B7A' }} className="text-white sticky top-0 z-20 shadow-lg">
+    <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
+      <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
           <div className="flex items-center gap-3">
             {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={46} /> : <H1Logo height={46} />}
@@ -1710,7 +1812,7 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
               <h1 className="font-display font-bold uppercase leading-none" style={{ fontSize: '22px', letterSpacing: '0.08em' }}>
                 {user?.defaultClub ?? 'Hockey One'}
               </h1>
-              <p className="text-xs leading-none mt-0.5" style={{ color: '#A8BEF0', letterSpacing: '0.12em' }}>
+              <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
                 {user?.defaultClub ? 'HOCKEY ONE' : 'Hockey Team Manager'}
               </p>
             </div>
@@ -1722,7 +1824,7 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
             {user && (
               <button onClick={onHistory}
                 className="text-sm px-3 py-1.5 rounded-lg font-semibold"
-                style={{ color: '#A8BEF0', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
+                style={{ color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
                 Wedstrijden
               </button>
             )}
@@ -1730,13 +1832,13 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
               className={user ? 'rounded-full' : 'text-sm px-3 py-1.5 rounded-lg font-semibold'}
               style={user
                 ? {}
-                : { color: '#A8BEF0', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
+                : { color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
               {user ? (
                 user.picture ? (
                   <img src={user.picture} alt="Profiel" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
                 ) : (
                   <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                    style={{ background: '#1A3FAB' }}>
+                    style={{ background: 'var(--brand-1a3fab)' }}>
                     {initials(user.name ?? user.email)}
                   </span>
                 )
@@ -1751,12 +1853,12 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
       <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
 
         {/* Team config */}
-        <section className="bg-white rounded-2xl p-6 space-y-5 shadow-sm" style={{ border: '1px solid #D0DCFA' }}>
-          <h2 className="font-display text-2xl font-bold uppercase tracking-wide" style={{ color: '#0D2B7A' }}>Team</h2>
+        <section className="bg-white rounded-2xl p-6 space-y-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+          <h2 className="font-display text-2xl font-bold uppercase tracking-wide" style={{ color: 'var(--brand-0d2b7a)' }}>Team</h2>
 
           <div>
-            <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Club</label>
-            <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: club ? '#1A2F6B' : '#7B90C8' }}
+            <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Club</label>
+            <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: club ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
               value={club} onChange={e => setClub(e.target.value)}>
               <option value="">Kies club…</option>
               {KNHB_CLUBS.map(c => <option key={c} value={c}>{c}</option>)}
@@ -1764,31 +1866,31 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Teamnaam</label>
+            <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Teamnaam</label>
             {authLoading ? (
-              <div className="rounded-xl px-3 py-3 text-sm text-center" style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: '#A8BEF0' }}>
+              <div className="rounded-xl px-3 py-3 text-sm text-center" style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: 'var(--brand-a8bef0)' }}>
                 Laden…
               </div>
             ) : (
               <>
-                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: team ? '#1A2F6B' : '#7B90C8' }}
+                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: team ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
                   value={team} onChange={e => selectTeam(e.target.value)}>
                   <option value="">Kies team…</option>
                   {(user ? teamNames : GENERIC_TEAM_CATEGORIES).map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
                 {!user && (
-                  <p className="text-xs mt-1.5" style={{ color: '#7B90C8' }}>
+                  <p className="text-xs mt-1.5" style={{ color: 'var(--brand-7b90c8)' }}>
                     Dit is een algemene categorie zonder spelerslijst.{' '}
-                    <button onClick={onProfile} className="font-bold" style={{ color: '#1A3FAB' }}>Log in</button>
+                    <button onClick={onProfile} className="font-bold" style={{ color: 'var(--brand-1a3fab)' }}>Log in</button>
                     {' '}voor de officiële teamnamen en spelerslijst.
                   </p>
                 )}
                 {team && (
                   <>
-                    <p className="text-xs mt-2 font-medium" style={{ color: '#7B90C8' }}>{AGE_CONFIG[ageGroup].label}</p>
+                    <p className="text-xs mt-2 font-medium" style={{ color: 'var(--brand-7b90c8)' }}>{AGE_CONFIG[ageGroup].label}</p>
                     <button onClick={() => setShowFormationEditor(true)}
                       className="text-xs font-bold mt-1"
-                      style={{ color: '#1A3FAB' }}>
+                      style={{ color: 'var(--brand-1a3fab)' }}>
                       Opstelling aanpassen →
                     </button>
                   </>
@@ -1799,11 +1901,11 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
         </section>
 
         {/* Match */}
-        <section className="bg-white rounded-2xl p-6 space-y-4 shadow-sm" style={{ border: '1px solid #D0DCFA' }}>
-          <h2 className="font-display text-2xl font-bold uppercase tracking-wide" style={{ color: '#0D2B7A' }}>Tegenstander</h2>
+        <section className="bg-white rounded-2xl p-6 space-y-4 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+          <h2 className="font-display text-2xl font-bold uppercase tracking-wide" style={{ color: 'var(--brand-0d2b7a)' }}>Tegenstander</h2>
           <div>
-            <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Club</label>
-            <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: opponent ? '#1A2F6B' : '#7B90C8' }}
+            <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Club</label>
+            <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: opponent ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
               value={opponent} onChange={e => setOpponent(e.target.value)}>
               <option value="">Kies club tegenstander…</option>
               {KNHB_CLUBS.map(c => <option key={c} value={c}>{c}</option>)}
@@ -1811,7 +1913,7 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
             {/* Always the generic category list, even when the opponent club is SC
                 Muiden — that roster is for the coach's own team, not for naming
                 whichever of their teams happens to be the opponent here. */}
-            <select className="w-full rounded-xl px-3 py-2.5 text-sm mt-2" style={{ ...inputStyle, color: opponentTeam ? '#1A2F6B' : '#7B90C8' }}
+            <select className="w-full rounded-xl px-3 py-2.5 text-sm mt-2" style={{ ...inputStyle, color: opponentTeam ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
               value={opponentTeam} onChange={e => setOpponentTeam(e.target.value)}>
               <option value="">Kies teamnaam tegenstander…</option>
               {GENERIC_TEAM_CATEGORIES.map(t => <option key={t} value={t}>{t}</option>)}
@@ -1822,8 +1924,8 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
               <button key={ha} onClick={() => setHomeAway(ha)}
                 className="flex-1 py-2.5 rounded-xl font-bold text-sm transition-all"
                 style={homeAway === ha
-                  ? { background: '#1A3FAB', color: '#fff', border: '1.5px solid #1A3FAB' }
-                  : { background: '#F8FAFF', color: '#3B5299', border: '1.5px solid #D0DCFA' }}>
+                  ? { background: 'var(--brand-1a3fab)', color: '#fff', border: '1.5px solid var(--brand-1a3fab)' }
+                  : { background: 'var(--brand-f8faff)', color: 'var(--brand-3b5299)', border: '1.5px solid var(--brand-d0dcfa)' }}>
                 {ha}
               </button>
             ))}
@@ -1831,10 +1933,10 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
         </section>
 
         {/* Squad */}
-        <section className="bg-white rounded-2xl p-6 space-y-4 shadow-sm" style={{ border: '1px solid #D0DCFA' }}>
+        <section className="bg-white rounded-2xl p-6 space-y-4 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
           <div className="flex items-baseline justify-between">
-            <h2 className="font-display text-2xl font-bold uppercase tracking-wide" style={{ color: '#0D2B7A' }}>Selectie</h2>
-            <span className="text-sm font-bold" style={{ color: squad.length >= minPlayers ? '#16A34A' : '#7B90C8' }}>
+            <h2 className="font-display text-2xl font-bold uppercase tracking-wide" style={{ color: 'var(--brand-0d2b7a)' }}>Selectie</h2>
+            <span className="text-sm font-bold" style={{ color: squad.length >= minPlayers ? '#16A34A' : 'var(--brand-7b90c8)' }}>
               {squad.length} / {minPlayers}+ spelers
             </span>
           </div>
@@ -1846,39 +1948,39 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
               onKeyDown={e => e.key === 'Enter' && addPlayer()} />
             <button onClick={addPlayer}
               className="px-4 py-2.5 rounded-xl font-bold text-white text-lg"
-              style={{ background: '#1A3FAB' }}>+</button>
+              style={{ background: 'var(--brand-1a3fab)' }}>+</button>
           </div>
 
           <div className="space-y-1.5 max-h-64 overflow-y-auto">
             {squad.length === 0 && (
-              <p className="text-sm text-center py-6" style={{ color: '#A8BEF0' }}>Voeg spelers toe aan de selectie</p>
+              <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Voeg spelers toe aan de selectie</p>
             )}
             {sortPlayers(squad).map(p => (
               <div key={p.id} className="flex items-center gap-2 px-3 py-2 rounded-xl"
-                style={{ background: '#F0F5FF', border: '1px solid #E4ECFE' }}>
+                style={{ background: 'var(--brand-f0f5ff)', border: '1px solid var(--brand-e4ecfe)' }}>
                 {editId === p.id ? (
                   <>
                     <input className="flex-1 rounded-lg px-2 py-1 text-sm"
-                      style={{ border: '1px solid #D0DCFA', background: 'white' }}
+                      style={{ border: '1px solid var(--brand-d0dcfa)', background: 'white' }}
                       value={editName} onChange={e => setEditName(e.target.value)}
                       onKeyDown={e => e.key === 'Enter' && saveEdit(p.id)} />
                     <button onClick={() => saveEdit(p.id)}
                       className="text-xs font-bold px-2 py-1 rounded-lg text-white" style={{ background: '#16A34A' }}>✓</button>
                     <button onClick={() => setEditId(null)}
-                      className="text-xs px-2 py-1 rounded-lg" style={{ color: '#7B90C8' }}>✕</button>
+                      className="text-xs px-2 py-1 rounded-lg" style={{ color: 'var(--brand-7b90c8)' }}>✕</button>
                   </>
                 ) : (
                   <>
                     {p.number != null && (
-                      <span className="font-mono text-sm font-bold w-8 text-center" style={{ color: '#1A3FAB' }}>#{p.number}</span>
+                      <span className="font-mono text-sm font-bold w-8 text-center" style={{ color: 'var(--brand-1a3fab)' }}>#{p.number}</span>
                     )}
-                    <span className="flex-1 text-sm font-semibold" style={{ color: '#1A2F6B' }}>{p.name}</span>
+                    <span className="flex-1 text-sm font-semibold" style={{ color: 'var(--brand-1a2f6b)' }}>{p.name}</span>
                     <button onClick={() => { setEditId(p.id); setEditName(p.name) }}
-                      className="text-xs px-2 py-0.5 rounded-lg" style={{ color: '#A8BEF0' }}>✎</button>
+                      className="text-xs px-2 py-0.5 rounded-lg" style={{ color: 'var(--brand-a8bef0)' }}>✎</button>
                     <button onClick={() => setSquad(s => s.filter(x => x.id !== p.id))}
-                      className="text-lg leading-none ml-1" style={{ color: '#C8D5F5' }}
+                      className="text-lg leading-none ml-1" style={{ color: 'var(--brand-c8d5f5)' }}
                       onMouseEnter={e => (e.currentTarget.style.color = '#DC2626')}
-                      onMouseLeave={e => (e.currentTarget.style.color = '#C8D5F5')}>×</button>
+                      onMouseLeave={e => (e.currentTarget.style.color = 'var(--brand-c8d5f5)')}>×</button>
                   </>
                 )}
               </div>
@@ -1890,11 +1992,11 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
           disabled={!canStart}
           onClick={() => onStart({ club, team, ageGroup, opponent: [opponent, opponentTeam.trim()].filter(Boolean).join(' '), homeAway, squad })}
           className="w-full py-4 rounded-2xl font-display text-xl font-bold uppercase tracking-widest text-white shadow-lg"
-          style={{ background: canStart ? '#1A3FAB' : '#B8C8F0', cursor: canStart ? 'pointer' : 'not-allowed' }}>
+          style={{ background: canStart ? 'var(--brand-1a3fab)' : 'var(--brand-b8c8f0)', cursor: canStart ? 'pointer' : 'not-allowed' }}>
           Wedstrijd starten →
         </button>
         {!canStart && (
-          <p className="text-xs text-center -mt-3" style={{ color: '#A8BEF0' }}>
+          <p className="text-xs text-center -mt-3" style={{ color: 'var(--brand-a8bef0)' }}>
             Vul club, team en tegenstander in
           </p>
         )}
@@ -2469,18 +2571,18 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   })
 
   return (
-    <div className="flex flex-col" style={{ height: '100dvh', background: '#EEF3FF' }}
+    <div className="flex flex-col" style={{ height: '100dvh', background: 'var(--brand-eef3ff)' }}
       onClick={() => setSelected(null)}>
 
       {/* Header */}
-      <div className="shrink-0 text-white px-3 py-2" style={{ background: '#0D2B7A' }}>
+      <div className="shrink-0 text-white px-3 py-2" style={{ background: 'var(--brand-0d2b7a)' }}>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
-            <button onClick={() => { flushSave(); onBack() }} className="text-xs shrink-0 font-semibold" style={{ color: '#7B9DE0' }}>← Terug</button>
+            <button onClick={() => { flushSave(); onBack() }} className="text-xs shrink-0 font-semibold" style={{ color: 'var(--brand-7b9de0)' }}>← Terug</button>
             <SCMuidenLogo size={30} />
             <div className="min-w-0">
               <div className="font-display font-bold text-sm leading-none truncate">{club} {team}</div>
-              <div className="text-xs leading-none mt-0.5 truncate" style={{ color: '#7B9DE0' }}>
+              <div className="text-xs leading-none mt-0.5 truncate" style={{ color: 'var(--brand-7b9de0)' }}>
                 {homeAway === 'Thuis' ? 'vs' : '@'} {opponent} · {ageGroupLabel(ageGroup)}
               </div>
             </div>
@@ -2498,14 +2600,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
               </button>
             )}
             {readOnly ? (
-              <span className="px-3 py-1.5 rounded-lg text-xs font-bold" style={{ background: 'rgba(255,255,255,0.12)', color: '#A8BEF0' }}>
+              <span className="px-3 py-1.5 rounded-lg text-xs font-bold" style={{ background: 'rgba(255,255,255,0.12)', color: 'var(--brand-a8bef0)' }}>
                 Alleen-lezen
               </span>
             ) : (
               <button onClick={e => { e.stopPropagation(); herstel() }}
                 disabled={historyLen === 0}
                 className="px-3 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-40"
-                style={{ background: '#1A3FAB' }}>
+                style={{ background: 'var(--brand-1a3fab)' }}>
                 Herstel
               </button>
             )}
@@ -2520,7 +2622,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
           onClick={e => e.stopPropagation()}>
           <div className="flex items-center justify-between w-full mb-2"
             style={{ maxWidth: isDual ? (panelCollapsed ? '820px' : '540px') : (panelCollapsed ? '460px' : '290px') }}>
-            <span className="text-xs font-bold" style={{ color: '#6B82B8' }}>
+            <span className="text-xs font-bold" style={{ color: 'var(--brand-6b82b8)' }}>
               Op veld:&nbsp;
               <span style={{ color: onFieldCount < targetCount ? '#DC2626' : '#16A34A' }}>
                 {onFieldCount}/{targetCount}
@@ -2528,7 +2630,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
             </span>
             {selected ? (
               <span className="text-xs font-bold px-2 py-0.5 rounded-full"
-                style={{ background: '#DBEAFE', color: '#1A3FAB' }}>
+                style={{ background: 'var(--brand-dbeafe)', color: 'var(--brand-1a3fab)' }}>
                 {selected.type === 'bench'
                   ? `Kies positie voor ${getPlayer(selected.playerId)?.name.split(' ')[0]}`
                   : selected.type === 'opp-pool' || selected.type === 'opp-marker'
@@ -2536,7 +2638,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                     : selectedFieldPlayer ? `${selectedFieldPlayer.name.split(' ')[0]} geselecteerd` : 'Positie geselecteerd'}
               </span>
             ) : (
-              <span className="text-xs" style={{ color: '#A8BEF0' }}>Sleep of klik om te wisselen</span>
+              <span className="text-xs" style={{ color: 'var(--brand-a8bef0)' }}>Sleep of klik om te wisselen</span>
             )}
           </div>
 
@@ -2575,7 +2677,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
           </div>
 
           {!user && (
-            <p className="text-xs text-center mt-2" style={{ color: '#A8BEF0' }}>
+            <p className="text-xs text-center mt-2" style={{ color: 'var(--brand-a8bef0)' }}>
               Log in om deze wedstrijd te kunnen opslaan.
             </p>
           )}
@@ -2591,7 +2693,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
               )}
               <button onClick={() => setSelected(null)}
                 className="px-3 py-1.5 rounded-lg text-xs font-semibold"
-                style={{ background: '#D0DCFA', color: '#1A3FAB' }}>
+                style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>
                 Annuleer
               </button>
             </div>
@@ -2606,7 +2708,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
               </button>
               <button onClick={() => setSelected(null)}
                 className="px-3 py-1.5 rounded-lg text-xs font-semibold"
-                style={{ background: '#D0DCFA', color: '#1A3FAB' }}>
+                style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>
                 Annuleer
               </button>
             </div>
@@ -2618,29 +2720,29 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
           <button
             onClick={e => { e.stopPropagation(); setPanelCollapsed(false) }}
             className="w-8 flex flex-col items-center gap-3 pt-3 bg-white shrink-0"
-            style={{ borderLeft: '1px solid #D0DCFA' }}>
-            <span style={{ color: '#1A3FAB', fontSize: '14px', fontWeight: 800, lineHeight: 1 }}>‹</span>
-            <span className="text-xs font-bold" style={{ color: '#7B90C8', writingMode: 'vertical-rl' }}>
+            style={{ borderLeft: '1px solid var(--brand-d0dcfa)' }}>
+            <span style={{ color: 'var(--brand-1a3fab)', fontSize: '14px', fontWeight: 800, lineHeight: 1 }}>‹</span>
+            <span className="text-xs font-bold" style={{ color: 'var(--brand-7b90c8)', writingMode: 'vertical-rl' }}>
               Bank ({benchPlayers.length})
             </span>
           </button>
         ) : (
         <div className="w-64 flex flex-col bg-white shrink-0 overflow-hidden"
-          style={{ borderLeft: '1px solid #D0DCFA' }}
+          style={{ borderLeft: '1px solid var(--brand-d0dcfa)' }}
           onClick={e => e.stopPropagation()}>
           {/* Tabs */}
-          <div className="flex shrink-0 items-stretch" style={{ borderBottom: '1px solid #E8EFFD' }}>
+          <div className="flex shrink-0 items-stretch" style={{ borderBottom: '1px solid var(--brand-e8effd)' }}>
             <button onClick={() => setPanelCollapsed(true)}
               className="shrink-0 px-2 text-sm font-bold"
-              style={{ color: '#A8BEF0' }}>
+              style={{ color: 'var(--brand-a8bef0)' }}>
               ›
             </button>
             {(['bench', 'subs', 'notes', 'tactics', 'media'] as const).map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)}
                 className="flex-1 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors"
                 style={{
-                  color: activeTab === tab ? '#1A3FAB' : '#A8BEF0',
-                  borderBottom: activeTab === tab ? '2.5px solid #1A3FAB' : '2.5px solid transparent',
+                  color: activeTab === tab ? 'var(--brand-1a3fab)' : 'var(--brand-a8bef0)',
+                  borderBottom: activeTab === tab ? '2.5px solid var(--brand-1a3fab)' : '2.5px solid transparent',
                 }}>
                 {tab === 'bench' ? `Bank (${benchPlayers.length})` : tab === 'subs' ? `Wissels (${subs.length})` : tab === 'notes' ? 'Score' : tab === 'tactics' ? 'Tactiek' : 'Media'}
               </button>
@@ -2652,7 +2754,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
               <div className="p-2 space-y-1.5">
                 {benchPlayers.length === 0 ? (
                   <div className="text-xs text-center py-8 rounded-xl border-2 border-dashed m-2"
-                    style={{ color: '#A8BEF0', borderColor: '#D0DCFA' }}>
+                    style={{ color: 'var(--brand-a8bef0)', borderColor: 'var(--brand-d0dcfa)' }}>
                     Alle spelers staan op het veld
                   </div>
                 ) : (
@@ -2664,14 +2766,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                       <div key={playerId}
                         className="flex items-center gap-2.5 p-2.5 rounded-xl cursor-grab transition-all touch-none select-none"
                         style={{
-                          background: isSel ? '#EEF3FF' : '#F8FAFF',
-                          border: isSel ? '1.5px solid #1A3FAB' : '1.5px solid #E8EFFD',
+                          background: isSel ? 'var(--brand-eef3ff)' : 'var(--brand-f8faff)',
+                          border: isSel ? '1.5px solid var(--brand-1a3fab)' : '1.5px solid var(--brand-e8effd)',
                           opacity: isBeingDragged ? 0.35 : 1,
                         }}
                         onPointerDown={e => beginDrag('bench', playerId, e)}
                         onClick={() => handleBenchClick(playerId)}>
                         <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden"
-                          style={{ background: '#1A3FAB' }}>
+                          style={{ background: 'var(--brand-1a3fab)' }}>
                           {player.photoUrl ? (
                             <img src={mediaSrc(player.photoUrl)} alt={player.name} className="w-full h-full object-cover" />
                           ) : (
@@ -2679,21 +2781,21 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm font-semibold truncate" style={{ color: '#1A2F6B' }}>{player.name}</div>
+                          <div className="text-sm font-semibold truncate" style={{ color: 'var(--brand-1a2f6b)' }}>{player.name}</div>
                           <div className="font-mono text-xs font-bold mt-0.5"
-                            style={{ color: gameSec > 0 ? benchColor(elapsed) : '#A8BEF0' }}>
+                            style={{ color: gameSec > 0 ? benchColor(elapsed) : 'var(--brand-a8bef0)' }}>
                             {gameSec > 0 ? fmtSec(elapsed) : '—:—'}
                           </div>
                         </div>
-                        {isSel && <span className="text-xs font-bold" style={{ color: '#1A3FAB' }}>↔</span>}
+                        {isSel && <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>↔</span>}
                       </div>
                     )
                   })
                 )}
 
-                <div className="mt-4 pt-3 px-1" style={{ borderTop: '1px solid #E8EFFD' }}>
+                <div className="mt-4 pt-3 px-1" style={{ borderTop: '1px solid var(--brand-e8effd)' }}>
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-bold uppercase" style={{ color: '#7B90C8', letterSpacing: '0.08em' }}>
+                    <span className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
                       Tegenstander ({oppAvailable} beschikbaar)
                     </span>
                     {oppMarkers.length > 0 && !readOnly && (
@@ -2702,7 +2804,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                       </button>
                     )}
                   </div>
-                  <p className="text-xs mb-2" style={{ color: selected?.type === 'opp-pool' ? '#1A3FAB' : '#A8BEF0' }}>
+                  <p className="text-xs mb-2" style={{ color: selected?.type === 'opp-pool' ? 'var(--brand-1a3fab)' : 'var(--brand-a8bef0)' }}>
                     {selected?.type === 'opp-pool'
                       ? 'Tik op het veld om te plaatsen…'
                       : 'Sleep naar het veld, of tik en tik daarna op het veld.'}
@@ -2713,7 +2815,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                         className="w-8 h-8 rounded-full cursor-grab touch-none select-none shrink-0"
                         style={{
                           background: '#DC2626',
-                          border: selected?.type === 'opp-pool' ? '2.5px solid #1A3FAB' : '2px solid #fff',
+                          border: selected?.type === 'opp-pool' ? '2.5px solid var(--brand-1a3fab)' : '2px solid #fff',
                           boxShadow: selected?.type === 'opp-pool' ? '0 0 0 3px rgba(26,63,171,0.35)' : '0 2px 6px rgba(0,0,0,0.25)',
                         }}
                         onPointerDown={e => beginDrag('opp-pool', 'new', e)}
@@ -2727,18 +2829,18 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
             {activeTab === 'subs' && (
               <div className="p-3 space-y-2">
                 {subs.length === 0 && (
-                  <p className="text-xs text-center py-8" style={{ color: '#A8BEF0' }}>Nog geen wissels</p>
+                  <p className="text-xs text-center py-8" style={{ color: 'var(--brand-a8bef0)' }}>Nog geen wissels</p>
                 )}
                 {subs.map((s, i) => {
                   const pIn = getPlayer(s.playerInId)
                   const pOut = getPlayer(s.playerOutId)
                   return (
                     <div key={i} className="py-2.5 rounded-xl px-3"
-                      style={{ background: '#F0F5FF', border: '1px solid #E4ECFE' }}>
+                      style={{ background: 'var(--brand-f0f5ff)', border: '1px solid var(--brand-e4ecfe)' }}>
                       <div className="flex items-center gap-1.5 mb-1">
-                        <span className="font-mono text-xs font-bold" style={{ color: '#7B90C8' }}>{fmtSec(s.gameTimeSec)}</span>
+                        <span className="font-mono text-xs font-bold" style={{ color: 'var(--brand-7b90c8)' }}>{fmtSec(s.gameTimeSec)}</span>
                         {s.posLabel && (
-                          <span className="text-xs font-bold px-1.5 rounded" style={{ color: '#1A3FAB', background: '#E4ECFE' }}>{s.posLabel}</span>
+                          <span className="text-xs font-bold px-1.5 rounded" style={{ color: 'var(--brand-1a3fab)', background: 'var(--brand-e4ecfe)' }}>{s.posLabel}</span>
                         )}
                       </div>
                       <div className="text-xs font-semibold" style={{ color: '#16A34A' }}>↑ {pIn?.number ? `#${pIn.number} ` : ''}{pIn?.name}</div>
@@ -2752,37 +2854,37 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
             {activeTab === 'notes' && (
               <div className="p-3 space-y-3">
                 <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Scorebord</label>
+                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Scorebord</label>
                   <div className="flex items-center justify-between gap-2 rounded-xl px-3 py-2.5"
-                    style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF' }}>
+                    style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)' }}>
                     <div className="flex-1 text-center min-w-0">
-                      <div className="text-xs font-semibold truncate" style={{ color: '#6B82B8' }}>{team || 'Eigen team'}</div>
+                      <div className="text-xs font-semibold truncate" style={{ color: 'var(--brand-6b82b8)' }}>{team || 'Eigen team'}</div>
                       <div className="flex items-center justify-center gap-2.5 mt-1">
                         <button onClick={() => setScoreOwn(s => Math.max(0, s - 1))} disabled={readOnly}
-                          className="w-7 h-7 rounded-lg font-bold text-sm disabled:opacity-50" style={{ background: '#D0DCFA', color: '#1A3FAB' }}>−</button>
-                        <span className="font-mono font-bold text-xl w-6 text-center" style={{ color: '#1A2F6B' }}>{scoreOwn}</span>
+                          className="w-7 h-7 rounded-lg font-bold text-sm disabled:opacity-50" style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>−</button>
+                        <span className="font-mono font-bold text-xl w-6 text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{scoreOwn}</span>
                         <button onClick={() => setScoreOwn(s => s + 1)} disabled={readOnly}
-                          className="w-7 h-7 rounded-lg font-bold text-sm text-white disabled:opacity-50" style={{ background: '#1A3FAB' }}>+</button>
+                          className="w-7 h-7 rounded-lg font-bold text-sm text-white disabled:opacity-50" style={{ background: 'var(--brand-1a3fab)' }}>+</button>
                       </div>
                     </div>
-                    <div className="font-bold text-sm shrink-0" style={{ color: '#A8BEF0' }}>–</div>
+                    <div className="font-bold text-sm shrink-0" style={{ color: 'var(--brand-a8bef0)' }}>–</div>
                     <div className="flex-1 text-center min-w-0">
-                      <div className="text-xs font-semibold truncate" style={{ color: '#6B82B8' }}>{opponent || 'Tegenstander'}</div>
+                      <div className="text-xs font-semibold truncate" style={{ color: 'var(--brand-6b82b8)' }}>{opponent || 'Tegenstander'}</div>
                       <div className="flex items-center justify-center gap-2.5 mt-1">
                         <button onClick={() => setScoreOpp(s => Math.max(0, s - 1))} disabled={readOnly}
-                          className="w-7 h-7 rounded-lg font-bold text-sm disabled:opacity-50" style={{ background: '#D0DCFA', color: '#1A3FAB' }}>−</button>
-                        <span className="font-mono font-bold text-xl w-6 text-center" style={{ color: '#1A2F6B' }}>{scoreOpp}</span>
+                          className="w-7 h-7 rounded-lg font-bold text-sm disabled:opacity-50" style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>−</button>
+                        <span className="font-mono font-bold text-xl w-6 text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{scoreOpp}</span>
                         <button onClick={() => setScoreOpp(s => s + 1)} disabled={readOnly}
-                          className="w-7 h-7 rounded-lg font-bold text-sm text-white disabled:opacity-50" style={{ background: '#1A3FAB' }}>+</button>
+                          className="w-7 h-7 rounded-lg font-bold text-sm text-white disabled:opacity-50" style={{ background: 'var(--brand-1a3fab)' }}>+</button>
                       </div>
                     </div>
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Doelpuntenmakers</label>
+                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Doelpuntenmakers</label>
                   <div className="flex gap-2">
                     <select className="flex-1 rounded-xl px-3 py-2 text-sm" disabled={readOnly}
-                      style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: goalPlayerId ? '#1A2F6B' : '#7B90C8', outline: 'none' }}
+                      style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: goalPlayerId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', outline: 'none' }}
                       value={goalPlayerId} onChange={e => setGoalPlayerId(e.target.value)}>
                       <option value="">Kies speler…</option>
                       {sortPlayers(squad).map(p => (
@@ -2795,7 +2897,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                     }}
                       disabled={readOnly}
                       className="px-4 py-2 rounded-xl font-bold text-white text-lg shrink-0 disabled:opacity-50"
-                      style={{ background: '#1A3FAB' }}>
+                      style={{ background: 'var(--brand-1a3fab)' }}>
                       +
                     </button>
                   </div>
@@ -2805,8 +2907,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                         const p = getPlayer(g.playerId)
                         return (
                           <div key={g.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-                            style={{ background: '#F8FAFF', border: '1px solid #E8EFFD' }}>
-                            <span style={{ color: '#1A2F6B' }}><HockeyBallIcon /> {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}</span>
+                            style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                            <span style={{ color: 'var(--brand-1a2f6b)' }}><HockeyBallIcon /> {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}</span>
                             {!readOnly && (
                               <button onClick={() => setGoals(gs => gs.filter(x => x.id !== g.id))}
                                 className="font-bold" style={{ color: '#DC2626' }}>
@@ -2818,14 +2920,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                       })}
                     </div>
                   )}
-                  <p className="text-xs mt-1.5" style={{ color: goals.length === scoreOwn ? '#7B90C8' : '#D97706' }}>
+                  <p className="text-xs mt-1.5" style={{ color: goals.length === scoreOwn ? 'var(--brand-7b90c8)' : '#D97706' }}>
                     {goals.length} van de {scoreOwn} doelpunten toegewezen
                   </p>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Kaarten</label>
+                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Kaarten</label>
                   <select className="w-full rounded-xl px-3 py-2 text-sm" disabled={readOnly}
-                    style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: cardPlayerId ? '#1A2F6B' : '#7B90C8', outline: 'none' }}
+                    style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: cardPlayerId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', outline: 'none' }}
                     value={cardPlayerId} onChange={e => setCardPlayerId(e.target.value)}>
                     <option value="">Kies speler…</option>
                     {sortPlayers(squad).map(p => (
@@ -2838,7 +2940,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                         className="flex-1 h-8 rounded-lg disabled:opacity-50"
                         style={{
                           background: c === 'green' ? '#16A34A' : c === 'yellow' ? '#EAB308' : '#DC2626',
-                          border: cardColor === c ? '2px solid #1A2F6B' : '2px solid transparent',
+                          border: cardColor === c ? '2px solid var(--brand-1a2f6b)' : '2px solid transparent',
                         }}
                         aria-label={c} />
                     ))}
@@ -2848,7 +2950,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                     }}
                       disabled={readOnly}
                       className="px-4 py-1 rounded-xl font-bold text-white text-lg shrink-0 disabled:opacity-50"
-                      style={{ background: '#1A3FAB' }}>
+                      style={{ background: 'var(--brand-1a3fab)' }}>
                       +
                     </button>
                   </div>
@@ -2858,8 +2960,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                         const p = getPlayer(c.playerId)
                         return (
                           <div key={c.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-                            style={{ background: '#F8FAFF', border: '1px solid #E8EFFD' }}>
-                            <span style={{ color: '#1A2F6B' }}>
+                            style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                            <span style={{ color: 'var(--brand-1a2f6b)' }}>
                               <span className="inline-block w-3 h-4 rounded-sm mr-1.5 align-middle"
                                 style={{ background: c.color === 'green' ? '#16A34A' : c.color === 'yellow' ? '#EAB308' : '#DC2626' }} />
                               {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}
@@ -2877,27 +2979,27 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                   )}
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Speeltijd</label>
+                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Speeltijd</label>
                   <div className="space-y-1">
                     {sortPlayers(squad).map(p => {
                       const onField = slots.some(s => s.playerId === p.id)
                       return (
                         <div key={p.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-                          style={{ background: '#F8FAFF', border: '1px solid #E8EFFD' }}>
-                          <span style={{ color: '#1A2F6B' }}>
+                          style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                          <span style={{ color: 'var(--brand-1a2f6b)' }}>
                             {onField && <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5" style={{ background: '#16A34A' }} />}
                             {p.number ? `#${p.number} ` : ''}{p.name}
                           </span>
-                          <span className="font-mono font-bold" style={{ color: '#3B5299' }}>{fmtSec(playedSeconds[p.id] ?? 0)}</span>
+                          <span className="font-mono font-bold" style={{ color: 'var(--brand-3b5299)' }}>{fmtSec(playedSeconds[p.id] ?? 0)}</span>
                         </div>
                       )
                     })}
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Notities</label>
+                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Notities</label>
                   <textarea className="w-full rounded-xl px-3 py-2 text-sm resize-none"
-                    style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: '#1A2F6B', outline: 'none' }}
+                    style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: 'var(--brand-1a2f6b)', outline: 'none' }}
                     rows={8} value={notes} onChange={e => setNotes(e.target.value)} readOnly={readOnly}
                     placeholder="Tactische notities, bijzonderheden…" />
                 </div>
@@ -2908,13 +3010,13 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
               <div className="p-3 space-y-3">
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-bold uppercase" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Opstellingen</label>
+                    <label className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Opstellingen</label>
                     {!readOnly && (
                       <div className="flex gap-2">
-                        <button onClick={() => addBoard(false)} className="text-xs font-bold" style={{ color: '#1A3FAB' }}>
+                        <button onClick={() => addBoard(false)} className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>
                           + Opstelling
                         </button>
-                        <button onClick={() => addBoard(true)} className="text-xs font-bold" style={{ color: '#1A3FAB' }}>
+                        <button onClick={() => addBoard(true)} className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>
                           + Strafcorner
                         </button>
                       </div>
@@ -2926,8 +3028,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                         <button onClick={() => { setActiveBoardId(b.id); setSelectedTacticsMarker(null); setTacticsPlayerId('') }}
                           className="text-xs font-bold px-2.5 py-1.5 rounded-lg"
                           style={b.id === activeBoardId
-                            ? { background: '#1A3FAB', color: '#fff' }
-                            : { background: '#F8FAFF', color: '#3B5299', border: '1px solid #D0DCFA' }}>
+                            ? { background: 'var(--brand-1a3fab)', color: '#fff' }
+                            : { background: 'var(--brand-f8faff)', color: 'var(--brand-3b5299)', border: '1px solid var(--brand-d0dcfa)' }}>
                           {b.name}
                         </button>
                         {!readOnly && tacticsBoards.length > 1 && (
@@ -2943,7 +3045,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
 
                 {!readOnly && (
                   <div>
-                    <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Gereedschap</label>
+                    <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Gereedschap</label>
                     <div className="flex gap-2">
                       {([
                         { key: 'select', label: 'Selecteer' },
@@ -2953,8 +3055,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                         <button key={t.key} onClick={() => { setTacticsTool(t.key); setSelectedTacticsMarker(null); setTacticsPlayerId('') }}
                           className="flex-1 py-2 rounded-lg text-xs font-bold"
                           style={tacticsTool === t.key
-                            ? { background: '#1A3FAB', color: '#fff' }
-                            : { background: '#F8FAFF', color: '#3B5299', border: '1px solid #D0DCFA' }}>
+                            ? { background: 'var(--brand-1a3fab)', color: '#fff' }
+                            : { background: 'var(--brand-f8faff)', color: 'var(--brand-3b5299)', border: '1px solid var(--brand-d0dcfa)' }}>
                           {t.label}
                         </button>
                       ))}
@@ -2962,19 +3064,19 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                     {tacticsTool === 'marker' ? (
                       <div className="mt-2">
                         <select className="w-full rounded-xl px-3 py-2 text-sm"
-                          style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: tacticsPlayerId ? '#1A2F6B' : '#7B90C8', outline: 'none' }}
+                          style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: tacticsPlayerId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', outline: 'none' }}
                           value={tacticsPlayerId} onChange={e => setTacticsPlayerId(e.target.value)}>
                           <option value="">Kies speler…</option>
                           {sortPlayers(squad.filter(p => !activeBoard.markers.some(m => m.playerId === p.id))).map(p => (
                             <option key={p.id} value={p.id}>{p.number ? `#${p.number} ` : ''}{p.name}</option>
                           ))}
                         </select>
-                        <p className="text-xs mt-1.5" style={{ color: '#A8BEF0' }}>
+                        <p className="text-xs mt-1.5" style={{ color: 'var(--brand-a8bef0)' }}>
                           {tacticsPlayerId ? 'Tik op het veld om te plaatsen.' : 'Kies eerst een speler.'}
                         </p>
                       </div>
                     ) : (
-                      <p className="text-xs mt-1.5" style={{ color: '#A8BEF0' }}>
+                      <p className="text-xs mt-1.5" style={{ color: 'var(--brand-a8bef0)' }}>
                         {tacticsTool === 'arrow'
                           ? 'Sleep op het veld om een pijl te tekenen.'
                           : 'Tik een speler, tik daarna waar die naartoe moet.'}
@@ -2992,12 +3094,12 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
 
                 {activeBoard.arrows.length > 0 && (
                   <div>
-                    <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Pijlen</label>
+                    <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Pijlen</label>
                     <div className="space-y-1">
                       {activeBoard.arrows.map((a, i) => (
                         <div key={a.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-                          style={{ background: '#F8FAFF', border: '1px solid #E8EFFD' }}>
-                          <span style={{ color: '#1A2F6B' }}>Pijl {i + 1}</span>
+                          style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                          <span style={{ color: 'var(--brand-1a2f6b)' }}>Pijl {i + 1}</span>
                           {!readOnly && (
                             <button onClick={() => removeTacticsArrow(a.id)} className="font-bold" style={{ color: '#DC2626' }}>
                               ×
@@ -3026,7 +3128,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                 )}
                 {readOnly && media.length === 0 ? (
                   <div className="text-xs text-center py-8 rounded-xl border-2 border-dashed"
-                    style={{ color: '#A8BEF0', borderColor: '#D0DCFA' }}>
+                    style={{ color: 'var(--brand-a8bef0)', borderColor: 'var(--brand-d0dcfa)' }}>
                     Geen foto's of video's
                   </div>
                 ) : (
@@ -3034,14 +3136,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                     {!readOnly && (
                       <button onClick={() => mediaFileInputRef.current?.click()} disabled={uploading}
                         className="flex flex-col items-center justify-center gap-1 h-24 rounded-xl border-2 border-dashed disabled:opacity-50"
-                        style={{ borderColor: '#D0DCFA', color: '#7B90C8' }}>
+                        style={{ borderColor: 'var(--brand-d0dcfa)', color: 'var(--brand-7b90c8)' }}>
                         <span className="text-2xl leading-none font-bold">+</span>
                         <span className="text-xs font-bold">{uploading ? 'Uploaden…' : 'Toevoegen'}</span>
                       </button>
                     )}
                     {media.map(item => (
                       <button key={item.id} onClick={() => setPreviewMedia(item)}
-                        className="relative rounded-xl overflow-hidden h-24" style={{ border: '1px solid #D0DCFA', background: '#0D2B7A' }}>
+                        className="relative rounded-xl overflow-hidden h-24" style={{ border: '1px solid var(--brand-d0dcfa)', background: 'var(--brand-0d2b7a)' }}>
                         {item.type === 'image' ? (
                           <img src={mediaSrc(item.url)} alt={item.name} className="w-full h-24 object-cover" />
                         ) : (
@@ -3121,11 +3223,11 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
   const { shares, addShare, removeShare } = useGameShares(canManageSharing ? expanded : null)
 
   return (
-    <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
-      <header style={{ background: '#0D2B7A' }} className="text-white sticky top-0 z-20 shadow-lg">
+    <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
+      <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
           <div className="flex items-center gap-4">
-            <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: '#7B9DE0' }}>← Terug</button>
+            <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>← Terug</button>
             <SCMuidenLogo size={32} />
             <h1 className="font-display text-2xl font-bold uppercase tracking-widest">Wedstrijd Geschiedenis</h1>
           </div>
@@ -3140,31 +3242,31 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
         {!authLoading && !user ? (
           <div className="text-center py-20">
             <div className="text-5xl mb-4">🔒</div>
-            <p className="font-display text-xl font-bold uppercase mb-3" style={{ color: '#A8BEF0' }}>Log in om je wedstrijden te zien</p>
+            <p className="font-display text-xl font-bold uppercase mb-3" style={{ color: 'var(--brand-a8bef0)' }}>Log in om je wedstrijden te zien</p>
             <button onClick={onProfile}
               className="px-4 py-2.5 rounded-xl font-bold text-sm text-white"
-              style={{ background: '#1A3FAB' }}>
+              style={{ background: 'var(--brand-1a3fab)' }}>
               Naar profiel →
             </button>
           </div>
         ) : games.length === 0 ? (
           <div className="text-center py-20">
             <div className="text-5xl mb-4">🏑</div>
-            <p className="font-display text-xl font-bold uppercase" style={{ color: '#A8BEF0' }}>Nog geen wedstrijden</p>
+            <p className="font-display text-xl font-bold uppercase" style={{ color: 'var(--brand-a8bef0)' }}>Nog geen wedstrijden</p>
           </div>
         ) : (
           <div className="space-y-3">
             {seasonPlaytime.length > 0 && (
-              <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid #D0DCFA' }}>
-                <h2 className="font-display text-sm font-bold uppercase mb-3" style={{ color: '#7B90C8', letterSpacing: '0.08em' }}>
+              <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+                <h2 className="font-display text-sm font-bold uppercase mb-3" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
                   Speeltijd — alle wedstrijden
                 </h2>
                 <div className="flex flex-wrap gap-1.5">
                   {seasonPlaytime.map(p => (
                     <span key={p.id} className="text-xs px-2 py-1 rounded-lg font-medium"
-                      style={{ background: '#EEF3FF', color: '#1A2F6B', border: '1px solid #D0DCFA' }}>
-                      {p.number != null && <span className="font-mono font-bold" style={{ color: '#1A3FAB' }}>#{p.number} </span>}
-                      {p.name} <span style={{ color: '#3B5299' }}>· {fmtHM(p.sec)}</span>
+                      style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
+                      {p.number != null && <span className="font-mono font-bold" style={{ color: 'var(--brand-1a3fab)' }}>#{p.number} </span>}
+                      {p.name} <span style={{ color: 'var(--brand-3b5299)' }}>· {fmtHM(p.sec)}</span>
                     </span>
                   ))}
                 </div>
@@ -3172,24 +3274,24 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
             )}
             {[...games].reverse().map(g => (
               <div key={g.id} className="bg-white rounded-2xl overflow-hidden shadow-sm"
-                style={{ border: '1px solid #D0DCFA' }}>
+                style={{ border: '1px solid var(--brand-d0dcfa)' }}>
                 <button className="w-full text-left px-5 py-4 flex items-center justify-between"
                   onClick={() => setExpanded(expanded === g.id ? null : g.id)}>
                   <div className="min-w-0">
-                    <div className="font-display text-lg font-bold leading-tight" style={{ color: '#0D2B7A' }}>
+                    <div className="font-display text-lg font-bold leading-tight" style={{ color: 'var(--brand-0d2b7a)' }}>
                       {g.club} {g.team}&nbsp;
-                      <span style={{ color: '#7B90C8', fontWeight: 400 }}>{g.homeAway === 'Thuis' ? 'vs' : '@'}</span>
+                      <span style={{ color: 'var(--brand-7b90c8)', fontWeight: 400 }}>{g.homeAway === 'Thuis' ? 'vs' : '@'}</span>
                       &nbsp;{g.opponent}
                     </div>
                     <div className="flex flex-wrap gap-3 mt-0.5">
-                      <span className="text-xs font-medium" style={{ color: '#7B90C8' }}>{g.date}</span>
-                      <span className="text-xs font-bold" style={{ color: '#1A3FAB' }}>{ageGroupLabel(g.ageGroup)}</span>
+                      <span className="text-xs font-medium" style={{ color: 'var(--brand-7b90c8)' }}>{g.date}</span>
+                      <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>{ageGroupLabel(g.ageGroup)}</span>
                       {typeof g.scoreOwn === 'number' && typeof g.scoreOpp === 'number' ? (
-                        <span className="text-xs font-bold" style={{ color: '#1A3FAB' }}>{g.scoreOwn} - {g.scoreOpp}</span>
+                        <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>{g.scoreOwn} - {g.scoreOpp}</span>
                       ) : g.result ? (
-                        <span className="text-xs font-bold" style={{ color: '#1A3FAB' }}>{g.result}</span>
+                        <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>{g.result}</span>
                       ) : null}
-                      <span className="text-xs font-mono" style={{ color: '#A8BEF0' }}>{fmtSec(g.finalTime)}</span>
+                      <span className="text-xs font-mono" style={{ color: 'var(--brand-a8bef0)' }}>{fmtSec(g.finalTime)}</span>
                       {g.ownerId && user && g.ownerId !== user.id && (
                         <span className="text-xs font-bold px-1.5 rounded" style={{ color: '#6D28D9', background: '#EDE9FE' }}>
                           Gedeeld · {g.permission === 'edit' ? 'Bewerken' : 'Bekijken'}
@@ -3197,23 +3299,23 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
                       )}
                     </div>
                   </div>
-                  <span className="text-xs ml-4 shrink-0" style={{ color: '#C8D5F5' }}>
+                  <span className="text-xs ml-4 shrink-0" style={{ color: 'var(--brand-c8d5f5)' }}>
                     {expanded === g.id ? '▲' : '▼'}
                   </span>
                 </button>
 
                 {expanded === g.id && (
-                  <div className="px-5 pb-5" style={{ borderTop: '1px solid #EEF3FF' }}>
+                  <div className="px-5 pb-5" style={{ borderTop: '1px solid var(--brand-eef3ff)' }}>
                     <div className="pt-4 space-y-4">
                       <div>
-                        <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: '#7B90C8' }}>
+                        <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>
                           Selectie ({g.squad.length})
                         </h4>
                         <div className="flex flex-wrap gap-1.5">
                           {sortPlayers(g.squad).map(p => (
                             <span key={p.id} className="text-xs px-2 py-1 rounded-lg font-medium"
-                              style={{ background: '#EEF3FF', color: '#1A2F6B', border: '1px solid #D0DCFA' }}>
-                              {p.number != null && <span className="font-mono font-bold" style={{ color: '#1A3FAB' }}>#{p.number} </span>}{p.name}
+                              style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
+                              {p.number != null && <span className="font-mono font-bold" style={{ color: 'var(--brand-1a3fab)' }}>#{p.number} </span>}{p.name}
                             </span>
                           ))}
                         </div>
@@ -3221,16 +3323,16 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
 
                       {g.subs.length > 0 && (
                         <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: '#7B90C8' }}>Wissels</h4>
+                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Wissels</h4>
                           <div className="space-y-1">
                             {g.subs.map((s, i) => {
                               const pIn = getPlayer(g, s.playerInId)
                               const pOut = getPlayer(g, s.playerOutId)
                               return (
                                 <div key={i} className="flex items-center gap-2 text-xs">
-                                  <span className="font-mono font-bold w-10 shrink-0" style={{ color: '#7B90C8' }}>{fmtSec(s.gameTimeSec)}</span>
+                                  <span className="font-mono font-bold w-10 shrink-0" style={{ color: 'var(--brand-7b90c8)' }}>{fmtSec(s.gameTimeSec)}</span>
                                   {s.posLabel && (
-                                    <span className="text-xs font-bold px-1.5 rounded shrink-0" style={{ color: '#1A3FAB', background: '#E4ECFE' }}>{s.posLabel}</span>
+                                    <span className="text-xs font-bold px-1.5 rounded shrink-0" style={{ color: 'var(--brand-1a3fab)', background: 'var(--brand-e4ecfe)' }}>{s.posLabel}</span>
                                   )}
                                   <span className="font-semibold" style={{ color: '#16A34A' }}>↑ {pIn?.name}</span>
                                   <span className="font-semibold" style={{ color: '#DC2626' }}>↓ {pOut?.name}</span>
@@ -3243,7 +3345,7 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
 
                       {g.goals && g.goals.length > 0 && (
                         <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: '#7B90C8' }}>Doelpunten</h4>
+                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Doelpunten</h4>
                           <div className="flex flex-wrap gap-1.5">
                             {Object.entries(
                               g.goals.reduce<Record<string, number>>((acc, goal) => {
@@ -3254,7 +3356,7 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
                               const p = getPlayer(g, playerId)
                               return (
                                 <span key={playerId} className="text-xs px-2 py-1 rounded-lg font-medium"
-                                  style={{ background: '#EEF3FF', color: '#1A2F6B', border: '1px solid #D0DCFA' }}>
+                                  style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
                                   <HockeyBallIcon /> {p?.name ?? 'Onbekende speler'}{count > 1 ? ` ×${count}` : ''}
                                 </span>
                               )
@@ -3265,13 +3367,13 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
 
                       {g.cards && g.cards.length > 0 && (
                         <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: '#7B90C8' }}>Kaarten</h4>
+                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Kaarten</h4>
                           <div className="flex flex-wrap gap-1.5">
                             {g.cards.map(c => {
                               const p = getPlayer(g, c.playerId)
                               return (
                                 <span key={c.id} className="text-xs px-2 py-1 rounded-lg font-medium"
-                                  style={{ background: '#EEF3FF', color: '#1A2F6B', border: '1px solid #D0DCFA' }}>
+                                  style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
                                   <span className="inline-block w-3 h-4 rounded-sm mr-1 align-middle"
                                     style={{ background: c.color === 'green' ? '#16A34A' : c.color === 'yellow' ? '#EAB308' : '#DC2626' }} />
                                   {p?.name ?? 'Onbekende speler'}
@@ -3284,7 +3386,7 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
 
                       {g.playedSeconds && Object.keys(g.playedSeconds).length > 0 && (
                         <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: '#7B90C8' }}>Speeltijd</h4>
+                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Speeltijd</h4>
                           <div className="flex flex-wrap gap-1.5">
                             {Object.entries(g.playedSeconds)
                               .map(([playerId, sec]) => ({ playerId, sec, player: getPlayer(g, playerId) }))
@@ -3292,8 +3394,8 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
                               .sort((a, b) => (a.player.number ?? Infinity) - (b.player.number ?? Infinity) || a.player.name.localeCompare(b.player.name))
                               .map(x => (
                                 <span key={x.playerId} className="text-xs px-2 py-1 rounded-lg font-medium"
-                                  style={{ background: '#EEF3FF', color: '#1A2F6B', border: '1px solid #D0DCFA' }}>
-                                  {x.player.name} <span style={{ color: '#3B5299' }}>· {fmtSec(x.sec)}</span>
+                                  style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
+                                  {x.player.name} <span style={{ color: 'var(--brand-3b5299)' }}>· {fmtSec(x.sec)}</span>
                                 </span>
                               ))}
                           </div>
@@ -3302,11 +3404,11 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
 
                       {g.media && g.media.length > 0 && (
                         <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: '#7B90C8' }}>Media</h4>
+                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Media</h4>
                           <div className="grid grid-cols-4 gap-1.5">
                             {g.media.map(item => (
                               <a key={item.id} href={mediaSrc(item.url)} target="_blank" rel="noreferrer"
-                                className="block rounded-lg overflow-hidden" style={{ border: '1px solid #D0DCFA', background: '#0D2B7A' }}>
+                                className="block rounded-lg overflow-hidden" style={{ border: '1px solid var(--brand-d0dcfa)', background: 'var(--brand-0d2b7a)' }}>
                                 {item.type === 'image' ? (
                                   <img src={mediaSrc(item.url)} alt={item.name} className="w-full h-16 object-cover" />
                                 ) : (
@@ -3320,14 +3422,14 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
 
                       {g.notes && (
                         <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-1" style={{ color: '#7B90C8' }}>Notities</h4>
-                          <p className="text-sm whitespace-pre-wrap" style={{ color: '#3B4F7A' }}>{g.notes}</p>
+                          <h4 className="font-display text-sm font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)' }}>Notities</h4>
+                          <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--brand-3b4f7a)' }}>{g.notes}</p>
                         </div>
                       )}
 
                       {canManageSharing && (
                         <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: '#7B90C8' }}>Delen</h4>
+                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Delen</h4>
                           <GameShareManager shares={shares} onAdd={addShare} onRemove={removeShare} />
                         </div>
                       )}
@@ -3335,7 +3437,7 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
                       <div className="flex gap-2">
                         <button onClick={() => onEdit(g)}
                           className="text-xs font-bold px-3 py-1.5 rounded-lg text-white"
-                          style={{ background: '#1A3FAB' }}>
+                          style={{ background: 'var(--brand-1a3fab)' }}>
                           {(g.permission ?? 'owner') === 'view' ? 'Bekijken' : 'Bewerken'}
                         </button>
                         {(!g.ownerId || g.ownerId === user?.id) && (
@@ -3482,7 +3584,7 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
     }
   }
 
-  if (loading) return <p className="text-sm text-center py-4" style={{ color: '#A8BEF0' }}>Laden…</p>
+  if (loading) return <p className="text-sm text-center py-4" style={{ color: 'var(--brand-a8bef0)' }}>Laden…</p>
 
   return (
     <div>
@@ -3491,13 +3593,13 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
           onChange={e => { onFileChange(e.target.files?.[0]); e.target.value = '' }} />
       )}
       {!canEdit && (
-        <p className="text-xs mb-3" style={{ color: '#7B90C8' }}>
+        <p className="text-xs mb-3" style={{ color: 'var(--brand-7b90c8)' }}>
           Alleen coaches kunnen spelers en foto's beheren.
         </p>
       )}
       {error && <p className="text-xs font-semibold mb-2" style={{ color: '#DC2626' }}>{error}</p>}
       {players.length === 0 ? (
-        <p className="text-sm" style={{ color: '#7B90C8' }}>Geen spelers gevonden voor dit team.</p>
+        <p className="text-sm" style={{ color: 'var(--brand-7b90c8)' }}>Geen spelers gevonden voor dit team.</p>
       ) : (
         <div className="space-y-2">
           {players.map(p => {
@@ -3505,13 +3607,13 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
             const avatar = p.photoUrl ? (
               <img src={mediaSrc(p.photoUrl)} alt={p.name} className="w-11 h-11 rounded-full object-cover" />
             ) : (
-              <div className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-sm" style={{ background: '#1A3FAB' }}>
+              <div className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-sm" style={{ background: 'var(--brand-1a3fab)' }}>
                 {initials(p.name)}
               </div>
             )
             return (
               <div key={p.id} className="flex items-center gap-3 p-2.5 rounded-xl"
-                style={{ background: '#F8FAFF', border: '1px solid #E8EFFD' }}>
+                style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
                 {canEdit ? (
                   <button onClick={() => triggerUpload(p.id)} disabled={busy}
                     className="relative w-11 h-11 rounded-full shrink-0 group overflow-hidden disabled:opacity-50" title="Foto wijzigen">
@@ -3525,12 +3627,12 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
                   <div className="w-11 h-11 rounded-full shrink-0 overflow-hidden">{avatar}</div>
                 )}
                 {editId === p.id ? (
-                  <input autoFocus className="flex-1 text-sm font-semibold rounded-lg px-2 py-1" style={{ border: '1.5px solid #D0DCFA' }}
+                  <input autoFocus className="flex-1 text-sm font-semibold rounded-lg px-2 py-1" style={{ border: '1.5px solid var(--brand-d0dcfa)' }}
                     value={editName} onChange={e => setEditName(e.target.value)}
                     onBlur={() => saveRename(p.id)}
                     onKeyDown={e => { if (e.key === 'Enter') saveRename(p.id); if (e.key === 'Escape') setEditId(null) }} />
                 ) : (
-                  <span className="flex-1 text-sm font-semibold truncate" style={{ color: '#1A2F6B', cursor: canEdit ? 'pointer' : 'default' }}
+                  <span className="flex-1 text-sm font-semibold truncate" style={{ color: 'var(--brand-1a2f6b)', cursor: canEdit ? 'pointer' : 'default' }}
                     onClick={() => { if (canEdit) { setEditId(p.id); setEditName(p.name) } }}>
                     {p.name}
                   </span>
@@ -3539,7 +3641,7 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
                   <button onClick={() => removePhoto(p.id, p.name)} className="font-bold text-sm" style={{ color: '#DC2626' }} title="Foto verwijderen">×</button>
                 )}
                 {canEdit && !busy && (
-                  <button onClick={() => removePlayer(p.id, p.name)} className="text-xs font-bold" style={{ color: '#A8BEF0' }} title="Speler verwijderen">🗑</button>
+                  <button onClick={() => removePlayer(p.id, p.name)} className="text-xs font-bold" style={{ color: 'var(--brand-a8bef0)' }} title="Speler verwijderen">🗑</button>
                 )}
               </div>
             )
@@ -3548,11 +3650,11 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
       )}
       {canEdit && (
         <div className="flex gap-2 mt-3">
-          <input className="flex-1 rounded-xl px-3 py-2 text-sm" style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }}
+          <input className="flex-1 rounded-xl px-3 py-2 text-sm" style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }}
             value={newName} onChange={e => setNewName(e.target.value)}
             placeholder="Naam nieuwe speler"
             onKeyDown={e => e.key === 'Enter' && addPlayer()} />
-          <button onClick={addPlayer} className="px-4 py-2 rounded-xl font-bold text-white text-lg" style={{ background: '#1A3FAB' }}>+</button>
+          <button onClick={addPlayer} className="px-4 py-2 rounded-xl font-bold text-white text-lg" style={{ background: 'var(--brand-1a3fab)' }}>+</button>
         </div>
       )}
     </div>
@@ -3572,7 +3674,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   gameCount: number
   onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => void
 }) {
-  const inputStyle = { border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }
+  const inputStyle = { border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }
   const [firstName, setFirstName] = useState(user?.firstName ?? '')
   const [lastName, setLastName] = useState(user?.lastName ?? '')
   const [role, setRole] = useState(user?.role ?? '')
@@ -3619,11 +3721,11 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null)
 
   return (
-    <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
-      <header style={{ background: '#0D2B7A' }} className="text-white sticky top-0 z-20 shadow-lg">
+    <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
+      <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
           <div className="flex items-center gap-4">
-            <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: '#7B9DE0' }}>← Terug</button>
+            <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>← Terug</button>
             <h1 className="font-display text-2xl font-bold uppercase tracking-widest">Profiel</h1>
           </div>
           <div className="flex justify-center">
@@ -3634,9 +3736,9 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-8">
-        <section className="bg-white rounded-2xl p-6 shadow-sm" style={{ border: '1px solid #D0DCFA' }}>
+        <section className="bg-white rounded-2xl p-6 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
           {loading ? (
-            <p className="text-sm text-center py-6" style={{ color: '#A8BEF0' }}>Laden…</p>
+            <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Laden…</p>
           ) : user ? (
             <div className="space-y-5">
               <div className="flex items-start justify-between gap-4">
@@ -3647,7 +3749,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                       <img src={user.picture} alt="" className="w-16 h-16 rounded-full object-cover" referrerPolicy="no-referrer" />
                     ) : (
                       <div className="w-16 h-16 rounded-full flex items-center justify-center text-white font-bold text-xl"
-                        style={{ background: '#1A3FAB' }}>
+                        style={{ background: 'var(--brand-1a3fab)' }}>
                         {initials(user.name ?? user.email)}
                       </div>
                     )}
@@ -3659,8 +3761,8 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                   <input ref={photoInputRef} type="file" accept="image/*" className="hidden"
                     onChange={e => { pickPhoto(e.target.files?.[0]); e.target.value = '' }} />
                   <div className="min-w-0">
-                    <div className="font-display font-bold text-lg truncate" style={{ color: '#0D2B7A' }}>{user.name ?? user.email}</div>
-                    <div className="text-sm truncate" style={{ color: '#7B90C8' }}>{user.email}</div>
+                    <div className="font-display font-bold text-lg truncate" style={{ color: 'var(--brand-0d2b7a)' }}>{user.name ?? user.email}</div>
+                    <div className="text-sm truncate" style={{ color: 'var(--brand-7b90c8)' }}>{user.email}</div>
                   </div>
                 </div>
                 <button onClick={onLogout}
@@ -3672,14 +3774,14 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
               {user.defaultClub && (
                 <div className="flex items-center gap-2.5">
                   <ClubLogo club={user.defaultClub} size={40} />
-                  <span className="text-sm font-semibold" style={{ color: '#1A2F6B' }}>{user.defaultClub}</span>
+                  <span className="text-sm font-semibold" style={{ color: 'var(--brand-1a2f6b)' }}>{user.defaultClub}</span>
                 </div>
               )}
               {photoError && <p className="text-xs font-semibold" style={{ color: '#DC2626' }}>{photoError}</p>}
 
               <div>
-                <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Club</label>
-                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: user.defaultClub ? '#1A2F6B' : '#7B90C8' }}
+                <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Club</label>
+                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: user.defaultClub ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
                   value={user.defaultClub ?? ''}
                   onChange={e => onUpdateProfile({ defaultClub: e.target.value || null })}>
                   <option value="">Kies club…</option>
@@ -3688,8 +3790,8 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Team</label>
-                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: user.defaultTeam ? '#1A2F6B' : '#7B90C8' }}
+                <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Team</label>
+                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: user.defaultTeam ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
                   value={user.defaultTeam ?? ''}
                   onChange={e => onUpdateProfile({ defaultTeam: e.target.value || null })}>
                   <option value="">Kies team…</option>
@@ -3698,24 +3800,24 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                       other club falls back to the generic age-category list. */}
                   {(user.defaultClub === 'SC Muiden' ? teamNames : GENERIC_TEAM_CATEGORIES).map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
-                <p className="text-xs mt-1.5" style={{ color: '#7B90C8' }}>Wordt automatisch geselecteerd bij het starten van een wedstrijd.</p>
+                <p className="text-xs mt-1.5" style={{ color: 'var(--brand-7b90c8)' }}>Wordt automatisch geselecteerd bij het starten van een wedstrijd.</p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Naam</label>
+                  <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Naam</label>
                   <input className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle}
                     value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="Voornaam" />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Achternaam</label>
+                  <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Achternaam</label>
                   <input className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle}
                     value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Achternaam" />
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Rol</label>
-                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: role ? '#1A2F6B' : '#7B90C8' }}
+                <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Rol</label>
+                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: role ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
                   value={role} onChange={e => setRole(e.target.value)}>
                   <option value="">Kies rol…</option>
                   {ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
@@ -3724,28 +3826,28 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
               <div className="flex items-center gap-3">
                 <button onClick={saveDetails}
                   className="px-4 py-2.5 rounded-xl font-bold text-sm text-white"
-                  style={{ background: '#1A3FAB' }}>
+                  style={{ background: 'var(--brand-1a3fab)' }}>
                   Opslaan
                 </button>
                 {saved && <span className="text-sm font-semibold" style={{ color: '#16A34A' }}>Opgeslagen!</span>}
               </div>
 
-              <button onClick={onHistory} className="text-sm font-medium hover:underline" style={{ color: '#1A3FAB' }}>
+              <button onClick={onHistory} className="text-sm font-medium hover:underline" style={{ color: 'var(--brand-1a3fab)' }}>
                 {gameCount} opgeslagen wedstrijd{gameCount !== 1 ? 'en' : ''} →
               </button>
             </div>
           ) : (
             <div className="space-y-5 text-center py-4">
-              <p className="text-sm" style={{ color: '#6B82B8' }}>
+              <p className="text-sm" style={{ color: 'var(--brand-6b82b8)' }}>
                 Log in om wedstrijden op te slaan en later terug te vinden.
               </p>
               <div className="flex justify-center">
                 <GoogleSignInButton onCredential={onCredential} />
               </div>
               <div className="flex items-center gap-3">
-                <div className="flex-1 h-px" style={{ background: '#E4ECFE' }} />
-                <span className="text-xs font-semibold uppercase" style={{ color: '#A8BEF0' }}>of</span>
-                <div className="flex-1 h-px" style={{ background: '#E4ECFE' }} />
+                <div className="flex-1 h-px" style={{ background: 'var(--brand-e4ecfe)' }} />
+                <span className="text-xs font-semibold uppercase" style={{ color: 'var(--brand-a8bef0)' }}>of</span>
+                <div className="flex-1 h-px" style={{ background: 'var(--brand-e4ecfe)' }} />
               </div>
               <EmailAuthForm onLogin={onLoginPassword} onRegister={onRegister} onResend={onResendVerification} />
             </div>
@@ -3753,11 +3855,11 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
         </section>
 
         {user && user.defaultTeam && (
-          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid #D0DCFA' }}>
-            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-1" style={{ color: '#0D2B7A' }}>
+          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-1" style={{ color: 'var(--brand-0d2b7a)' }}>
               Spelers — {user.defaultTeam}
             </h2>
-            <p className="text-xs mb-4" style={{ color: '#7B90C8' }}>
+            <p className="text-xs mb-4" style={{ color: 'var(--brand-7b90c8)' }}>
               Foto's per speler verschijnen tijdens wedstrijden op het veld en de bank.
             </p>
             <TeamPlayerPhotos team={user.defaultTeam} canEdit={user.role === 'Coach' || user.role === 'Trainer & Coach'} />
@@ -3765,26 +3867,26 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
         )}
 
         {isAdmin && (
-          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid #D0DCFA' }}>
-            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-4" style={{ color: '#0D2B7A' }}>
+          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-4" style={{ color: 'var(--brand-0d2b7a)' }}>
               Beheer — Gebruikers
             </h2>
             {adminLoading ? (
-              <p className="text-sm text-center py-4" style={{ color: '#A8BEF0' }}>Laden…</p>
+              <p className="text-sm text-center py-4" style={{ color: 'var(--brand-a8bef0)' }}>Laden…</p>
             ) : adminError ? (
               <p className="text-sm font-semibold" style={{ color: '#DC2626' }}>{adminError}</p>
             ) : adminUsers.length === 0 ? (
-              <p className="text-sm" style={{ color: '#7B90C8' }}>Nog geen gebruikers.</p>
+              <p className="text-sm" style={{ color: 'var(--brand-7b90c8)' }}>Nog geen gebruikers.</p>
             ) : (
               <div className="space-y-2">
                 {adminUsers.map(u => (
-                  <div key={u.id} className="p-3 rounded-xl" style={{ border: '1px solid #E8EFFD', background: '#F8FAFF' }}>
+                  <div key={u.id} className="p-3 rounded-xl" style={{ border: '1px solid var(--brand-e8effd)', background: 'var(--brand-f8faff)' }}>
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="text-sm font-bold truncate" style={{ color: '#1A2F6B' }}>
+                        <div className="text-sm font-bold truncate" style={{ color: 'var(--brand-1a2f6b)' }}>
                           {[u.firstName, u.lastName].filter(Boolean).join(' ') || u.name || u.email}
                         </div>
-                        <div className="text-xs truncate" style={{ color: '#7B90C8' }}>{u.email}</div>
+                        <div className="text-xs truncate" style={{ color: 'var(--brand-7b90c8)' }}>{u.email}</div>
                       </div>
                       <div className="flex gap-2 shrink-0">
                         {u.id !== user?.id && u.email.toLowerCase() !== ADMIN_EMAIL && (
@@ -3794,8 +3896,8 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                           }}
                             className="text-xs font-bold px-2.5 py-1.5 rounded-lg"
                             style={u.isAdmin
-                              ? { color: '#7B90C8', border: '1px solid #D0DCFA' }
-                              : { color: '#1A3FAB', border: '1px solid #A8BEF0' }}>
+                              ? { color: 'var(--brand-7b90c8)', border: '1px solid var(--brand-d0dcfa)' }
+                              : { color: 'var(--brand-1a3fab)', border: '1px solid var(--brand-a8bef0)' }}>
                             {u.isAdmin ? 'Beheerder verwijderen' : 'Maak beheerder'}
                           </button>
                         )}
@@ -3817,16 +3919,16 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                         </span>
                       )}
                       {u.defaultTeam && (
-                        <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#EEF3FF', color: '#1A3FAB' }}>
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
                           {u.defaultTeam}
                         </span>
                       )}
                       {u.role && (
-                        <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#EEF3FF', color: '#1A3FAB' }}>
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
                           {u.role}
                         </span>
                       )}
-                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#EEF3FF', color: '#1A3FAB' }}>
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
                         {u.gameCount} wedstrijd{u.gameCount !== 1 ? 'en' : ''}
                       </span>
                       <span className="text-xs px-2 py-0.5 rounded-full font-medium"
@@ -3835,7 +3937,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                           : { background: '#FEF3C7', color: '#D97706' }}>
                         {u.emailVerified ? 'Geverifieerd' : 'Niet geverifieerd'}
                       </span>
-                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#EEF3FF', color: '#1A3FAB' }}>
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
                         {u.hasPassword ? 'E-mail/wachtwoord' : 'Google'}
                       </span>
                     </div>
@@ -3847,25 +3949,25 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
         )}
 
         {isAdmin && (
-          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid #D0DCFA' }}>
-            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-4" style={{ color: '#0D2B7A' }}>
+          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-4" style={{ color: 'var(--brand-0d2b7a)' }}>
               Beheer — Teams
             </h2>
             {adminTeamsLoading ? (
-              <p className="text-sm text-center py-4" style={{ color: '#A8BEF0' }}>Laden…</p>
+              <p className="text-sm text-center py-4" style={{ color: 'var(--brand-a8bef0)' }}>Laden…</p>
             ) : adminTeamsError ? (
               <p className="text-sm font-semibold" style={{ color: '#DC2626' }}>{adminTeamsError}</p>
             ) : (
               <div className="space-y-2">
                 {adminTeams.length === 0 && (
-                  <p className="text-sm" style={{ color: '#7B90C8' }}>Nog geen teams.</p>
+                  <p className="text-sm" style={{ color: 'var(--brand-7b90c8)' }}>Nog geen teams.</p>
                 )}
                 {adminTeams.map(t => (
-                  <div key={t.id} className="rounded-xl overflow-hidden" style={{ border: '1px solid #E8EFFD', background: '#F8FAFF' }}>
+                  <div key={t.id} className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--brand-e8effd)', background: 'var(--brand-f8faff)' }}>
                     <div className="flex items-center gap-2 p-2.5">
-                      <span className="flex-1 text-sm font-semibold truncate px-1" style={{ color: '#1A2F6B' }}>{t.name}</span>
+                      <span className="flex-1 text-sm font-semibold truncate px-1" style={{ color: 'var(--brand-1a2f6b)' }}>{t.name}</span>
                       <button onClick={() => setExpandedTeamId(id => id === t.id ? null : t.id)}
-                        className="text-xs font-bold px-2.5 py-1.5 rounded-lg shrink-0" style={{ color: '#1A3FAB', border: '1px solid #D0DCFA' }}>
+                        className="text-xs font-bold px-2.5 py-1.5 rounded-lg shrink-0" style={{ color: 'var(--brand-1a3fab)', border: '1px solid var(--brand-d0dcfa)' }}>
                         {expandedTeamId === t.id ? 'Sluiten' : 'Aanpassen'}
                       </button>
                       <button onClick={() => {
@@ -3879,8 +3981,8 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                     {expandedTeamId === t.id && (
                       <div className="px-2.5 pb-2.5 space-y-3">
                         <div>
-                          <label className="text-xs font-bold uppercase tracking-wide block mb-1" style={{ color: '#7B90C8' }}>Teamnaam</label>
-                          <input className="w-full text-sm font-semibold rounded-lg px-2 py-1.5" style={{ border: '1.5px solid #D0DCFA', color: '#1A2F6B' }}
+                          <label className="text-xs font-bold uppercase tracking-wide block mb-1" style={{ color: 'var(--brand-7b90c8)' }}>Teamnaam</label>
+                          <input className="w-full text-sm font-semibold rounded-lg px-2 py-1.5" style={{ border: '1.5px solid var(--brand-d0dcfa)', color: 'var(--brand-1a2f6b)' }}
                             defaultValue={t.name} key={`${t.id}-${t.name}`}
                             onBlur={e => { const name = e.target.value.trim(); if (name && name !== t.name) renameTeam(t.id, name) }} />
                         </div>
@@ -3892,12 +3994,12 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
               </div>
             )}
             <div className="flex gap-2 mt-3">
-              <input className="flex-1 rounded-xl px-3 py-2 text-sm" style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }}
+              <input className="flex-1 rounded-xl px-3 py-2 text-sm" style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }}
                 value={newTeamName} onChange={e => setNewTeamName(e.target.value)}
                 placeholder="Naam nieuw team, bv. MO13-1"
                 onKeyDown={e => { if (e.key === 'Enter' && newTeamName.trim()) { createTeam(newTeamName.trim()); setNewTeamName('') } }} />
               <button onClick={() => { if (newTeamName.trim()) { createTeam(newTeamName.trim()); setNewTeamName('') } }}
-                className="px-4 py-2 rounded-xl font-bold text-white text-lg" style={{ background: '#1A3FAB' }}>+</button>
+                className="px-4 py-2 rounded-xl font-bold text-white text-lg" style={{ background: 'var(--brand-1a3fab)' }}>+</button>
             </div>
           </section>
         )}
@@ -4060,7 +4162,7 @@ function EmailAuthForm({ onLogin, onRegister, onResend }: {
   onRegister: (email: string, password: string, name: string) => Promise<{ ok: true } | { ok: false; error: string }>
   onResend: (email: string) => Promise<void>
 }) {
-  const inputStyle = { border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }
+  const inputStyle = { border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -4112,12 +4214,12 @@ function EmailAuthForm({ onLogin, onRegister, onResend }: {
       <div className="flex gap-2 justify-center">
         <button onClick={() => switchMode('login')}
           className="text-xs font-bold uppercase px-3 py-1.5 rounded-lg"
-          style={{ color: mode === 'login' ? '#fff' : '#1A3FAB', background: mode === 'login' ? '#1A3FAB' : '#EEF3FF' }}>
+          style={{ color: mode === 'login' ? '#fff' : 'var(--brand-1a3fab)', background: mode === 'login' ? 'var(--brand-1a3fab)' : 'var(--brand-eef3ff)' }}>
           Inloggen
         </button>
         <button onClick={() => switchMode('register')}
           className="text-xs font-bold uppercase px-3 py-1.5 rounded-lg"
-          style={{ color: mode === 'register' ? '#fff' : '#1A3FAB', background: mode === 'register' ? '#1A3FAB' : '#EEF3FF' }}>
+          style={{ color: mode === 'register' ? '#fff' : 'var(--brand-1a3fab)', background: mode === 'register' ? 'var(--brand-1a3fab)' : 'var(--brand-eef3ff)' }}>
           Registreren
         </button>
       </div>
@@ -4134,14 +4236,14 @@ function EmailAuthForm({ onLogin, onRegister, onResend }: {
       {error && <p className="text-xs font-semibold" style={{ color: '#DC2626' }}>{error}</p>}
       {info && <p className="text-xs font-semibold" style={{ color: '#16A34A' }}>{info}</p>}
       {showResend && (
-        <button onClick={resend} disabled={busy} className="text-xs font-bold" style={{ color: '#1A3FAB' }}>
+        <button onClick={resend} disabled={busy} className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>
           Verificatie-e-mail opnieuw versturen
         </button>
       )}
 
       <button onClick={submit} disabled={busy || !email || !password}
         className="w-full px-4 py-2.5 rounded-xl font-bold text-sm text-white disabled:opacity-50"
-        style={{ background: '#1A3FAB' }}>
+        style={{ background: 'var(--brand-1a3fab)' }}>
         {mode === 'register' ? 'Account aanmaken' : 'Inloggen'}
       </button>
     </div>
@@ -4276,7 +4378,7 @@ function GameShareManager({ shares, onAdd, onRemove }: {
   onAdd: (email: string, permission: 'view' | 'edit') => Promise<{ ok: true } | { ok: false; error: string }>
   onRemove: (userId: string) => void
 }) {
-  const inputStyle = { border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }
+  const inputStyle = { border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }
   const allUsers = useAllUsers()
   const sharedIds = new Set(shares.map(s => s.userId))
   const available = allUsers.filter(u => !sharedIds.has(u.id))
@@ -4299,7 +4401,7 @@ function GameShareManager({ shares, onAdd, onRemove }: {
     <div>
       <div className="space-y-2">
         <select className="w-full min-w-0 rounded-xl px-3 py-2 text-sm"
-          style={{ ...inputStyle, color: userId ? '#1A2F6B' : '#7B90C8' }}
+          style={{ ...inputStyle, color: userId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
           value={userId} onChange={e => setUserId(e.target.value)}>
           <option value="">Kies gebruiker…</option>
           {available.map(u => <option key={u.id} value={u.id}>{u.name ?? u.email}</option>)}
@@ -4312,22 +4414,22 @@ function GameShareManager({ shares, onAdd, onRemove }: {
           </select>
           <button onClick={submit} disabled={busy || !userId}
             className="px-3 py-2 rounded-xl font-bold text-white text-sm shrink-0 disabled:opacity-50"
-            style={{ background: '#1A3FAB' }}>
+            style={{ background: 'var(--brand-1a3fab)' }}>
             Delen
           </button>
         </div>
       </div>
       {available.length === 0 && (
-        <p className="text-xs mt-1" style={{ color: '#A8BEF0' }}>Geen andere gebruikers gevonden om mee te delen.</p>
+        <p className="text-xs mt-1" style={{ color: 'var(--brand-a8bef0)' }}>Geen andere gebruikers gevonden om mee te delen.</p>
       )}
       {error && <p className="text-xs font-semibold mt-1" style={{ color: '#DC2626' }}>{error}</p>}
       {shares.length > 0 && (
         <div className="mt-2 space-y-1">
           {shares.map(s => (
             <div key={s.userId} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-              style={{ background: '#F8FAFF', border: '1px solid #E8EFFD' }}>
-              <span style={{ color: '#1A2F6B' }}>
-                {s.name ?? s.email} <span style={{ color: '#7B90C8' }}>· {s.permission === 'edit' ? 'Bewerken' : 'Bekijken'}</span>
+              style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+              <span style={{ color: 'var(--brand-1a2f6b)' }}>
+                {s.name ?? s.email} <span style={{ color: 'var(--brand-7b90c8)' }}>· {s.permission === 'edit' ? 'Bewerken' : 'Bekijken'}</span>
               </span>
               <button onClick={() => onRemove(s.userId)} className="font-bold" style={{ color: '#DC2626' }}>×</button>
             </div>
@@ -4471,7 +4573,7 @@ function SplashScreen({ onContinue }: { onContinue: () => void }) {
         style={{ opacity: visible ? 1 : 0, transition: 'opacity 0.4s ease-out' }} />
       <button onClick={onContinue}
         className="text-sm font-bold uppercase italic"
-        style={{ color: '#2563EB', letterSpacing: '0.15em', opacity: visible ? 1 : 0, transition: 'opacity 0.4s ease-out' }}>
+        style={{ color: 'var(--brand-2563eb)', letterSpacing: '0.15em', opacity: visible ? 1 : 0, transition: 'opacity 0.4s ease-out' }}>
         Continue →
       </button>
     </div>
@@ -4493,6 +4595,22 @@ export default function App() {
   const [editingGame, setEditingGame] = useState<SavedGame | null>(null)
   const { user, loading: authLoading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, logout, updateProfile } = useAuth()
   const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user)
+
+  // Recolors the app to the selected club's logo — see applyClubTheme/
+  // extractDominantHue above. Runs before the splash early-return so it
+  // still fires on the very first render a club is known, not just after.
+  useEffect(() => {
+    const club = user?.defaultClub
+    const src = club ? CLUB_LOGOS[club] : null
+    if (!src) { clearClubTheme(); return }
+    let cancelled = false
+    extractDominantHue(mediaSrc(src)).then(hue => {
+      if (cancelled) return
+      if (hue == null) clearClubTheme()
+      else applyClubTheme(hue)
+    })
+    return () => { cancelled = true }
+  }, [user?.defaultClub])
 
   if (showSplash) return <SplashScreen onContinue={dismissSplash} />
 
