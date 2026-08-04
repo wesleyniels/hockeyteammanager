@@ -1540,6 +1540,12 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   // real enforcement is server-side (PUT rejects it regardless), this just
   // keeps a view-only viewer from fiddling with controls that won't stick.
   const readOnly = (initial?.permission ?? 'owner') === 'view'
+  // Generated once and reused for every autosave of a brand-new match — the
+  // old manual-save flow called uid() fresh on each click when `initial` was
+  // undefined, which would have inserted a new row per autosave tick instead
+  // of updating the same one.
+  const [gameId] = useState(() => initial?.id ?? uid())
+  const [gameDate] = useState(() => initial?.date ?? todayStr())
 
   const [slots, setSlots] = useState<PositionSlot[]>(() => normalizeSlots(initial?.slots, ageGroup))
   const [bench, setBench] = useState<BenchEntry[]>(() => {
@@ -1575,6 +1581,89 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   const [activeTab, setActiveTab] = useState<'bench' | 'subs' | 'notes' | 'tactics' | 'media'>('bench')
   const [panelCollapsed, setPanelCollapsed] = useLS('fh_panel_collapsed', false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // ── Autosave + Herstel (undo) ────────────────────────────────────────────
+  // Everything that counts as an editable "game setting" — not the running
+  // clock itself, and not media (deleting a photo/video also deletes its
+  // Blob, which Herstel couldn't bring back) — is tracked here. Every real
+  // change pushes the state *before* that change onto a stack; Herstel pops
+  // and restores it, one click per change, all the way back to the state
+  // the match started in.
+  const tracked = { slots, bench, subs, oppMarkers, goals, cards, tacticsBoards, notes, scoreOwn, scoreOpp }
+  const historyRef = useRef<(typeof tracked)[]>([])
+  const lastTrackedRef = useRef(tracked)
+  const isFirstTrackRef = useRef(true)
+  const restoringRef = useRef(false)
+  const [historyLen, setHistoryLen] = useState(0)
+
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scheduleSave = () => {
+    if (readOnly || !user) return
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => onSave(buildSnapshot()), 600)
+  }
+  const flushSave = () => {
+    if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
+    if (!readOnly && user) onSave(buildSnapshot())
+  }
+
+  useEffect(() => {
+    if (isFirstTrackRef.current) { isFirstTrackRef.current = false; lastTrackedRef.current = tracked; return }
+    if (restoringRef.current) {
+      restoringRef.current = false
+    } else {
+      historyRef.current.push(lastTrackedRef.current)
+      setHistoryLen(historyRef.current.length)
+    }
+    lastTrackedRef.current = tracked
+    scheduleSave()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slots, bench, subs, oppMarkers, goals, cards, tacticsBoards, notes, scoreOwn, scoreOpp])
+
+  const isFirstMediaRef = useRef(true)
+  useEffect(() => {
+    if (isFirstMediaRef.current) { isFirstMediaRef.current = false; return }
+    scheduleSave()
+  }, [media])
+
+  // Substitutions/goals/etc. already autosave the instant they happen; the
+  // clock alone ticking for a while (with nothing else changing) wouldn't
+  // otherwise persist finalTime/playedSeconds until something else does.
+  const lastAutosaveSecRef = useRef(gameSec)
+  const isFirstGameSecRef = useRef(true)
+  useEffect(() => {
+    if (isFirstGameSecRef.current) { isFirstGameSecRef.current = false; return }
+    if (gameSec - lastAutosaveSecRef.current >= 15) {
+      lastAutosaveSecRef.current = gameSec
+      scheduleSave()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameSec])
+
+  const prevRunningRef = useRef(running)
+  useEffect(() => {
+    if (prevRunningRef.current && !running) scheduleSave()
+    prevRunningRef.current = running
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running])
+
+  const herstel = () => {
+    if (readOnly) return
+    const prev = historyRef.current.pop()
+    if (!prev) return
+    setHistoryLen(historyRef.current.length)
+    restoringRef.current = true
+    setSlots(prev.slots)
+    setBench(prev.bench)
+    setSubs(prev.subs)
+    setOppMarkers(prev.oppMarkers)
+    setGoals(prev.goals)
+    setCards(prev.cards)
+    setTacticsBoards(prev.tacticsBoards)
+    setNotes(prev.notes)
+    setScoreOwn(prev.scoreOwn)
+    setScoreOpp(prev.scoreOpp)
+  }
 
   // slotsRef (declared further below, kept fresh on every render) lets this
   // interval — only recreated when `running` toggles — see substitutions that
@@ -1978,23 +2067,15 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     }
   }
 
-  const saveGame = () => {
-    if (readOnly) return
-    if (!user) {
-      alert('Log in met Google om wedstrijden op te slaan (zie Profiel rechtsboven op het startscherm).')
-      return
-    }
-    onSave({
-      id: initial?.id ?? uid(),
-      date: initial?.date ?? todayStr(),
-      club, team, ageGroup, opponent, homeAway, squad, slots, subs, oppMarkers, goals, cards, tacticsBoards, playedSeconds, media, notes, result,
-      scoreOwn, scoreOpp,
-      finalTime: gameSec,
-      ownerId: initial?.ownerId ?? user.id,
-      permission: initial?.permission ?? 'owner',
-    })
-    alert('Wedstrijd opgeslagen!')
-  }
+  const buildSnapshot = (): SavedGame => ({
+    id: gameId,
+    date: gameDate,
+    club, team, ageGroup, opponent, homeAway, squad, slots, subs, oppMarkers, goals, cards, tacticsBoards, playedSeconds, media, notes, result,
+    scoreOwn, scoreOpp,
+    finalTime: gameSec,
+    ownerId: initial?.ownerId ?? user!.id,
+    permission: initial?.permission ?? 'owner',
+  })
 
   return (
     <div className="flex flex-col" style={{ height: '100dvh', background: '#EEF3FF' }}
@@ -2004,7 +2085,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
       <div className="shrink-0 text-white px-3 py-2" style={{ background: '#0D2B7A' }}>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
-            <button onClick={onBack} className="text-xs shrink-0 font-semibold" style={{ color: '#7B9DE0' }}>← Terug</button>
+            <button onClick={() => { flushSave(); onBack() }} className="text-xs shrink-0 font-semibold" style={{ color: '#7B9DE0' }}>← Terug</button>
             <SCMuidenLogo size={30} />
             <div className="min-w-0">
               <div className="font-display font-bold text-sm leading-none truncate">{club} {team}</div>
@@ -2030,10 +2111,11 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                 Alleen-lezen
               </span>
             ) : (
-              <button onClick={e => { e.stopPropagation(); saveGame() }}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
+              <button onClick={e => { e.stopPropagation(); herstel() }}
+                disabled={historyLen === 0}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-40"
                 style={{ background: '#1A3FAB' }}>
-                Opslaan
+                Herstel
               </button>
             )}
           </div>
@@ -4038,7 +4120,7 @@ export default function App() {
         {...gameParams}
         initial={editingGame ?? undefined}
         user={user}
-        onSave={g => { if (editingGame) updateGame(g); else addGame(g); setEditingGame(null) }}
+        onSave={g => { if (games.some(x => x.id === g.id)) updateGame(g); else addGame(g) }}
         onBack={() => { setEditingGame(null); setView('setup') }}
       />
     )
