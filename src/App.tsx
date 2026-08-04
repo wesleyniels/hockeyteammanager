@@ -1663,11 +1663,12 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.defaultTeam])
 
-  // Same idea for the club — pre-fill from the profile's preference if
-  // nothing's been picked locally yet; otherwise the dropdown below just
-  // starts on "Kies club…" and the coach picks one themselves.
+  // Same idea for the club, except it always wins once set — changing it in
+  // Profile should be reflected back here immediately, not just fill in the
+  // first time. Without a profile club (or logged out), the dropdown below
+  // just starts on "Kies club…" and the coach picks one themselves.
   useEffect(() => {
-    if (user?.defaultClub && !club) setClub(user.defaultClub)
+    if (user?.defaultClub) setClub(user.defaultClub)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.defaultClub])
 
@@ -3623,7 +3624,6 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
           <div className="flex items-center gap-4">
             <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: '#7B9DE0' }}>← Terug</button>
-            <SCMuidenLogo size={32} />
             <h1 className="font-display text-2xl font-bold uppercase tracking-widest">Profiel</h1>
           </div>
           <div className="flex justify-center">
@@ -3669,6 +3669,12 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                   Uitloggen
                 </button>
               </div>
+              {user.defaultClub && (
+                <div className="flex items-center gap-2.5">
+                  <ClubLogo club={user.defaultClub} size={40} />
+                  <span className="text-sm font-semibold" style={{ color: '#1A2F6B' }}>{user.defaultClub}</span>
+                </div>
+              )}
               {photoError && <p className="text-xs font-semibold" style={{ color: '#DC2626' }}>{photoError}</p>}
 
               <div>
