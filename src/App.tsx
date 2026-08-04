@@ -1253,16 +1253,37 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
   }, [user])
 
   // fh_squad/fh_team persist in localStorage so a reload doesn't lose your
-  // setup — but that means an official roster fetched while logged in would
-  // otherwise sit there after logout, showing the last coach's real player
-  // names to anyone else using this browser. Clear both right on the
-  // login→logout transition (not on every render while logged out, which
-  // would also wipe a manually-typed squad for an anonymous visitor).
-  const wasLoggedInRef = useRef(!!user)
+  // setup — but an official roster fetched while logged in would otherwise
+  // sit there indefinitely, showing that coach's real player names to
+  // anyone else using this browser. fh_squad_official_owner tags *whose*
+  // roster is currently cached (set in selectTeam below, right after a
+  // successful fetch) so this can tell "still the same person" apart from
+  // "logged out, or a different person logged in" — on a mismatch the cache
+  // is cleared. Checking on every mount (not just a live logout click in
+  // this tab) is what catches an already-stale cache from a *previous*
+  // session, e.g. reopening the app after logging out yesterday. Waiting
+  // for authLoading to resolve avoids a spurious clear-then-refetch flash
+  // on an ordinary reload while still logged in.
+  const [squadOfficialOwner, setSquadOfficialOwner] = useLS<string | null>('fh_squad_official_owner', null)
   useEffect(() => {
-    if (wasLoggedInRef.current && !user) { setSquad([]); setTeam('') }
-    wasLoggedInRef.current = !!user
-  }, [user])
+    if (authLoading) return
+    // One-time cleanup for browsers with a cache from before this owner tag
+    // existed — untagged, it has nothing to mismatch against and would
+    // otherwise keep leaking indefinitely regardless of the check below.
+    if (localStorage.getItem('fh_squad_owner_tracking_v1') !== '1') {
+      localStorage.setItem('fh_squad_owner_tracking_v1', '1')
+      setSquad([])
+      setTeam('')
+      setSquadOfficialOwner(null)
+      return
+    }
+    const currentEmail = user?.email ?? null
+    if (squadOfficialOwner && squadOfficialOwner !== currentEmail) {
+      setSquad([])
+      setTeam('')
+      setSquadOfficialOwner(null)
+    }
+  }, [authLoading, user, squadOfficialOwner])
 
   // Selecting a team fills Selectie with its official roster; players can
   // still be added or removed manually afterwards. This only affects the
@@ -1272,7 +1293,10 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
     setTeam(newTeam)
     if (!user) return
     fetchTeamRoster(newTeam).then(players => {
-      if (players.length) setSquad(players.map(p => ({ id: p.id, name: p.name, photoUrl: p.photoUrl ?? undefined })))
+      if (players.length) {
+        setSquad(players.map(p => ({ id: p.id, name: p.name, photoUrl: p.photoUrl ?? undefined })))
+        setSquadOfficialOwner(user.email)
+      }
     })
   }
 
