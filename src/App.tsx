@@ -3366,12 +3366,10 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                 {adminTeams.map(t => (
                   <div key={t.id} className="rounded-xl overflow-hidden" style={{ border: '1px solid #E8EFFD', background: '#F8FAFF' }}>
                     <div className="flex items-center gap-2 p-2.5">
-                      <input className="flex-1 text-sm font-semibold rounded-lg px-2 py-1.5" style={{ border: '1.5px solid #D0DCFA', color: '#1A2F6B' }}
-                        defaultValue={t.name} key={`${t.id}-${t.name}`}
-                        onBlur={e => { const name = e.target.value.trim(); if (name && name !== t.name) renameTeam(t.id, name) }} />
+                      <span className="flex-1 text-sm font-semibold truncate px-1" style={{ color: '#1A2F6B' }}>{t.name}</span>
                       <button onClick={() => setExpandedTeamId(id => id === t.id ? null : t.id)}
                         className="text-xs font-bold px-2.5 py-1.5 rounded-lg shrink-0" style={{ color: '#1A3FAB', border: '1px solid #D0DCFA' }}>
-                        {expandedTeamId === t.id ? 'Verberg spelers' : 'Spelers'}
+                        {expandedTeamId === t.id ? 'Sluiten' : 'Aanpassen'}
                       </button>
                       <button onClick={() => {
                         if (confirm(`Team ${t.name} verwijderen? Alle spelers en foto's van dit team gaan verloren.`)) deleteTeam(t.id)
@@ -3382,7 +3380,13 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                       </button>
                     </div>
                     {expandedTeamId === t.id && (
-                      <div className="px-2.5 pb-2.5">
+                      <div className="px-2.5 pb-2.5 space-y-3">
+                        <div>
+                          <label className="text-xs font-bold uppercase tracking-wide block mb-1" style={{ color: '#7B90C8' }}>Teamnaam</label>
+                          <input className="w-full text-sm font-semibold rounded-lg px-2 py-1.5" style={{ border: '1.5px solid #D0DCFA', color: '#1A2F6B' }}
+                            defaultValue={t.name} key={`${t.id}-${t.name}`}
+                            onBlur={e => { const name = e.target.value.trim(); if (name && name !== t.name) renameTeam(t.id, name) }} />
+                        </div>
                         <TeamPlayerPhotos team={t.name} canEdit={true} />
                       </div>
                     )}
