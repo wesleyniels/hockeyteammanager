@@ -1351,7 +1351,7 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
             </div>
           </div>
           <div className="flex justify-center">
-            <H1Logo height={26} />
+            {user && <H1Logo height={26} />}
           </div>
           <div className="flex items-center gap-2 justify-end">
             {user && (
