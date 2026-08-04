@@ -1252,6 +1252,18 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
     fetchTeamNames().then(setTeamNames)
   }, [user])
 
+  // fh_squad/fh_team persist in localStorage so a reload doesn't lose your
+  // setup — but that means an official roster fetched while logged in would
+  // otherwise sit there after logout, showing the last coach's real player
+  // names to anyone else using this browser. Clear both right on the
+  // login→logout transition (not on every render while logged out, which
+  // would also wipe a manually-typed squad for an anonymous visitor).
+  const wasLoggedInRef = useRef(!!user)
+  useEffect(() => {
+    if (wasLoggedInRef.current && !user) { setSquad([]); setTeam('') }
+    wasLoggedInRef.current = !!user
+  }, [user])
+
   // Selecting a team fills Selectie with its official roster; players can
   // still be added or removed manually afterwards. This only affects the
   // current match setup — it never touches the profile's preferred team,
