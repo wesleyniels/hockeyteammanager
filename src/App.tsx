@@ -1215,7 +1215,7 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
   user: AuthUser | null
   authLoading: boolean
 }) {
-  const [club, setClub] = useLS('fh_club', 'SC Muiden')
+  const [club, setClub] = useLS('fh_club', '')
   const [team, setTeam] = useLS('fh_team', '')
   const [teamNames, setTeamNames] = useState<string[]>([])
   const ageGroup = team ? ageGroupFromTeamName(team) : 'U7'
@@ -1224,13 +1224,9 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
   const [homeAway, setHomeAway] = useState<'Thuis' | 'Uit'>('Thuis')
   const [squad, setSquad] = useLS<Player[]>('fh_squad', [])
   const [newName, setNewName] = useState('')
-  const [clubSearch, setClubSearch] = useState(club)
-  const [showList, setShowList] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [showFormationEditor, setShowFormationEditor] = useState(false)
-
-  const filtered = KNHB_CLUBS.filter(c => c.toLowerCase().includes(clubSearch.toLowerCase()))
 
   const addPlayer = () => {
     const name = newName.trim()
@@ -1307,6 +1303,14 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.defaultTeam])
 
+  // Same idea for the club — pre-fill from the profile's preference if
+  // nothing's been picked locally yet; otherwise the dropdown below just
+  // starts on "Kies club…" and the coach picks one themselves.
+  useEffect(() => {
+    if (user?.defaultClub && !club) setClub(user.defaultClub)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.defaultClub])
+
   // Photos are uploaded from Profile onto the same team_players rows a
   // squad's players are drawn from. Re-fetch the roster and merge photos by
   // name whenever the active team changes, so photos uploaded in Profile
@@ -1327,7 +1331,7 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
   }, [team])
 
   const minPlayers = AGE_CONFIG[ageGroup].total
-  const canStart = (club || clubSearch) && team && (opponent || opponentTeam.trim())
+  const canStart = club && team && (opponent || opponentTeam.trim())
 
   const inputStyle = { border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }
 
@@ -1389,28 +1393,13 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
         <section className="bg-white rounded-2xl p-6 space-y-5 shadow-sm" style={{ border: '1px solid #D0DCFA' }}>
           <h2 className="font-display text-2xl font-bold uppercase tracking-wide" style={{ color: '#0D2B7A' }}>Team</h2>
 
-          <div className="relative">
+          <div>
             <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Club</label>
-            <input className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle}
-              value={clubSearch}
-              onChange={e => { setClubSearch(e.target.value); setShowList(true) }}
-              onFocus={() => setShowList(true)}
-              onBlur={() => setTimeout(() => setShowList(false), 150)}
-              placeholder="Zoek club…" />
-            {showList && filtered.length > 0 && (
-              <div className="absolute z-10 w-full bg-white rounded-xl shadow-xl mt-1 max-h-48 overflow-y-auto"
-                style={{ border: '1px solid #D0DCFA' }}>
-                {filtered.map(c => (
-                  <button key={c} className="w-full text-left px-4 py-2.5 text-sm font-medium transition-colors"
-                    style={{ color: '#1A2F6B' }}
-                    onMouseEnter={e => (e.currentTarget.style.background = '#EEF3FF')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                    onMouseDown={() => { setClub(c); setClubSearch(c); setShowList(false) }}>
-                    {c}
-                  </button>
-                ))}
-              </div>
-            )}
+            <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: club ? '#1A2F6B' : '#7B90C8' }}
+              value={club} onChange={e => setClub(e.target.value)}>
+              <option value="">Kies club…</option>
+              {KNHB_CLUBS.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
           </div>
 
           <div>
@@ -1538,7 +1527,7 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
 
         <button
           disabled={!canStart}
-          onClick={() => onStart({ club: club || clubSearch, team, ageGroup, opponent: [opponent, opponentTeam.trim()].filter(Boolean).join(' '), homeAway, squad })}
+          onClick={() => onStart({ club, team, ageGroup, opponent: [opponent, opponentTeam.trim()].filter(Boolean).join(' '), homeAway, squad })}
           className="w-full py-4 rounded-2xl font-display text-xl font-bold uppercase tracking-widest text-white shadow-lg"
           style={{ background: canStart ? '#1A3FAB' : '#B8C8F0', cursor: canStart ? 'pointer' : 'not-allowed' }}>
           Wedstrijd starten →
