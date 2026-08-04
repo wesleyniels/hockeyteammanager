@@ -6,6 +6,36 @@
   --font-mono: 'JetBrains Mono', monospace;
 }
 
+/* Brand blue palette as CSS variables, named after their own default hex so
+   the mapping from "color used in App.tsx" to "variable" stays unambiguous.
+   Defaults here are exactly the original hardcoded values, so with no club
+   theme applied (see applyClubTheme/clearClubTheme in App.tsx) nothing
+   changes. When a club logo yields a usable dominant hue, those functions
+   override these at :root via JS, re-deriving each shade at the same
+   saturation/lightness so contrast and the light↔dark relationships between
+   them are preserved — only the hue shifts. */
+:root {
+  --brand-0d2b7a: #0D2B7A;
+  --brand-1a2f6b: #1A2F6B;
+  --brand-1a3fab: #1A3FAB;
+  --brand-2563eb: #2563EB;
+  --brand-3b4f7a: #3B4F7A;
+  --brand-3b5299: #3B5299;
+  --brand-6b82b8: #6B82B8;
+  --brand-7b90c8: #7B90C8;
+  --brand-7b9de0: #7B9DE0;
+  --brand-a8bef0: #A8BEF0;
+  --brand-b8c8f0: #B8C8F0;
+  --brand-c8d5f5: #C8D5F5;
+  --brand-d0dcfa: #D0DCFA;
+  --brand-dbeafe: #DBEAFE;
+  --brand-e4ecfe: #E4ECFE;
+  --brand-e8effd: #E8EFFD;
+  --brand-eef3ff: #EEF3FF;
+  --brand-f0f5ff: #F0F5FF;
+  --brand-f8faff: #F8FAFF;
+}
+
 * { box-sizing: border-box; }
 
 body {

@@ -90,6 +90,7 @@ export function ensureSchema() {
       )
     `
     await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS default_team TEXT`
+    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS default_club TEXT`
     await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT`
     await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT`
     await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT`

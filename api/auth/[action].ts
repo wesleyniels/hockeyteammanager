@@ -72,13 +72,13 @@ async function handleGoogle(req: VercelRequest, res: VercelResponse) {
         picture = COALESCE(picture, ${picture}),
         email_verified = email_verified OR ${verified}
       WHERE id = ${id}
-      RETURNING id, email, name, picture, default_team, first_name, last_name, role
+      RETURNING id, email, name, picture, default_team, default_club, first_name, last_name, role
     `
   } else {
     rows = await sql`
       INSERT INTO users (id, email, name, picture, email_verified)
       VALUES (${payload.sub}, ${email}, ${name}, ${picture}, ${verified})
-      RETURNING id, email, name, picture, default_team, first_name, last_name, role
+      RETURNING id, email, name, picture, default_team, default_club, first_name, last_name, role
     `
     await notifyAdminsOfNewRegistration(email, name)
   }
@@ -152,7 +152,7 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
   if (!session) { res.status(401).json({ error: 'Not authenticated' }); return }
 
   if (req.method === 'GET') {
-    const rows = await sql`SELECT id, email, name, picture, default_team, first_name, last_name, role FROM users WHERE id = ${session.id}`
+    const rows = await sql`SELECT id, email, name, picture, default_team, default_club, first_name, last_name, role FROM users WHERE id = ${session.id}`
     if (rows.length === 0) { res.status(401).json({ error: 'Not authenticated' }); return }
     res.status(200).json({ user: toUser(rows[0]) })
     return
@@ -160,7 +160,7 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === 'PUT') {
     const body = req.body ?? {}
-    for (const key of ['defaultTeam', 'firstName', 'lastName', 'role', 'picture']) {
+    for (const key of ['defaultTeam', 'defaultClub', 'firstName', 'lastName', 'role', 'picture']) {
       if (body[key] !== undefined && body[key] !== null && typeof body[key] !== 'string') {
         res.status(400).json({ error: `Invalid ${key}` })
         return
@@ -170,13 +170,14 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
       res.status(400).json({ error: 'Foto is te groot' })
       return
     }
-    const current = await sql`SELECT default_team, first_name, last_name, role, picture FROM users WHERE id = ${session.id}`
+    const current = await sql`SELECT default_team, default_club, first_name, last_name, role, picture FROM users WHERE id = ${session.id}`
     if (current.length === 0) { res.status(401).json({ error: 'Not authenticated' }); return }
     const cur = current[0]
     // A key only changes if the caller actually sent it — this lets Setup's
     // team-select send just { defaultTeam } without touching name/role, while
     // still letting any field be explicitly cleared back to null/empty.
     const defaultTeam = 'defaultTeam' in body ? (body.defaultTeam || null) : cur.default_team
+    const defaultClub = 'defaultClub' in body ? (body.defaultClub || null) : cur.default_club
     const firstName = 'firstName' in body ? (body.firstName || null) : cur.first_name
     const lastName = 'lastName' in body ? (body.lastName || null) : cur.last_name
     const role = 'role' in body ? (body.role || null) : cur.role
@@ -184,12 +185,13 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
     const rows = await sql`
       UPDATE users SET
         default_team = ${defaultTeam},
+        default_club = ${defaultClub},
         first_name = ${firstName},
         last_name = ${lastName},
         role = ${role},
         picture = ${picture}
       WHERE id = ${session.id}
-      RETURNING id, email, name, picture, default_team, first_name, last_name, role
+      RETURNING id, email, name, picture, default_team, default_club, first_name, last_name, role
     `
     if (rows.length === 0) { res.status(401).json({ error: 'Not authenticated' }); return }
     res.status(200).json({ user: toUser(rows[0]) })

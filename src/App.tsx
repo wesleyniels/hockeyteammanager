@@ -448,6 +448,108 @@ const uid = () => Math.random().toString(36).slice(2, 11)
 // reads media through this proxy instead (see api/blob/[action].ts's 'view').
 const mediaSrc = (url: string) => `/api/blob/view?url=${encodeURIComponent(url)}`
 
+// ── Club theme (derived from the selected club's logo) ──────────────────────
+// The CSS variables below (defined in index.css, one per "brand blue" hex
+// used across the app) default to the app's original palette. With no club
+// selected, nothing overrides them. When one is, applyClubTheme re-derives
+// every shade at the *same* saturation/lightness as its original color —
+// only the hue shifts — so contrast and the light↔dark relationships between
+// shades stay exactly as designed.
+const BRAND_TOKENS: { name: string; s: number; l: number }[] = [
+  { name: '--brand-0d2b7a', s: 0.8074, l: 0.2647 },
+  { name: '--brand-1a2f6b', s: 0.6090, l: 0.2608 },
+  { name: '--brand-1a3fab', s: 0.7360, l: 0.3863 },
+  { name: '--brand-2563eb', s: 0.8319, l: 0.5333 },
+  { name: '--brand-3b4f7a', s: 0.3481, l: 0.3549 },
+  { name: '--brand-3b5299', s: 0.4434, l: 0.4157 },
+  { name: '--brand-6b82b8', s: 0.3516, l: 0.5706 },
+  { name: '--brand-7b90c8', s: 0.4118, l: 0.6333 },
+  { name: '--brand-7b9de0', s: 0.6196, l: 0.6804 },
+  { name: '--brand-a8bef0', s: 0.7059, l: 0.8000 },
+  { name: '--brand-b8c8f0', s: 0.6512, l: 0.8314 },
+  { name: '--brand-c8d5f5', s: 0.6923, l: 0.8725 },
+  { name: '--brand-d0dcfa', s: 0.8077, l: 0.8980 },
+  { name: '--brand-dbeafe', s: 0.9459, l: 0.9275 },
+  { name: '--brand-e4ecfe', s: 0.9286, l: 0.9451 },
+  { name: '--brand-e8effd', s: 0.8400, l: 0.9510 },
+  { name: '--brand-eef3ff', s: 1.0000, l: 0.9667 },
+  { name: '--brand-f0f5ff', s: 1.0000, l: 0.9706 },
+  { name: '--brand-f8faff', s: 1.0000, l: 0.9863 },
+]
+
+function hslToHex(h: number, s: number, l: number): string {
+  const c = (1 - Math.abs(2 * l - 1)) * s
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1))
+  const m = l - c / 2
+  let r = 0, g = 0, b = 0
+  if (h < 60) { r = c; g = x; b = 0 }
+  else if (h < 120) { r = x; g = c; b = 0 }
+  else if (h < 180) { r = 0; g = c; b = x }
+  else if (h < 240) { r = 0; g = x; b = c }
+  else if (h < 300) { r = x; g = 0; b = c }
+  else { r = c; g = 0; b = x }
+  const toHex = (v: number) => Math.round((v + m) * 255).toString(16).padStart(2, '0')
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`
+}
+
+function applyClubTheme(hue: number) {
+  for (const t of BRAND_TOKENS) document.documentElement.style.setProperty(t.name, hslToHex(hue, t.s, t.l))
+}
+
+function clearClubTheme() {
+  for (const t of BRAND_TOKENS) document.documentElement.style.removeProperty(t.name)
+}
+
+// Samples the club's logo (already same-origin via mediaSrc, so the canvas
+// isn't tainted) and returns its dominant hue, ignoring near-white/near-black/
+// low-saturation pixels — a crest is mostly background/outline, and including
+// those would just pull the average toward gray. Resolves null if the image
+// fails to load or has no colorful pixels at all (e.g. a purely black/white
+// crest), so the caller can fall back to the default theme.
+function extractDominantHue(imgSrc: string): Promise<number | null> {
+  return new Promise(resolve => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      try {
+        const size = 48
+        const canvas = document.createElement('canvas')
+        canvas.width = size
+        canvas.height = size
+        const ctx = canvas.getContext('2d')
+        if (!ctx) { resolve(null); return }
+        ctx.drawImage(img, 0, 0, size, size)
+        const { data } = ctx.getImageData(0, 0, size, size)
+        let rSum = 0, gSum = 0, bSum = 0, weight = 0
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3]
+          if (a < 128) continue
+          const max = Math.max(r, g, b), min = Math.min(r, g, b)
+          const lightness = (max + min) / 2 / 255
+          const sat = max === min ? 0 : (max - min) / (255 - Math.abs(max + min - 255))
+          if (lightness > 0.92 || lightness < 0.08 || sat < 0.15) continue
+          rSum += r * sat; gSum += g * sat; bSum += b * sat; weight += sat
+        }
+        if (weight < 1) { resolve(null); return }
+        const r = rSum / weight / 255, g = gSum / weight / 255, b = bSum / weight / 255
+        const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min
+        if (d === 0) { resolve(null); return }
+        let h: number
+        switch (max) {
+          case r: h = (g - b) / d + (g < b ? 6 : 0); break
+          case g: h = (b - r) / d + 2; break
+          default: h = (r - g) / d + 4
+        }
+        resolve(h * 60)
+      } catch {
+        resolve(null)
+      }
+    }
+    img.onerror = () => resolve(null)
+    img.src = imgSrc
+  })
+}
+
 // Teams, rosters and photos all live in the database now (api/teams/[action].ts)
 // rather than a client-bundled constant — a player's Blob photo lives at
 // players/{playerId}/photo.jpg and its URL is stored on the team_players row,
@@ -552,6 +654,370 @@ function SCMuidenLogo({ size = 48 }: { size?: number }) {
 
 function H1Logo({ height = 28 }: { height?: number }) {
   return <img src="/h1-logo.png" alt="Hockey One" style={{ height, width: 'auto' }} />
+}
+
+// Per-club crest, downloaded from the KNHB club-finder (knhb.nl/club-finder)
+// and keyed by the exact name in KNHB_CLUBS. A club with no logo on file there
+// (or not in this map for any other reason) falls back to the generic H1 mark
+// rather than showing a broken image or someone else's logo guessed wrong.
+// Re-saved as PNG with the background keyed out to transparent (flood-filled
+// from the border by color distance, so an enclosed white shape inside the
+// crest itself is left alone) — the source images are a mix of formats, some
+// with a plain white/solid backing that otherwise shows as a visible square.
+// Stored as private Blob URLs — like every other image in this app, they're
+// only ever rendered once logged in (this map only gets consulted for a
+// signed-in user's own defaultClub), so the mediaSrc() view-proxy is a
+// non-issue here, not a workaround.
+const CLUB_LOGOS: Record<string, string> = {
+  'Hockey Vereniging Abcoude': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-vereniging-abcoude.png',
+  'L.S.C. ALECTO': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/l-s-c-alecto.png',
+  'Alkmaarsche M.H.C.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/alkmaarsche-m-h-c.png',
+  'MHC Alliance': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-alliance.png',
+  'MHC Almelo': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-almelo.png',
+  'Almeerse HC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/almeerse-hc.png',
+  'HC Alphen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-alphen.png',
+  'Hockeyclub Amersfoort': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-amersfoort.png',
+  'MHC Amstelveen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-amstelveen.png',
+  'AH & BC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/ah-bc.png',
+  'Hockeyclub AMVJ': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-amvj.png',
+  'Arnhemse Antilope Vereniging': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/arnhemse-antilope-vereniging.png',
+  'Apeldoornsche (M.H.C.)': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/apeldoornsche-m-h-c.png',
+  'N.S.H.C. Apeliotes': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/n-s-h-c-apeliotes.png',
+  'HC Ares': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-ares.png',
+  'Arnhemsche H.C.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/arnhemsche-h-c.png',
+  'HC Athena': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-athena.png',
+  'W.M.H.C. Avanti': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/w-m-h-c-avanti.png',
+  'HC Baarle Nassau': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-baarle-nassau.png',
+  'Baarnse Mixed Hockey Vereniging': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/baarnse-mixed-hockey-vereniging.png',
+  'HOB Bakel': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hob-bakel.png',
+  'Hockeyclub Barendrecht': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-barendrecht.png',
+  'M.H.C. Barneveld': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-barneveld.png',
+  'V.M.H.C. Basko': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/v-m-h-c-basko.png',
+  'H.C. Bedum': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/h-c-bedum.png',
+  'MHC Bemmel 800': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-bemmel-800.png',
+  'MHC Bennebroek': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-bennebroek.png',
+  'Berkel-Enschot': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/berkel-enschot.png',
+  'Berkel en Rodenrijs': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/berkel-en-rodenrijs.png',
+  'Hockeyclub Berlicum': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-berlicum.png',
+  'MHC Best': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-best.png',
+  'MHCBeuningen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhcbeuningen.png',
+  'The Black Scorpions': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/the-black-scorpions.png',
+  'HV Bleiswijk': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hv-bleiswijk.png',
+  'HC Bloemendaal': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-bloemendaal.png',
+  'HC Boekel': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-boekel.png',
+  'MHC Bommelerwaard': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-bommelerwaard.png',
+  'M.H.C. Boxmeer': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-boxmeer.png',
+  'BH&BC Breda': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/bh-bc-breda.png',
+  'Bredius Rollers': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/bredius-rollers.png',
+  'Buitenhout MHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/buitenhout-mhc.png',
+  'O.H.C. Bully': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/o-h-c-bully.png',
+  'HC Capelle': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-capelle.png',
+  'V.M.H.C. CARTOUCHE': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/v-m-h-c-cartouche.png',
+  'MHC Castricum': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-castricum.png',
+  'HCC Catwyck': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hcc-catwyck.png',
+  'Charlotte-Oort Hockey Team (CHT)': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/charlotte-oort-hockey-team-cht.png',
+  'C.M.H.C. CIVICUM': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/c-m-h-c-civicum.png',
+  'MHC Coevorden': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-coevorden.png',
+  'R.H.C. Concordia': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/r-h-c-concordia.png',
+  'Craeyenhout': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/craeyenhout.png',
+  'HC Cranendonck': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-cranendonck.png',
+  'CMHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/cmhc.png',
+  'MHC Dalfsen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-dalfsen.png',
+  'MHC Daring-Veendam': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-daring-veendam.png',
+  'M.H.C. Dash': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-dash.png',
+  'DDHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/ddhc.png',
+  'HC Delta Venlo': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-delta-venlo.png',
+  'Hockeyclub \'s-Hertogenbosch': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-s-hertogenbosch.png',
+  'HC Den Haag': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-den-haag.png',
+  'De Peperbus': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/de-peperbus.png',
+  'H.C. Derby': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/h-c-derby.png',
+  'MHC DES': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-des.png',
+  'M.H.C. Deurne': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-deurne.png',
+  'DHV': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/dhv.png',
+  'HC Diemen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-diemen.png',
+  'MHC Dieren': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-dieren.png',
+  'Doing': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/doing.png',
+  'Hockeyclub Dokkum': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-dokkum.png',
+  'MHC de Dommel': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-de-dommel.png',
+  'Don Quishoot': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/don-quishoot.png',
+  'Doornse Hockey Club': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/doornse-hockey-club.png',
+  'Dopie': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/dopie.png',
+  'Dordrechtse Mixed Hockey Club': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/dordrechtse-mixed-hockey-club.png',
+  'Dorsteti': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/dorsteti.png',
+  'DHC Drienerlo': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/dhc-drienerlo.png',
+  'MHCD': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhcd.png',
+  'Hockey Club Druten': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-club-druten.png',
+  'DSHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/dshc.png',
+  'DVS': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/dvs.png',
+  'MHC EDE': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-ede.png',
+  'HC Eelde': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-eelde.png',
+  'Eemsmond': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/eemsmond.png',
+  'H.C. Eemvallei': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/h-c-eemvallei.png',
+  'HC Eersel': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-eersel.png',
+  'EHV Enschede': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/ehv-enschede.png',
+  'HC Eindhoven': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-eindhoven.png',
+  'Eendracht Maakt Macht 2021': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/eendracht-maakt-macht-2021.png',
+  'Hockeyclub Emmen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-emmen.png',
+  'MHC Epe': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-epe.png',
+  'E-team Emmen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/e-team-emmen.png',
+  'HC Etten-Leur': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-etten-leur.png',
+  'MHV Evergreen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhv-evergreen.png',
+  'HC Feijenoord': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-feijenoord.png',
+  'A.M.H.C. F.I.T.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/a-m-h-c-f-i-t.png',
+  'MHC Fletiomare': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-fletiomare.png',
+  'Flevoland Dronten (M.H.C.)': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/flevoland-dronten-m-h-c.png',
+  'MHV Forcial': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhv-forcial.png',
+  'MHC Forescate': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-forescate.png',
+  'G.C.H.C.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/g-c-h-c.png',
+  'V.M.H.C. Geel-Zwart': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/v-m-h-c-geel-zwart.png',
+  'HC Geldermalsen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-geldermalsen.png',
+  'Hockey Geldrop': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-geldrop.png',
+  'HC Gemert': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-gemert.png',
+  'GHBS': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/ghbs.png',
+  'Gidos Wheels on Fire (BE)': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/gidos-wheels-on-fire-be.png',
+  'Gilze Rijen (H.C.)': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/gilze-rijen-h-c.png',
+  'HCGO': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hcgo.png',
+  'GMHC Goes': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/gmhc-goes.png',
+  'M.H.C. Goirle': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-goirle.png',
+  'Gooische Hockey Club': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/gooische-hockey-club.png',
+  'GoorseMHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/goorsemhc.png',
+  'HC Gorssel/Epse': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-gorssel-epse.png',
+  'Goudse MHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/goudse-mhc.png',
+  'GP Bulls': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/gp-bulls.png',
+  'de Graspiepers': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/de-graspiepers.png',
+  'HC Grave': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-grave.png',
+  'Haagsche Countryclub Groen-Geel': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/haagsche-countryclub-groen-geel.png',
+  'Hockeyclub Groningen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-groningen.png',
+  'Groninger Studenten Hockey Club \'Forward\'': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/groninger-studenten-hockey-club-forward.png',
+  'HHC Haackey': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hhc-haackey.png',
+  'Haag 88': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/haag-88.png',
+  'H.C. Haarlem': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/h-c-haarlem.png',
+  'Hockeyclub De Haaskamp': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-de-haaskamp.png',
+  'GZG Hardenberg': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/gzg-hardenberg.png',
+  'Harlinger Mixed Hockey Club': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/harlinger-mixed-hockey-club.png',
+  'Hattemse M.H.C.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hattemse-m-h-c.png',
+  'MHCHBS': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhchbs.png',
+  'HCAS': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hcas.png',
+  'HCHN': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hchn.png',
+  'HCM Arnhem': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hcm-arnhem.png',
+  'HCRB': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hcrb.png',
+  'HCSO': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hcso.png',
+  'Winschoten': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/winschoten.png',
+  'mixed hockeyclub HDL': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mixed-hockeyclub-hdl.png',
+  'Haagsche Delftsche Mixed': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/haagsche-delftsche-mixed.png',
+  'HDS': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hds.png',
+  'MHC Heerhugowaard': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-heerhugowaard.png',
+  'Mixed Hockey Club Heesch': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mixed-hockey-club-heesch.png',
+  'Hockey Heeze': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-heeze.png',
+  'HC Helmond': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-helmond.png',
+  'HSC Hermes': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hsc-hermes.png',
+  'HGC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hgc.png',
+  'HIC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hic.png',
+  'Hockeyclub Hilvarenbeek': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-hilvarenbeek.png',
+  'HMHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hmhc.png',
+  'H.C. HISALIS': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/h-c-hisalis.png',
+  'MHC HOCO': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-hoco.png',
+  'Hockeyvereniging H.O.D.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyvereniging-h-o-d.png',
+  'HC De Hoeksche Waard': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-de-hoeksche-waard.png',
+  'M.H.C. Hoevelaken': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-hoevelaken.png',
+  'Hockeyclub Holten Rijssen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-holten-rijssen.png',
+  'Hockeyclub De Hondsrug': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-de-hondsrug.png',
+  'Hoogeveen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hoogeveen.png',
+  'WFHC Hoorn': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/wfhc-hoorn.png',
+  'SMHC De Hopbel': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/smhc-de-hopbel.png',
+  'HC Horst': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-horst.png',
+  'Hockey Club Houten': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-club-houten.png',
+  'Hockeyclub Schouwen Duiveland': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-schouwen-duiveland.png',
+  'D.H.C. Hudito': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/d-h-c-hudito.png',
+  'Huizer HC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/huizer-hc.png',
+  'THC Hurley': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/thc-hurley.png',
+  'H.V.A.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/h-v-a.png',
+  'AHC IJburg': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/ahc-ijburg.png',
+  'NHC De IJssel': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/nhc-de-ijssel.png',
+  'HC IJsseloever': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-ijsseloever.png',
+  'HC Kampen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-kampen.png',
+  'SV Kampong Hockey': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/sv-kampong-hockey.png',
+  'Kampong Wheelys': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/kampong-wheelys.png',
+  'Kennemer Keien': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/kennemer-keien.png',
+  'De Kieviten': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/de-kieviten.png',
+  'MHC de Kikkers': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-de-kikkers.png',
+  'Klein Zwitserland, H.C.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/klein-zwitserland-h-c.png',
+  'Z.H.C. de Kraaien': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/z-h-c-de-kraaien.png',
+  'M.H.C. Krimpen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-krimpen.png',
+  'THCC De Kromhouters': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/thcc-de-kromhouters.png',
+  'HC Kromme Rijn': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-kromme-rijn.png',
+  'Larensche Mixed Hockey Club': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/larensche-mixed-hockey-club.png',
+  'HC Leerdam': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-leerdam.png',
+  'Mixed Hockey Club Leeuwarden': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mixed-hockey-club-leeuwarden.png',
+  'Leidsche en Oegstgeester Hockeyclub (LOHC)': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/leidsche-en-oegstgeester-hockeyclub-lohc.png',
+  'M.H.C. LELYSTAD': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-lelystad.png',
+  'R.H.V. Leonidas': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/r-h-v-leonidas.png',
+  'MHC Leusden': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-leusden.png',
+  'MHC Liberty': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-liberty.png',
+  'Hockeyclub Liempde': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-liempde.png',
+  'Lochemse Hockey Club': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/lochemse-hockey-club.png',
+  'Loenense MHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/loenense-mhc.png',
+  'Hockeyclub Losser': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-losser.png',
+  'MHC Maarn': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-maarn.png',
+  'MHV Maarssen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhv-maarssen.png',
+  'Maastrichtse Hockey Club MHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/maastrichtse-hockey-club-mhc.png',
+  'MADESE H.C.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/madese-h-c.png',
+  'S.M.H.C. Magnus': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/s-m-h-c-magnus.png',
+  'HC Martinus': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-martinus.png',
+  'HV Meerssen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hv-meerssen.png',
+  'De Meeuwen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/de-meeuwen.png',
+  'M.H.C. M.E.P. (Mea Est Pila)': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-m-e-p-mea-est-pila.png',
+  'Meppeler HV': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/meppeler-hv.png',
+  'MHC De Mezen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-de-mezen.png',
+  'HC Mierlo': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-mierlo.png',
+  'Hockey Vereniging Mijdrecht': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-vereniging-mijdrecht.png',
+  'HC Mill': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-mill.png',
+  'HC Mistral': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-mistral.png',
+  'Hockeyclub Montfoort': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-montfoort.png',
+  'V.M.H.& C.C. M.O.P.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/v-m-h-c-c-m-o-p.png',
+  'Maestrichtse Studenten Hockey Club': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/maestrichtse-studenten-hockey-club.png',
+  'SC Muiden': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/sc-muiden.png',
+  'MHC Muiderberg': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-muiderberg.png',
+  'HV Myra': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hv-myra.png',
+  'Hockey Club Naarden': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-club-naarden.png',
+  'Never Less': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/never-less.png',
+  'MHCN': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhcn.png',
+  'HC Nieuwkoop': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-nieuwkoop.png',
+  'Nijkerk (H.C.)': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/nijkerk-h-c.png',
+  'NMHC Nijmegen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/nmhc-nijmegen.png',
+  'AHC Noorderlicht': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/ahc-noorderlicht.png',
+  'Noordwijkse (H.C)': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/noordwijkse-h-c.png',
+  'HC Nova': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-nova.png',
+  'Hockey Club Nuenen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-club-nuenen.png',
+  'MHC Nunspeet': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-nunspeet.png',
+  'HC Nuth': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-nuth.png',
+  'Sint Oedenrode': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/sint-oedenrode.png',
+  'HC Oirschot': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-oirschot.png',
+  'MHC Olympia': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-olympia.png',
+  'Mixed Hockey Club Ommen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mixed-hockey-club-ommen.png',
+  'OMHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/omhc.png',
+  'Only Friends': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/only-friends.png',
+  'M.H.C. Oosterbeek': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-oosterbeek.png',
+  'HC Oranje Rood': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-oranje-rood.png',
+  'Oss (M.H.C.)': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/oss-m-h-c.png',
+  'HCOIJ': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hcoij.png',
+  'M.H.C. Oudenbosch': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-oudenbosch.png',
+  'HCOB - Hockeyclub Overbetuwe': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hcob-hockeyclub-overbetuwe.png',
+  'BHC Overbos': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/bhc-overbos.png',
+  'Hockeyclub Peel & Maas': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-peel-maas.png',
+  'RMHC de Pelikaan': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/rmhc-de-pelikaan.png',
+  'SV Phoenix': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/sv-phoenix.png',
+  'Hockey Phoenix Belgie': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-phoenix-belgie.png',
+  'HC Pijnacker': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-pijnacker.png',
+  'Pinoké': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/pinoke.png',
+  'VMHC Pollux': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/vmhc-pollux.png',
+  'De Pont': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/de-pont.png',
+  'Hockeyclub Prinsenbeek': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-prinsenbeek.png',
+  'M.H.C. Purmerend': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-purmerend.png',
+  'B.H.V. Push': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/b-h-v-push.png',
+  'Enschedese hockeyclub Prinses Wilhelmina': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/enschedese-hockeyclub-prinses-wilhelmina.png',
+  'HHC Quick Stick': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hhc-quick-stick.png',
+  'U.H.C.QUI VIVE': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/u-h-c-qui-vive.png',
+  'HCQZ': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hcqz.png',
+  'G.H.C. RAPID': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/g-h-c-rapid.png',
+  'Rapid Rollers': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/rapid-rollers.png',
+  'MHC De Reigers': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-de-reigers.png',
+  'Hockeyclub Ridderkerk': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-ridderkerk.png',
+  'HC Rijnvliet': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-rijnvliet.png',
+  'Rijswijksche Hockey Club': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/rijswijksche-hockey-club.png',
+  'Ring Pass Delft': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/ring-pass-delft.png',
+  'MHC Roden': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-roden.png',
+  'De Keistadrollers': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/de-keistadrollers.png',
+  'A.M.H.C. Rood-Wit': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/a-m-h-c-rood-wit.png',
+  'Leidse Hockey Club Roomburg': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/leidse-hockey-club-roomburg.png',
+  'Rosmalen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/rosmalen.png',
+  'Hockey Club Rotterdam': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-club-rotterdam.png',
+  'HMHC Saxenburg': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hmhc-saxenburg.png',
+  'Schaerweijde': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/schaerweijde.png',
+  'Stichtsche Cricket & Hockey Club': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/stichtsche-cricket-hockey-club.png',
+  'HC Scherpenzeel': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-scherpenzeel.png',
+  'HC Schiedam': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-schiedam.png',
+  'Schoonhovense MHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/schoonhovense-mhc.png',
+  'HC Scoop': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-scoop.png',
+  'Scoop Delft': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/scoop-delft.png',
+  'SG Beverland': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/sg-beverland.png',
+  'DMHC Shinty': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/dmhc-shinty.png',
+  'SHOT': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/shot.png',
+  'Sjinborn': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/sjinborn.png',
+  'Sneeker Mixed Hockey Club': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/sneeker-mixed-hockey-club.png',
+  'MHC Soest': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-soest.png',
+  'HTCSON Hockey': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/htcson-hockey.png',
+  'HC Spaarndam': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-spaarndam.png',
+  '\'t Spandersbosch': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/t-spandersbosch.png',
+  'HV Spijkenisse': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hv-spijkenisse.png',
+  'HC Spire': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-spire.png',
+  'VMHC Spitsbergen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/vmhc-spitsbergen.png',
+  'MHC Steenwijk': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-steenwijk.png',
+  'Stick Flyers': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/stick-flyers.png',
+  'JHC-Stix': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/jhc-stix.png',
+  'K.H.C. Strawberries': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/k-h-c-strawberries.png',
+  'MH&LC Tempo': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mh-lc-tempo.png',
+  'R.G.H.C. Tempo \'34': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/r-g-h-c-tempo-34.png',
+  'H.V. de Terriërs': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/h-v-de-terriers.png',
+  'MHCT': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhct.png',
+  'Thor': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/thor.png',
+  'HC Tilburg': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-tilburg.png',
+  'SVG De Tubanten': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/svg-de-tubanten.png',
+  'Tukkers United': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/tukkers-united.png',
+  'Voorster Hockeyclub Twello': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/voorster-hockeyclub-twello.png',
+  'Hockey Club Twente': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-club-twente.png',
+  'Hockey Club Uden': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-club-uden.png',
+  'MHC Udenhout': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-udenhout.png',
+  'MHC Uitgeest': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-uitgeest.png',
+  'R.K.H.V. Union': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/r-k-h-v-union.png',
+  'Hockeyclub UNO': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-uno.png',
+  'Arnhemse Mixed Hockey Club Upward': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/arnhemse-mixed-hockey-club-upward.png',
+  'U.S.H.C.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/u-s-h-c.png',
+  'M.H.C. Venray': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-venray.png',
+  'MHC Vianen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-vianen.png',
+  'HV Victoria': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hv-victoria.png',
+  'VIOS \'82': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/vios-82.png',
+  'VMHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/vmhc.png',
+  'MMHC Voordaan': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mmhc-voordaan.png',
+  'MHC Voorhout': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-voorhout.png',
+  'HC Voorne': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-voorne.png',
+  'Hockeyclub VVV': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-vvv.png',
+  'HC Waalwijk': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-waalwijk.png',
+  'HC Waddinxveen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-waddinxveen.png',
+  'WMHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/wmhc.png',
+  'HC Walcheren': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-walcheren.png',
+  'MHC De Warande': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-de-warande.png',
+  'Hockey Club Wateringse Veld': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-club-wateringse-veld.png',
+  'Waterlandse Hockey Club': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/waterlandse-hockey-club.png',
+  'HV Weert': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hv-weert.png',
+  'M.H.C. Weesp': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-weesp.png',
+  'Were Di Tilburg': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/were-di-tilburg.png',
+  'Westerduiven': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/westerduiven.png',
+  'MHC Westerkwartier': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-westerkwartier.png',
+  'AMHC Westerpark': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/amhc-westerpark.png',
+  'HV Westland': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hv-westland.png',
+  'MHC Wijchen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-wijchen.png',
+  'H.C. Winsum': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/h-c-winsum.png',
+  'MHC Woerden': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-woerden.png',
+  'Xenios': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/xenios.png',
+  'HC Ypenburg': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-ypenburg.png',
+  'Zandvoortsche H.C.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/zandvoortsche-h-c.png',
+  'Hockey Club Zeewolde': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-club-zeewolde.png',
+  'Hockey Vereniging Zevenaar': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-vereniging-zevenaar.png',
+  'Hockeyclub Zevenbergen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-zevenbergen.png',
+  'Mixed Hockeyclub Zoetermeer': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mixed-hockeyclub-zoetermeer.png',
+  'Zundertse Hockeyclub': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/zundertse-hockeyclub.png',
+  'MHCZutphen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhczutphen.png',
+  'Zwaluwen Utrecht': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/zwaluwen-utrecht.png',
+  'B.N.M.H.C. Zwart-Wit': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/b-n-m-h-c-zwart-wit.png',
+  'HC Zwolle': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-zwolle.png',
+  'Zwollywood Sticks': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/zwollywood-sticks.png',
+}
+
+function ClubLogo({ club, size = 46 }: { club: string; size?: number }) {
+  const src = CLUB_LOGOS[club]
+  if (!src) return <H1Logo height={size} />
+  return <img src={mediaSrc(src)} alt={club} width={size} height={size} style={{ width: size, height: size, objectFit: 'contain' }} />
 }
 
 // A plain dimpled ball (no black pentagon patches like a football) so goal
@@ -1050,7 +1516,7 @@ function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, sel
             <div style={{
               width: '40px', height: '40px', borderRadius: '50%',
               background: '#fff',
-              border: selectedMarker === m.id ? '2.5px solid #1A3FAB' : '2px solid rgba(13,43,122,0.5)',
+              border: selectedMarker === m.id ? '2.5px solid var(--brand-1a3fab)' : '2px solid rgba(13,43,122,0.5)',
               display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
               boxShadow: selectedMarker === m.id ? '0 0 0 3px rgba(26,63,171,0.35)' : '0 2px 6px rgba(0,0,0,0.25)',
             }}>
@@ -1058,11 +1524,11 @@ function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, sel
                 <img src={mediaSrc(player.photoUrl)} alt={player.name} className="w-full h-full rounded-full object-cover" />
               ) : (
                 <>
-                  <span style={{ fontSize: '11px', fontWeight: 800, color: '#1A2F6B', lineHeight: 1 }}>
+                  <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--brand-1a2f6b)', lineHeight: 1 }}>
                     {player ? (player.number ?? initials(player.name)) : '?'}
                   </span>
                   {player && (
-                    <span style={{ fontSize: '7px', fontWeight: 600, color: '#3B5299', marginTop: '1px', maxWidth: '36px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontSize: '7px', fontWeight: 600, color: 'var(--brand-3b5299)', marginTop: '1px', maxWidth: '36px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {firstName(player.name)}
                     </span>
                   )}
@@ -1086,14 +1552,14 @@ function FormationEditorView({ ageGroup, onBack }: { ageGroup: AgeGroup; onBack:
   const activeVariant = variants.find(v => v.id === variantId) ?? variants[0]
 
   return (
-    <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
-      <header style={{ background: '#0D2B7A' }} className="text-white sticky top-0 z-20 shadow-lg">
+    <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
+      <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
           <div className="flex items-center gap-4">
-            <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: '#7B9DE0' }}>← Terug</button>
+            <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>← Terug</button>
             <div>
               <h1 className="font-display text-2xl font-bold uppercase tracking-widest leading-none">Opstelling aanpassen</h1>
-              <p className="text-xs mt-1" style={{ color: '#7B9DE0' }}>{AGE_CONFIG[ageGroup].label}</p>
+              <p className="text-xs mt-1" style={{ color: 'var(--brand-7b9de0)' }}>{AGE_CONFIG[ageGroup].label}</p>
             </div>
           </div>
           <div className="flex justify-center">
@@ -1104,17 +1570,17 @@ function FormationEditorView({ ageGroup, onBack }: { ageGroup: AgeGroup; onBack:
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
-        <p className="text-sm text-center" style={{ color: '#6B82B8' }}>
+        <p className="text-sm text-center" style={{ color: 'var(--brand-6b82b8)' }}>
           Sleep de posities naar de gewenste plek op het veld. Dit wordt de standaardopstelling voor {ageGroupLabel(ageGroup)}.
         </p>
 
         {variants.length > 1 && (
-          <div className="bg-white rounded-2xl p-4 shadow-sm" style={{ border: '1px solid #D0DCFA' }}>
-            <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>
+          <div className="bg-white rounded-2xl p-4 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>
               Opstellingsvariant
             </label>
             <select className="w-full rounded-xl px-3 py-2.5 text-sm"
-              style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: '#1A2F6B', outline: 'none' }}
+              style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: 'var(--brand-1a2f6b)', outline: 'none' }}
               value={activeVariant.id} onChange={e => setVariantId(e.target.value)}>
               {variants.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
@@ -1157,7 +1623,7 @@ function FormationVariantEditor({ ageGroup, variant, onBack }: { ageGroup: AgeGr
 
   return (
     <>
-      <div className="bg-white rounded-2xl p-6 shadow-sm flex items-center justify-center" style={{ border: '1px solid #D0DCFA' }}>
+      <div className="bg-white rounded-2xl p-6 shadow-sm flex items-center justify-center" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
         <div
           ref={containerRef}
           className="relative w-full touch-none"
@@ -1179,11 +1645,11 @@ function FormationVariantEditor({ ageGroup, variant, onBack }: { ageGroup: AgeGr
                 style={{
                   width: '36px', height: '36px', borderRadius: '50%',
                   background: pos.id === 'gk' ? '#FBBF24' : '#fff',
-                  border: '2px solid #1A3FAB',
+                  border: '2px solid var(--brand-1a3fab)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
                 }}>
-                <span style={{ fontSize: '11px', fontWeight: 800, color: '#1A3FAB' }}>{pos.label}</span>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--brand-1a3fab)' }}>{pos.label}</span>
               </div>
             </div>
           ))}
@@ -1193,12 +1659,12 @@ function FormationVariantEditor({ ageGroup, variant, onBack }: { ageGroup: AgeGr
       <div className="flex gap-2">
         <button onClick={() => setPositions(base)}
           className="flex-1 py-3 rounded-xl font-semibold text-sm"
-          style={{ background: '#F8FAFF', color: '#3B5299', border: '1.5px solid #D0DCFA' }}>
+          style={{ background: 'var(--brand-f8faff)', color: 'var(--brand-3b5299)', border: '1.5px solid var(--brand-d0dcfa)' }}>
           Standaardopstelling herstellen
         </button>
         <button onClick={onBack}
           className="flex-1 py-3 rounded-xl font-bold text-sm text-white"
-          style={{ background: '#1A3FAB' }}>
+          style={{ background: 'var(--brand-1a3fab)' }}>
           Klaar
         </button>
       </div>
@@ -1215,7 +1681,7 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
   user: AuthUser | null
   authLoading: boolean
 }) {
-  const [club, setClub] = useLS('fh_club', 'SC Muiden')
+  const [club, setClub] = useLS('fh_club', '')
   const [team, setTeam] = useLS('fh_team', '')
   const [teamNames, setTeamNames] = useState<string[]>([])
   const ageGroup = team ? ageGroupFromTeamName(team) : 'U7'
@@ -1224,13 +1690,9 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
   const [homeAway, setHomeAway] = useState<'Thuis' | 'Uit'>('Thuis')
   const [squad, setSquad] = useLS<Player[]>('fh_squad', [])
   const [newName, setNewName] = useState('')
-  const [clubSearch, setClubSearch] = useState(club)
-  const [showList, setShowList] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [showFormationEditor, setShowFormationEditor] = useState(false)
-
-  const filtered = KNHB_CLUBS.filter(c => c.toLowerCase().includes(clubSearch.toLowerCase()))
 
   const addPlayer = () => {
     const name = newName.trim()
@@ -1307,6 +1769,15 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.defaultTeam])
 
+  // Same idea for the club, except it always wins once set — changing it in
+  // Profile should be reflected back here immediately, not just fill in the
+  // first time. Without a profile club (or logged out), the dropdown below
+  // just starts on "Kies club…" and the coach picks one themselves.
+  useEffect(() => {
+    if (user?.defaultClub) setClub(user.defaultClub)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.defaultClub])
+
   // Photos are uploaded from Profile onto the same team_players rows a
   // squad's players are drawn from. Re-fetch the roster and merge photos by
   // name whenever the active team changes, so photos uploaded in Profile
@@ -1327,37 +1798,37 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
   }, [team])
 
   const minPlayers = AGE_CONFIG[ageGroup].total
-  const canStart = (club || clubSearch) && team && (opponent || opponentTeam.trim())
+  const canStart = club && team && (opponent || opponentTeam.trim())
 
-  const inputStyle = { border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }
+  const inputStyle = { border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }
 
   if (showFormationEditor) {
     return <FormationEditorView ageGroup={ageGroup} onBack={() => setShowFormationEditor(false)} />
   }
 
   return (
-    <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
-      <header style={{ background: '#0D2B7A' }} className="text-white sticky top-0 z-20 shadow-lg">
+    <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
+      <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
           <div className="flex items-center gap-3">
-            <SCMuidenLogo size={46} />
+            {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={46} /> : <H1Logo height={46} />}
             <div>
               <h1 className="font-display font-bold uppercase leading-none" style={{ fontSize: '22px', letterSpacing: '0.08em' }}>
-                SC Muiden
+                {user?.defaultClub ?? 'Hockey One'}
               </h1>
-              <p className="text-xs leading-none mt-0.5" style={{ color: '#A8BEF0', letterSpacing: '0.12em' }}>
-                HOCKEY ONE
+              <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
+                {user?.defaultClub ? 'HOCKEY ONE' : 'Hockey Team Manager'}
               </p>
             </div>
           </div>
           <div className="flex justify-center">
-            <H1Logo height={26} />
+            {user && <H1Logo height={26} />}
           </div>
           <div className="flex items-center gap-2 justify-end">
             {user && (
               <button onClick={onHistory}
                 className="text-sm px-3 py-1.5 rounded-lg font-semibold"
-                style={{ color: '#A8BEF0', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
+                style={{ color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
                 Wedstrijden
               </button>
             )}
@@ -1365,13 +1836,13 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
               className={user ? 'rounded-full' : 'text-sm px-3 py-1.5 rounded-lg font-semibold'}
               style={user
                 ? {}
-                : { color: '#A8BEF0', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
+                : { color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
               {user ? (
                 user.picture ? (
                   <img src={user.picture} alt="Profiel" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
                 ) : (
                   <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                    style={{ background: '#1A3FAB' }}>
+                    style={{ background: 'var(--brand-1a3fab)' }}>
                     {initials(user.name ?? user.email)}
                   </span>
                 )
@@ -1386,59 +1857,44 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
       <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
 
         {/* Team config */}
-        <section className="bg-white rounded-2xl p-6 space-y-5 shadow-sm" style={{ border: '1px solid #D0DCFA' }}>
-          <h2 className="font-display text-2xl font-bold uppercase tracking-wide" style={{ color: '#0D2B7A' }}>Team</h2>
+        <section className="bg-white rounded-2xl p-6 space-y-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+          <h2 className="font-display text-2xl font-bold uppercase tracking-wide" style={{ color: 'var(--brand-0d2b7a)' }}>Team</h2>
 
-          <div className="relative">
-            <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Club</label>
-            <input className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle}
-              value={clubSearch}
-              onChange={e => { setClubSearch(e.target.value); setShowList(true) }}
-              onFocus={() => setShowList(true)}
-              onBlur={() => setTimeout(() => setShowList(false), 150)}
-              placeholder="Zoek club…" />
-            {showList && filtered.length > 0 && (
-              <div className="absolute z-10 w-full bg-white rounded-xl shadow-xl mt-1 max-h-48 overflow-y-auto"
-                style={{ border: '1px solid #D0DCFA' }}>
-                {filtered.map(c => (
-                  <button key={c} className="w-full text-left px-4 py-2.5 text-sm font-medium transition-colors"
-                    style={{ color: '#1A2F6B' }}
-                    onMouseEnter={e => (e.currentTarget.style.background = '#EEF3FF')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                    onMouseDown={() => { setClub(c); setClubSearch(c); setShowList(false) }}>
-                    {c}
-                  </button>
-                ))}
-              </div>
-            )}
+          <div>
+            <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Club</label>
+            <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: club ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
+              value={club} onChange={e => setClub(e.target.value)}>
+              <option value="">Kies club…</option>
+              {KNHB_CLUBS.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Teamnaam</label>
+            <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Teamnaam</label>
             {authLoading ? (
-              <div className="rounded-xl px-3 py-3 text-sm text-center" style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: '#A8BEF0' }}>
+              <div className="rounded-xl px-3 py-3 text-sm text-center" style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: 'var(--brand-a8bef0)' }}>
                 Laden…
               </div>
             ) : (
               <>
-                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: team ? '#1A2F6B' : '#7B90C8' }}
+                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: team ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
                   value={team} onChange={e => selectTeam(e.target.value)}>
                   <option value="">Kies team…</option>
                   {(user ? teamNames : GENERIC_TEAM_CATEGORIES).map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
                 {!user && (
-                  <p className="text-xs mt-1.5" style={{ color: '#7B90C8' }}>
+                  <p className="text-xs mt-1.5" style={{ color: 'var(--brand-7b90c8)' }}>
                     Dit is een algemene categorie zonder spelerslijst.{' '}
-                    <button onClick={onProfile} className="font-bold" style={{ color: '#1A3FAB' }}>Log in</button>
+                    <button onClick={onProfile} className="font-bold" style={{ color: 'var(--brand-1a3fab)' }}>Log in</button>
                     {' '}voor de officiële teamnamen en spelerslijst.
                   </p>
                 )}
                 {team && (
                   <>
-                    <p className="text-xs mt-2 font-medium" style={{ color: '#7B90C8' }}>{AGE_CONFIG[ageGroup].label}</p>
+                    <p className="text-xs mt-2 font-medium" style={{ color: 'var(--brand-7b90c8)' }}>{AGE_CONFIG[ageGroup].label}</p>
                     <button onClick={() => setShowFormationEditor(true)}
                       className="text-xs font-bold mt-1"
-                      style={{ color: '#1A3FAB' }}>
+                      style={{ color: 'var(--brand-1a3fab)' }}>
                       Opstelling aanpassen →
                     </button>
                   </>
@@ -1449,26 +1905,31 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
         </section>
 
         {/* Match */}
-        <section className="bg-white rounded-2xl p-6 space-y-4 shadow-sm" style={{ border: '1px solid #D0DCFA' }}>
-          <h2 className="font-display text-2xl font-bold uppercase tracking-wide" style={{ color: '#0D2B7A' }}>Tegenstander</h2>
+        <section className="bg-white rounded-2xl p-6 space-y-4 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+          <h2 className="font-display text-2xl font-bold uppercase tracking-wide" style={{ color: 'var(--brand-0d2b7a)' }}>Tegenstander</h2>
           <div>
-            <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Club</label>
-            <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: opponent ? '#1A2F6B' : '#7B90C8' }}
+            <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Club</label>
+            <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: opponent ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
               value={opponent} onChange={e => setOpponent(e.target.value)}>
               <option value="">Kies club tegenstander…</option>
               {KNHB_CLUBS.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
-            <input type="text" className="w-full rounded-xl px-3 py-2.5 text-sm mt-2" style={inputStyle}
-              value={opponentTeam} onChange={e => setOpponentTeam(e.target.value)}
-              placeholder="Teamnaam (bijv. MO11-1 of JO9-Blauw)" />
+            {/* Always the generic category list, even when the opponent club is SC
+                Muiden — that roster is for the coach's own team, not for naming
+                whichever of their teams happens to be the opponent here. */}
+            <select className="w-full rounded-xl px-3 py-2.5 text-sm mt-2" style={{ ...inputStyle, color: opponentTeam ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
+              value={opponentTeam} onChange={e => setOpponentTeam(e.target.value)}>
+              <option value="">Kies teamnaam tegenstander…</option>
+              {GENERIC_TEAM_CATEGORIES.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
           </div>
           <div className="flex gap-3">
             {(['Thuis', 'Uit'] as const).map(ha => (
               <button key={ha} onClick={() => setHomeAway(ha)}
                 className="flex-1 py-2.5 rounded-xl font-bold text-sm transition-all"
                 style={homeAway === ha
-                  ? { background: '#1A3FAB', color: '#fff', border: '1.5px solid #1A3FAB' }
-                  : { background: '#F8FAFF', color: '#3B5299', border: '1.5px solid #D0DCFA' }}>
+                  ? { background: 'var(--brand-1a3fab)', color: '#fff', border: '1.5px solid var(--brand-1a3fab)' }
+                  : { background: 'var(--brand-f8faff)', color: 'var(--brand-3b5299)', border: '1.5px solid var(--brand-d0dcfa)' }}>
                 {ha}
               </button>
             ))}
@@ -1476,10 +1937,10 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
         </section>
 
         {/* Squad */}
-        <section className="bg-white rounded-2xl p-6 space-y-4 shadow-sm" style={{ border: '1px solid #D0DCFA' }}>
+        <section className="bg-white rounded-2xl p-6 space-y-4 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
           <div className="flex items-baseline justify-between">
-            <h2 className="font-display text-2xl font-bold uppercase tracking-wide" style={{ color: '#0D2B7A' }}>Selectie</h2>
-            <span className="text-sm font-bold" style={{ color: squad.length >= minPlayers ? '#16A34A' : '#7B90C8' }}>
+            <h2 className="font-display text-2xl font-bold uppercase tracking-wide" style={{ color: 'var(--brand-0d2b7a)' }}>Selectie</h2>
+            <span className="text-sm font-bold" style={{ color: squad.length >= minPlayers ? '#16A34A' : 'var(--brand-7b90c8)' }}>
               {squad.length} / {minPlayers}+ spelers
             </span>
           </div>
@@ -1491,39 +1952,39 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
               onKeyDown={e => e.key === 'Enter' && addPlayer()} />
             <button onClick={addPlayer}
               className="px-4 py-2.5 rounded-xl font-bold text-white text-lg"
-              style={{ background: '#1A3FAB' }}>+</button>
+              style={{ background: 'var(--brand-1a3fab)' }}>+</button>
           </div>
 
           <div className="space-y-1.5 max-h-64 overflow-y-auto">
             {squad.length === 0 && (
-              <p className="text-sm text-center py-6" style={{ color: '#A8BEF0' }}>Voeg spelers toe aan de selectie</p>
+              <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Voeg spelers toe aan de selectie</p>
             )}
             {sortPlayers(squad).map(p => (
               <div key={p.id} className="flex items-center gap-2 px-3 py-2 rounded-xl"
-                style={{ background: '#F0F5FF', border: '1px solid #E4ECFE' }}>
+                style={{ background: 'var(--brand-f0f5ff)', border: '1px solid var(--brand-e4ecfe)' }}>
                 {editId === p.id ? (
                   <>
                     <input className="flex-1 rounded-lg px-2 py-1 text-sm"
-                      style={{ border: '1px solid #D0DCFA', background: 'white' }}
+                      style={{ border: '1px solid var(--brand-d0dcfa)', background: 'white' }}
                       value={editName} onChange={e => setEditName(e.target.value)}
                       onKeyDown={e => e.key === 'Enter' && saveEdit(p.id)} />
                     <button onClick={() => saveEdit(p.id)}
                       className="text-xs font-bold px-2 py-1 rounded-lg text-white" style={{ background: '#16A34A' }}>✓</button>
                     <button onClick={() => setEditId(null)}
-                      className="text-xs px-2 py-1 rounded-lg" style={{ color: '#7B90C8' }}>✕</button>
+                      className="text-xs px-2 py-1 rounded-lg" style={{ color: 'var(--brand-7b90c8)' }}>✕</button>
                   </>
                 ) : (
                   <>
                     {p.number != null && (
-                      <span className="font-mono text-sm font-bold w-8 text-center" style={{ color: '#1A3FAB' }}>#{p.number}</span>
+                      <span className="font-mono text-sm font-bold w-8 text-center" style={{ color: 'var(--brand-1a3fab)' }}>#{p.number}</span>
                     )}
-                    <span className="flex-1 text-sm font-semibold" style={{ color: '#1A2F6B' }}>{p.name}</span>
+                    <span className="flex-1 text-sm font-semibold" style={{ color: 'var(--brand-1a2f6b)' }}>{p.name}</span>
                     <button onClick={() => { setEditId(p.id); setEditName(p.name) }}
-                      className="text-xs px-2 py-0.5 rounded-lg" style={{ color: '#A8BEF0' }}>✎</button>
+                      className="text-xs px-2 py-0.5 rounded-lg" style={{ color: 'var(--brand-a8bef0)' }}>✎</button>
                     <button onClick={() => setSquad(s => s.filter(x => x.id !== p.id))}
-                      className="text-lg leading-none ml-1" style={{ color: '#C8D5F5' }}
+                      className="text-lg leading-none ml-1" style={{ color: 'var(--brand-c8d5f5)' }}
                       onMouseEnter={e => (e.currentTarget.style.color = '#DC2626')}
-                      onMouseLeave={e => (e.currentTarget.style.color = '#C8D5F5')}>×</button>
+                      onMouseLeave={e => (e.currentTarget.style.color = 'var(--brand-c8d5f5)')}>×</button>
                   </>
                 )}
               </div>
@@ -1533,13 +1994,13 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
 
         <button
           disabled={!canStart}
-          onClick={() => onStart({ club: club || clubSearch, team, ageGroup, opponent: [opponent, opponentTeam.trim()].filter(Boolean).join(' '), homeAway, squad })}
+          onClick={() => onStart({ club, team, ageGroup, opponent: [opponent, opponentTeam.trim()].filter(Boolean).join(' '), homeAway, squad })}
           className="w-full py-4 rounded-2xl font-display text-xl font-bold uppercase tracking-widest text-white shadow-lg"
-          style={{ background: canStart ? '#1A3FAB' : '#B8C8F0', cursor: canStart ? 'pointer' : 'not-allowed' }}>
+          style={{ background: canStart ? 'var(--brand-1a3fab)' : 'var(--brand-b8c8f0)', cursor: canStart ? 'pointer' : 'not-allowed' }}>
           Wedstrijd starten →
         </button>
         {!canStart && (
-          <p className="text-xs text-center -mt-3" style={{ color: '#A8BEF0' }}>
+          <p className="text-xs text-center -mt-3" style={{ color: 'var(--brand-a8bef0)' }}>
             Vul club, team en tegenstander in
           </p>
         )}
@@ -2114,18 +2575,18 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   })
 
   return (
-    <div className="flex flex-col" style={{ height: '100dvh', background: '#EEF3FF' }}
+    <div className="flex flex-col" style={{ height: '100dvh', background: 'var(--brand-eef3ff)' }}
       onClick={() => setSelected(null)}>
 
       {/* Header */}
-      <div className="shrink-0 text-white px-3 py-2" style={{ background: '#0D2B7A' }}>
+      <div className="shrink-0 text-white px-3 py-2" style={{ background: 'var(--brand-0d2b7a)' }}>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
-            <button onClick={() => { flushSave(); onBack() }} className="text-xs shrink-0 font-semibold" style={{ color: '#7B9DE0' }}>← Terug</button>
+            <button onClick={() => { flushSave(); onBack() }} className="text-xs shrink-0 font-semibold" style={{ color: 'var(--brand-7b9de0)' }}>← Terug</button>
             <SCMuidenLogo size={30} />
             <div className="min-w-0">
               <div className="font-display font-bold text-sm leading-none truncate">{club} {team}</div>
-              <div className="text-xs leading-none mt-0.5 truncate" style={{ color: '#7B9DE0' }}>
+              <div className="text-xs leading-none mt-0.5 truncate" style={{ color: 'var(--brand-7b9de0)' }}>
                 {homeAway === 'Thuis' ? 'vs' : '@'} {opponent} · {ageGroupLabel(ageGroup)}
               </div>
             </div>
@@ -2143,14 +2604,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
               </button>
             )}
             {readOnly ? (
-              <span className="px-3 py-1.5 rounded-lg text-xs font-bold" style={{ background: 'rgba(255,255,255,0.12)', color: '#A8BEF0' }}>
+              <span className="px-3 py-1.5 rounded-lg text-xs font-bold" style={{ background: 'rgba(255,255,255,0.12)', color: 'var(--brand-a8bef0)' }}>
                 Alleen-lezen
               </span>
             ) : (
               <button onClick={e => { e.stopPropagation(); herstel() }}
                 disabled={historyLen === 0}
                 className="px-3 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-40"
-                style={{ background: '#1A3FAB' }}>
+                style={{ background: 'var(--brand-1a3fab)' }}>
                 Herstel
               </button>
             )}
@@ -2165,7 +2626,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
           onClick={e => e.stopPropagation()}>
           <div className="flex items-center justify-between w-full mb-2"
             style={{ maxWidth: isDual ? (panelCollapsed ? '820px' : '540px') : (panelCollapsed ? '460px' : '290px') }}>
-            <span className="text-xs font-bold" style={{ color: '#6B82B8' }}>
+            <span className="text-xs font-bold" style={{ color: 'var(--brand-6b82b8)' }}>
               Op veld:&nbsp;
               <span style={{ color: onFieldCount < targetCount ? '#DC2626' : '#16A34A' }}>
                 {onFieldCount}/{targetCount}
@@ -2173,7 +2634,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
             </span>
             {selected ? (
               <span className="text-xs font-bold px-2 py-0.5 rounded-full"
-                style={{ background: '#DBEAFE', color: '#1A3FAB' }}>
+                style={{ background: 'var(--brand-dbeafe)', color: 'var(--brand-1a3fab)' }}>
                 {selected.type === 'bench'
                   ? `Kies positie voor ${getPlayer(selected.playerId)?.name.split(' ')[0]}`
                   : selected.type === 'opp-pool' || selected.type === 'opp-marker'
@@ -2181,7 +2642,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                     : selectedFieldPlayer ? `${selectedFieldPlayer.name.split(' ')[0]} geselecteerd` : 'Positie geselecteerd'}
               </span>
             ) : (
-              <span className="text-xs" style={{ color: '#A8BEF0' }}>Sleep of klik om te wisselen</span>
+              <span className="text-xs" style={{ color: 'var(--brand-a8bef0)' }}>Sleep of klik om te wisselen</span>
             )}
           </div>
 
@@ -2220,7 +2681,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
           </div>
 
           {!user && (
-            <p className="text-xs text-center mt-2" style={{ color: '#A8BEF0' }}>
+            <p className="text-xs text-center mt-2" style={{ color: 'var(--brand-a8bef0)' }}>
               Log in om deze wedstrijd te kunnen opslaan.
             </p>
           )}
@@ -2236,7 +2697,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
               )}
               <button onClick={() => setSelected(null)}
                 className="px-3 py-1.5 rounded-lg text-xs font-semibold"
-                style={{ background: '#D0DCFA', color: '#1A3FAB' }}>
+                style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>
                 Annuleer
               </button>
             </div>
@@ -2251,7 +2712,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
               </button>
               <button onClick={() => setSelected(null)}
                 className="px-3 py-1.5 rounded-lg text-xs font-semibold"
-                style={{ background: '#D0DCFA', color: '#1A3FAB' }}>
+                style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>
                 Annuleer
               </button>
             </div>
@@ -2263,29 +2724,29 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
           <button
             onClick={e => { e.stopPropagation(); setPanelCollapsed(false) }}
             className="w-8 flex flex-col items-center gap-3 pt-3 bg-white shrink-0"
-            style={{ borderLeft: '1px solid #D0DCFA' }}>
-            <span style={{ color: '#1A3FAB', fontSize: '14px', fontWeight: 800, lineHeight: 1 }}>‹</span>
-            <span className="text-xs font-bold" style={{ color: '#7B90C8', writingMode: 'vertical-rl' }}>
+            style={{ borderLeft: '1px solid var(--brand-d0dcfa)' }}>
+            <span style={{ color: 'var(--brand-1a3fab)', fontSize: '14px', fontWeight: 800, lineHeight: 1 }}>‹</span>
+            <span className="text-xs font-bold" style={{ color: 'var(--brand-7b90c8)', writingMode: 'vertical-rl' }}>
               Bank ({benchPlayers.length})
             </span>
           </button>
         ) : (
         <div className="w-64 flex flex-col bg-white shrink-0 overflow-hidden"
-          style={{ borderLeft: '1px solid #D0DCFA' }}
+          style={{ borderLeft: '1px solid var(--brand-d0dcfa)' }}
           onClick={e => e.stopPropagation()}>
           {/* Tabs */}
-          <div className="flex shrink-0 items-stretch" style={{ borderBottom: '1px solid #E8EFFD' }}>
+          <div className="flex shrink-0 items-stretch" style={{ borderBottom: '1px solid var(--brand-e8effd)' }}>
             <button onClick={() => setPanelCollapsed(true)}
               className="shrink-0 px-2 text-sm font-bold"
-              style={{ color: '#A8BEF0' }}>
+              style={{ color: 'var(--brand-a8bef0)' }}>
               ›
             </button>
             {(['bench', 'subs', 'notes', 'tactics', 'media'] as const).map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)}
                 className="flex-1 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors"
                 style={{
-                  color: activeTab === tab ? '#1A3FAB' : '#A8BEF0',
-                  borderBottom: activeTab === tab ? '2.5px solid #1A3FAB' : '2.5px solid transparent',
+                  color: activeTab === tab ? 'var(--brand-1a3fab)' : 'var(--brand-a8bef0)',
+                  borderBottom: activeTab === tab ? '2.5px solid var(--brand-1a3fab)' : '2.5px solid transparent',
                 }}>
                 {tab === 'bench' ? `Bank (${benchPlayers.length})` : tab === 'subs' ? `Wissels (${subs.length})` : tab === 'notes' ? 'Score' : tab === 'tactics' ? 'Tactiek' : 'Media'}
               </button>
@@ -2297,7 +2758,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
               <div className="p-2 space-y-1.5">
                 {benchPlayers.length === 0 ? (
                   <div className="text-xs text-center py-8 rounded-xl border-2 border-dashed m-2"
-                    style={{ color: '#A8BEF0', borderColor: '#D0DCFA' }}>
+                    style={{ color: 'var(--brand-a8bef0)', borderColor: 'var(--brand-d0dcfa)' }}>
                     Alle spelers staan op het veld
                   </div>
                 ) : (
@@ -2309,14 +2770,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                       <div key={playerId}
                         className="flex items-center gap-2.5 p-2.5 rounded-xl cursor-grab transition-all touch-none select-none"
                         style={{
-                          background: isSel ? '#EEF3FF' : '#F8FAFF',
-                          border: isSel ? '1.5px solid #1A3FAB' : '1.5px solid #E8EFFD',
+                          background: isSel ? 'var(--brand-eef3ff)' : 'var(--brand-f8faff)',
+                          border: isSel ? '1.5px solid var(--brand-1a3fab)' : '1.5px solid var(--brand-e8effd)',
                           opacity: isBeingDragged ? 0.35 : 1,
                         }}
                         onPointerDown={e => beginDrag('bench', playerId, e)}
                         onClick={() => handleBenchClick(playerId)}>
                         <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden"
-                          style={{ background: '#1A3FAB' }}>
+                          style={{ background: 'var(--brand-1a3fab)' }}>
                           {player.photoUrl ? (
                             <img src={mediaSrc(player.photoUrl)} alt={player.name} className="w-full h-full object-cover" />
                           ) : (
@@ -2324,21 +2785,21 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm font-semibold truncate" style={{ color: '#1A2F6B' }}>{player.name}</div>
+                          <div className="text-sm font-semibold truncate" style={{ color: 'var(--brand-1a2f6b)' }}>{player.name}</div>
                           <div className="font-mono text-xs font-bold mt-0.5"
-                            style={{ color: gameSec > 0 ? benchColor(elapsed) : '#A8BEF0' }}>
+                            style={{ color: gameSec > 0 ? benchColor(elapsed) : 'var(--brand-a8bef0)' }}>
                             {gameSec > 0 ? fmtSec(elapsed) : '—:—'}
                           </div>
                         </div>
-                        {isSel && <span className="text-xs font-bold" style={{ color: '#1A3FAB' }}>↔</span>}
+                        {isSel && <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>↔</span>}
                       </div>
                     )
                   })
                 )}
 
-                <div className="mt-4 pt-3 px-1" style={{ borderTop: '1px solid #E8EFFD' }}>
+                <div className="mt-4 pt-3 px-1" style={{ borderTop: '1px solid var(--brand-e8effd)' }}>
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-bold uppercase" style={{ color: '#7B90C8', letterSpacing: '0.08em' }}>
+                    <span className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
                       Tegenstander ({oppAvailable} beschikbaar)
                     </span>
                     {oppMarkers.length > 0 && !readOnly && (
@@ -2347,7 +2808,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                       </button>
                     )}
                   </div>
-                  <p className="text-xs mb-2" style={{ color: selected?.type === 'opp-pool' ? '#1A3FAB' : '#A8BEF0' }}>
+                  <p className="text-xs mb-2" style={{ color: selected?.type === 'opp-pool' ? 'var(--brand-1a3fab)' : 'var(--brand-a8bef0)' }}>
                     {selected?.type === 'opp-pool'
                       ? 'Tik op het veld om te plaatsen…'
                       : 'Sleep naar het veld, of tik en tik daarna op het veld.'}
@@ -2358,7 +2819,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                         className="w-8 h-8 rounded-full cursor-grab touch-none select-none shrink-0"
                         style={{
                           background: '#DC2626',
-                          border: selected?.type === 'opp-pool' ? '2.5px solid #1A3FAB' : '2px solid #fff',
+                          border: selected?.type === 'opp-pool' ? '2.5px solid var(--brand-1a3fab)' : '2px solid #fff',
                           boxShadow: selected?.type === 'opp-pool' ? '0 0 0 3px rgba(26,63,171,0.35)' : '0 2px 6px rgba(0,0,0,0.25)',
                         }}
                         onPointerDown={e => beginDrag('opp-pool', 'new', e)}
@@ -2372,18 +2833,18 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
             {activeTab === 'subs' && (
               <div className="p-3 space-y-2">
                 {subs.length === 0 && (
-                  <p className="text-xs text-center py-8" style={{ color: '#A8BEF0' }}>Nog geen wissels</p>
+                  <p className="text-xs text-center py-8" style={{ color: 'var(--brand-a8bef0)' }}>Nog geen wissels</p>
                 )}
                 {subs.map((s, i) => {
                   const pIn = getPlayer(s.playerInId)
                   const pOut = getPlayer(s.playerOutId)
                   return (
                     <div key={i} className="py-2.5 rounded-xl px-3"
-                      style={{ background: '#F0F5FF', border: '1px solid #E4ECFE' }}>
+                      style={{ background: 'var(--brand-f0f5ff)', border: '1px solid var(--brand-e4ecfe)' }}>
                       <div className="flex items-center gap-1.5 mb-1">
-                        <span className="font-mono text-xs font-bold" style={{ color: '#7B90C8' }}>{fmtSec(s.gameTimeSec)}</span>
+                        <span className="font-mono text-xs font-bold" style={{ color: 'var(--brand-7b90c8)' }}>{fmtSec(s.gameTimeSec)}</span>
                         {s.posLabel && (
-                          <span className="text-xs font-bold px-1.5 rounded" style={{ color: '#1A3FAB', background: '#E4ECFE' }}>{s.posLabel}</span>
+                          <span className="text-xs font-bold px-1.5 rounded" style={{ color: 'var(--brand-1a3fab)', background: 'var(--brand-e4ecfe)' }}>{s.posLabel}</span>
                         )}
                       </div>
                       <div className="text-xs font-semibold" style={{ color: '#16A34A' }}>↑ {pIn?.number ? `#${pIn.number} ` : ''}{pIn?.name}</div>
@@ -2397,37 +2858,37 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
             {activeTab === 'notes' && (
               <div className="p-3 space-y-3">
                 <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Scorebord</label>
+                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Scorebord</label>
                   <div className="flex items-center justify-between gap-2 rounded-xl px-3 py-2.5"
-                    style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF' }}>
+                    style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)' }}>
                     <div className="flex-1 text-center min-w-0">
-                      <div className="text-xs font-semibold truncate" style={{ color: '#6B82B8' }}>{team || 'Eigen team'}</div>
+                      <div className="text-xs font-semibold truncate" style={{ color: 'var(--brand-6b82b8)' }}>{team || 'Eigen team'}</div>
                       <div className="flex items-center justify-center gap-2.5 mt-1">
                         <button onClick={() => setScoreOwn(s => Math.max(0, s - 1))} disabled={readOnly}
-                          className="w-7 h-7 rounded-lg font-bold text-sm disabled:opacity-50" style={{ background: '#D0DCFA', color: '#1A3FAB' }}>−</button>
-                        <span className="font-mono font-bold text-xl w-6 text-center" style={{ color: '#1A2F6B' }}>{scoreOwn}</span>
+                          className="w-7 h-7 rounded-lg font-bold text-sm disabled:opacity-50" style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>−</button>
+                        <span className="font-mono font-bold text-xl w-6 text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{scoreOwn}</span>
                         <button onClick={() => setScoreOwn(s => s + 1)} disabled={readOnly}
-                          className="w-7 h-7 rounded-lg font-bold text-sm text-white disabled:opacity-50" style={{ background: '#1A3FAB' }}>+</button>
+                          className="w-7 h-7 rounded-lg font-bold text-sm text-white disabled:opacity-50" style={{ background: 'var(--brand-1a3fab)' }}>+</button>
                       </div>
                     </div>
-                    <div className="font-bold text-sm shrink-0" style={{ color: '#A8BEF0' }}>–</div>
+                    <div className="font-bold text-sm shrink-0" style={{ color: 'var(--brand-a8bef0)' }}>–</div>
                     <div className="flex-1 text-center min-w-0">
-                      <div className="text-xs font-semibold truncate" style={{ color: '#6B82B8' }}>{opponent || 'Tegenstander'}</div>
+                      <div className="text-xs font-semibold truncate" style={{ color: 'var(--brand-6b82b8)' }}>{opponent || 'Tegenstander'}</div>
                       <div className="flex items-center justify-center gap-2.5 mt-1">
                         <button onClick={() => setScoreOpp(s => Math.max(0, s - 1))} disabled={readOnly}
-                          className="w-7 h-7 rounded-lg font-bold text-sm disabled:opacity-50" style={{ background: '#D0DCFA', color: '#1A3FAB' }}>−</button>
-                        <span className="font-mono font-bold text-xl w-6 text-center" style={{ color: '#1A2F6B' }}>{scoreOpp}</span>
+                          className="w-7 h-7 rounded-lg font-bold text-sm disabled:opacity-50" style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>−</button>
+                        <span className="font-mono font-bold text-xl w-6 text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{scoreOpp}</span>
                         <button onClick={() => setScoreOpp(s => s + 1)} disabled={readOnly}
-                          className="w-7 h-7 rounded-lg font-bold text-sm text-white disabled:opacity-50" style={{ background: '#1A3FAB' }}>+</button>
+                          className="w-7 h-7 rounded-lg font-bold text-sm text-white disabled:opacity-50" style={{ background: 'var(--brand-1a3fab)' }}>+</button>
                       </div>
                     </div>
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Doelpuntenmakers</label>
+                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Doelpuntenmakers</label>
                   <div className="flex gap-2">
                     <select className="flex-1 rounded-xl px-3 py-2 text-sm" disabled={readOnly}
-                      style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: goalPlayerId ? '#1A2F6B' : '#7B90C8', outline: 'none' }}
+                      style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: goalPlayerId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', outline: 'none' }}
                       value={goalPlayerId} onChange={e => setGoalPlayerId(e.target.value)}>
                       <option value="">Kies speler…</option>
                       {sortPlayers(squad).map(p => (
@@ -2440,7 +2901,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                     }}
                       disabled={readOnly}
                       className="px-4 py-2 rounded-xl font-bold text-white text-lg shrink-0 disabled:opacity-50"
-                      style={{ background: '#1A3FAB' }}>
+                      style={{ background: 'var(--brand-1a3fab)' }}>
                       +
                     </button>
                   </div>
@@ -2450,8 +2911,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                         const p = getPlayer(g.playerId)
                         return (
                           <div key={g.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-                            style={{ background: '#F8FAFF', border: '1px solid #E8EFFD' }}>
-                            <span style={{ color: '#1A2F6B' }}><HockeyBallIcon /> {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}</span>
+                            style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                            <span style={{ color: 'var(--brand-1a2f6b)' }}><HockeyBallIcon /> {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}</span>
                             {!readOnly && (
                               <button onClick={() => setGoals(gs => gs.filter(x => x.id !== g.id))}
                                 className="font-bold" style={{ color: '#DC2626' }}>
@@ -2463,14 +2924,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                       })}
                     </div>
                   )}
-                  <p className="text-xs mt-1.5" style={{ color: goals.length === scoreOwn ? '#7B90C8' : '#D97706' }}>
+                  <p className="text-xs mt-1.5" style={{ color: goals.length === scoreOwn ? 'var(--brand-7b90c8)' : '#D97706' }}>
                     {goals.length} van de {scoreOwn} doelpunten toegewezen
                   </p>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Kaarten</label>
+                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Kaarten</label>
                   <select className="w-full rounded-xl px-3 py-2 text-sm" disabled={readOnly}
-                    style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: cardPlayerId ? '#1A2F6B' : '#7B90C8', outline: 'none' }}
+                    style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: cardPlayerId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', outline: 'none' }}
                     value={cardPlayerId} onChange={e => setCardPlayerId(e.target.value)}>
                     <option value="">Kies speler…</option>
                     {sortPlayers(squad).map(p => (
@@ -2483,7 +2944,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                         className="flex-1 h-8 rounded-lg disabled:opacity-50"
                         style={{
                           background: c === 'green' ? '#16A34A' : c === 'yellow' ? '#EAB308' : '#DC2626',
-                          border: cardColor === c ? '2px solid #1A2F6B' : '2px solid transparent',
+                          border: cardColor === c ? '2px solid var(--brand-1a2f6b)' : '2px solid transparent',
                         }}
                         aria-label={c} />
                     ))}
@@ -2493,7 +2954,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                     }}
                       disabled={readOnly}
                       className="px-4 py-1 rounded-xl font-bold text-white text-lg shrink-0 disabled:opacity-50"
-                      style={{ background: '#1A3FAB' }}>
+                      style={{ background: 'var(--brand-1a3fab)' }}>
                       +
                     </button>
                   </div>
@@ -2503,8 +2964,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                         const p = getPlayer(c.playerId)
                         return (
                           <div key={c.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-                            style={{ background: '#F8FAFF', border: '1px solid #E8EFFD' }}>
-                            <span style={{ color: '#1A2F6B' }}>
+                            style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                            <span style={{ color: 'var(--brand-1a2f6b)' }}>
                               <span className="inline-block w-3 h-4 rounded-sm mr-1.5 align-middle"
                                 style={{ background: c.color === 'green' ? '#16A34A' : c.color === 'yellow' ? '#EAB308' : '#DC2626' }} />
                               {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}
@@ -2522,27 +2983,27 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                   )}
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Speeltijd</label>
+                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Speeltijd</label>
                   <div className="space-y-1">
                     {sortPlayers(squad).map(p => {
                       const onField = slots.some(s => s.playerId === p.id)
                       return (
                         <div key={p.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-                          style={{ background: '#F8FAFF', border: '1px solid #E8EFFD' }}>
-                          <span style={{ color: '#1A2F6B' }}>
+                          style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                          <span style={{ color: 'var(--brand-1a2f6b)' }}>
                             {onField && <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5" style={{ background: '#16A34A' }} />}
                             {p.number ? `#${p.number} ` : ''}{p.name}
                           </span>
-                          <span className="font-mono font-bold" style={{ color: '#3B5299' }}>{fmtSec(playedSeconds[p.id] ?? 0)}</span>
+                          <span className="font-mono font-bold" style={{ color: 'var(--brand-3b5299)' }}>{fmtSec(playedSeconds[p.id] ?? 0)}</span>
                         </div>
                       )
                     })}
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Notities</label>
+                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Notities</label>
                   <textarea className="w-full rounded-xl px-3 py-2 text-sm resize-none"
-                    style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: '#1A2F6B', outline: 'none' }}
+                    style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: 'var(--brand-1a2f6b)', outline: 'none' }}
                     rows={8} value={notes} onChange={e => setNotes(e.target.value)} readOnly={readOnly}
                     placeholder="Tactische notities, bijzonderheden…" />
                 </div>
@@ -2553,13 +3014,13 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
               <div className="p-3 space-y-3">
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-bold uppercase" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Opstellingen</label>
+                    <label className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Opstellingen</label>
                     {!readOnly && (
                       <div className="flex gap-2">
-                        <button onClick={() => addBoard(false)} className="text-xs font-bold" style={{ color: '#1A3FAB' }}>
+                        <button onClick={() => addBoard(false)} className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>
                           + Opstelling
                         </button>
-                        <button onClick={() => addBoard(true)} className="text-xs font-bold" style={{ color: '#1A3FAB' }}>
+                        <button onClick={() => addBoard(true)} className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>
                           + Strafcorner
                         </button>
                       </div>
@@ -2571,8 +3032,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                         <button onClick={() => { setActiveBoardId(b.id); setSelectedTacticsMarker(null); setTacticsPlayerId('') }}
                           className="text-xs font-bold px-2.5 py-1.5 rounded-lg"
                           style={b.id === activeBoardId
-                            ? { background: '#1A3FAB', color: '#fff' }
-                            : { background: '#F8FAFF', color: '#3B5299', border: '1px solid #D0DCFA' }}>
+                            ? { background: 'var(--brand-1a3fab)', color: '#fff' }
+                            : { background: 'var(--brand-f8faff)', color: 'var(--brand-3b5299)', border: '1px solid var(--brand-d0dcfa)' }}>
                           {b.name}
                         </button>
                         {!readOnly && tacticsBoards.length > 1 && (
@@ -2588,7 +3049,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
 
                 {!readOnly && (
                   <div>
-                    <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Gereedschap</label>
+                    <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Gereedschap</label>
                     <div className="flex gap-2">
                       {([
                         { key: 'select', label: 'Selecteer' },
@@ -2598,8 +3059,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                         <button key={t.key} onClick={() => { setTacticsTool(t.key); setSelectedTacticsMarker(null); setTacticsPlayerId('') }}
                           className="flex-1 py-2 rounded-lg text-xs font-bold"
                           style={tacticsTool === t.key
-                            ? { background: '#1A3FAB', color: '#fff' }
-                            : { background: '#F8FAFF', color: '#3B5299', border: '1px solid #D0DCFA' }}>
+                            ? { background: 'var(--brand-1a3fab)', color: '#fff' }
+                            : { background: 'var(--brand-f8faff)', color: 'var(--brand-3b5299)', border: '1px solid var(--brand-d0dcfa)' }}>
                           {t.label}
                         </button>
                       ))}
@@ -2607,19 +3068,19 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                     {tacticsTool === 'marker' ? (
                       <div className="mt-2">
                         <select className="w-full rounded-xl px-3 py-2 text-sm"
-                          style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', color: tacticsPlayerId ? '#1A2F6B' : '#7B90C8', outline: 'none' }}
+                          style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: tacticsPlayerId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', outline: 'none' }}
                           value={tacticsPlayerId} onChange={e => setTacticsPlayerId(e.target.value)}>
                           <option value="">Kies speler…</option>
                           {sortPlayers(squad.filter(p => !activeBoard.markers.some(m => m.playerId === p.id))).map(p => (
                             <option key={p.id} value={p.id}>{p.number ? `#${p.number} ` : ''}{p.name}</option>
                           ))}
                         </select>
-                        <p className="text-xs mt-1.5" style={{ color: '#A8BEF0' }}>
+                        <p className="text-xs mt-1.5" style={{ color: 'var(--brand-a8bef0)' }}>
                           {tacticsPlayerId ? 'Tik op het veld om te plaatsen.' : 'Kies eerst een speler.'}
                         </p>
                       </div>
                     ) : (
-                      <p className="text-xs mt-1.5" style={{ color: '#A8BEF0' }}>
+                      <p className="text-xs mt-1.5" style={{ color: 'var(--brand-a8bef0)' }}>
                         {tacticsTool === 'arrow'
                           ? 'Sleep op het veld om een pijl te tekenen.'
                           : 'Tik een speler, tik daarna waar die naartoe moet.'}
@@ -2637,12 +3098,12 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
 
                 {activeBoard.arrows.length > 0 && (
                   <div>
-                    <label className="block text-xs font-bold uppercase mb-1" style={{ color: '#7B90C8', letterSpacing: '0.1em' }}>Pijlen</label>
+                    <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Pijlen</label>
                     <div className="space-y-1">
                       {activeBoard.arrows.map((a, i) => (
                         <div key={a.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-                          style={{ background: '#F8FAFF', border: '1px solid #E8EFFD' }}>
-                          <span style={{ color: '#1A2F6B' }}>Pijl {i + 1}</span>
+                          style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                          <span style={{ color: 'var(--brand-1a2f6b)' }}>Pijl {i + 1}</span>
                           {!readOnly && (
                             <button onClick={() => removeTacticsArrow(a.id)} className="font-bold" style={{ color: '#DC2626' }}>
                               ×
@@ -2671,7 +3132,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                 )}
                 {readOnly && media.length === 0 ? (
                   <div className="text-xs text-center py-8 rounded-xl border-2 border-dashed"
-                    style={{ color: '#A8BEF0', borderColor: '#D0DCFA' }}>
+                    style={{ color: 'var(--brand-a8bef0)', borderColor: 'var(--brand-d0dcfa)' }}>
                     Geen foto's of video's
                   </div>
                 ) : (
@@ -2679,14 +3140,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                     {!readOnly && (
                       <button onClick={() => mediaFileInputRef.current?.click()} disabled={uploading}
                         className="flex flex-col items-center justify-center gap-1 h-24 rounded-xl border-2 border-dashed disabled:opacity-50"
-                        style={{ borderColor: '#D0DCFA', color: '#7B90C8' }}>
+                        style={{ borderColor: 'var(--brand-d0dcfa)', color: 'var(--brand-7b90c8)' }}>
                         <span className="text-2xl leading-none font-bold">+</span>
                         <span className="text-xs font-bold">{uploading ? 'Uploaden…' : 'Toevoegen'}</span>
                       </button>
                     )}
                     {media.map(item => (
                       <button key={item.id} onClick={() => setPreviewMedia(item)}
-                        className="relative rounded-xl overflow-hidden h-24" style={{ border: '1px solid #D0DCFA', background: '#0D2B7A' }}>
+                        className="relative rounded-xl overflow-hidden h-24" style={{ border: '1px solid var(--brand-d0dcfa)', background: 'var(--brand-0d2b7a)' }}>
                         {item.type === 'image' ? (
                           <img src={mediaSrc(item.url)} alt={item.name} className="w-full h-24 object-cover" />
                         ) : (
@@ -2766,11 +3227,11 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
   const { shares, addShare, removeShare } = useGameShares(canManageSharing ? expanded : null)
 
   return (
-    <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
-      <header style={{ background: '#0D2B7A' }} className="text-white sticky top-0 z-20 shadow-lg">
+    <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
+      <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
           <div className="flex items-center gap-4">
-            <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: '#7B9DE0' }}>← Terug</button>
+            <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>← Terug</button>
             <SCMuidenLogo size={32} />
             <h1 className="font-display text-2xl font-bold uppercase tracking-widest">Wedstrijd Geschiedenis</h1>
           </div>
@@ -2785,31 +3246,31 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
         {!authLoading && !user ? (
           <div className="text-center py-20">
             <div className="text-5xl mb-4">🔒</div>
-            <p className="font-display text-xl font-bold uppercase mb-3" style={{ color: '#A8BEF0' }}>Log in om je wedstrijden te zien</p>
+            <p className="font-display text-xl font-bold uppercase mb-3" style={{ color: 'var(--brand-a8bef0)' }}>Log in om je wedstrijden te zien</p>
             <button onClick={onProfile}
               className="px-4 py-2.5 rounded-xl font-bold text-sm text-white"
-              style={{ background: '#1A3FAB' }}>
+              style={{ background: 'var(--brand-1a3fab)' }}>
               Naar profiel →
             </button>
           </div>
         ) : games.length === 0 ? (
           <div className="text-center py-20">
             <div className="text-5xl mb-4">🏑</div>
-            <p className="font-display text-xl font-bold uppercase" style={{ color: '#A8BEF0' }}>Nog geen wedstrijden</p>
+            <p className="font-display text-xl font-bold uppercase" style={{ color: 'var(--brand-a8bef0)' }}>Nog geen wedstrijden</p>
           </div>
         ) : (
           <div className="space-y-3">
             {seasonPlaytime.length > 0 && (
-              <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid #D0DCFA' }}>
-                <h2 className="font-display text-sm font-bold uppercase mb-3" style={{ color: '#7B90C8', letterSpacing: '0.08em' }}>
+              <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+                <h2 className="font-display text-sm font-bold uppercase mb-3" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
                   Speeltijd — alle wedstrijden
                 </h2>
                 <div className="flex flex-wrap gap-1.5">
                   {seasonPlaytime.map(p => (
                     <span key={p.id} className="text-xs px-2 py-1 rounded-lg font-medium"
-                      style={{ background: '#EEF3FF', color: '#1A2F6B', border: '1px solid #D0DCFA' }}>
-                      {p.number != null && <span className="font-mono font-bold" style={{ color: '#1A3FAB' }}>#{p.number} </span>}
-                      {p.name} <span style={{ color: '#3B5299' }}>· {fmtHM(p.sec)}</span>
+                      style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
+                      {p.number != null && <span className="font-mono font-bold" style={{ color: 'var(--brand-1a3fab)' }}>#{p.number} </span>}
+                      {p.name} <span style={{ color: 'var(--brand-3b5299)' }}>· {fmtHM(p.sec)}</span>
                     </span>
                   ))}
                 </div>
@@ -2817,24 +3278,24 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
             )}
             {[...games].reverse().map(g => (
               <div key={g.id} className="bg-white rounded-2xl overflow-hidden shadow-sm"
-                style={{ border: '1px solid #D0DCFA' }}>
+                style={{ border: '1px solid var(--brand-d0dcfa)' }}>
                 <button className="w-full text-left px-5 py-4 flex items-center justify-between"
                   onClick={() => setExpanded(expanded === g.id ? null : g.id)}>
                   <div className="min-w-0">
-                    <div className="font-display text-lg font-bold leading-tight" style={{ color: '#0D2B7A' }}>
+                    <div className="font-display text-lg font-bold leading-tight" style={{ color: 'var(--brand-0d2b7a)' }}>
                       {g.club} {g.team}&nbsp;
-                      <span style={{ color: '#7B90C8', fontWeight: 400 }}>{g.homeAway === 'Thuis' ? 'vs' : '@'}</span>
+                      <span style={{ color: 'var(--brand-7b90c8)', fontWeight: 400 }}>{g.homeAway === 'Thuis' ? 'vs' : '@'}</span>
                       &nbsp;{g.opponent}
                     </div>
                     <div className="flex flex-wrap gap-3 mt-0.5">
-                      <span className="text-xs font-medium" style={{ color: '#7B90C8' }}>{g.date}</span>
-                      <span className="text-xs font-bold" style={{ color: '#1A3FAB' }}>{ageGroupLabel(g.ageGroup)}</span>
+                      <span className="text-xs font-medium" style={{ color: 'var(--brand-7b90c8)' }}>{g.date}</span>
+                      <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>{ageGroupLabel(g.ageGroup)}</span>
                       {typeof g.scoreOwn === 'number' && typeof g.scoreOpp === 'number' ? (
-                        <span className="text-xs font-bold" style={{ color: '#1A3FAB' }}>{g.scoreOwn} - {g.scoreOpp}</span>
+                        <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>{g.scoreOwn} - {g.scoreOpp}</span>
                       ) : g.result ? (
-                        <span className="text-xs font-bold" style={{ color: '#1A3FAB' }}>{g.result}</span>
+                        <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>{g.result}</span>
                       ) : null}
-                      <span className="text-xs font-mono" style={{ color: '#A8BEF0' }}>{fmtSec(g.finalTime)}</span>
+                      <span className="text-xs font-mono" style={{ color: 'var(--brand-a8bef0)' }}>{fmtSec(g.finalTime)}</span>
                       {g.ownerId && user && g.ownerId !== user.id && (
                         <span className="text-xs font-bold px-1.5 rounded" style={{ color: '#6D28D9', background: '#EDE9FE' }}>
                           Gedeeld · {g.permission === 'edit' ? 'Bewerken' : 'Bekijken'}
@@ -2842,23 +3303,23 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
                       )}
                     </div>
                   </div>
-                  <span className="text-xs ml-4 shrink-0" style={{ color: '#C8D5F5' }}>
+                  <span className="text-xs ml-4 shrink-0" style={{ color: 'var(--brand-c8d5f5)' }}>
                     {expanded === g.id ? '▲' : '▼'}
                   </span>
                 </button>
 
                 {expanded === g.id && (
-                  <div className="px-5 pb-5" style={{ borderTop: '1px solid #EEF3FF' }}>
+                  <div className="px-5 pb-5" style={{ borderTop: '1px solid var(--brand-eef3ff)' }}>
                     <div className="pt-4 space-y-4">
                       <div>
-                        <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: '#7B90C8' }}>
+                        <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>
                           Selectie ({g.squad.length})
                         </h4>
                         <div className="flex flex-wrap gap-1.5">
                           {sortPlayers(g.squad).map(p => (
                             <span key={p.id} className="text-xs px-2 py-1 rounded-lg font-medium"
-                              style={{ background: '#EEF3FF', color: '#1A2F6B', border: '1px solid #D0DCFA' }}>
-                              {p.number != null && <span className="font-mono font-bold" style={{ color: '#1A3FAB' }}>#{p.number} </span>}{p.name}
+                              style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
+                              {p.number != null && <span className="font-mono font-bold" style={{ color: 'var(--brand-1a3fab)' }}>#{p.number} </span>}{p.name}
                             </span>
                           ))}
                         </div>
@@ -2866,16 +3327,16 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
 
                       {g.subs.length > 0 && (
                         <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: '#7B90C8' }}>Wissels</h4>
+                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Wissels</h4>
                           <div className="space-y-1">
                             {g.subs.map((s, i) => {
                               const pIn = getPlayer(g, s.playerInId)
                               const pOut = getPlayer(g, s.playerOutId)
                               return (
                                 <div key={i} className="flex items-center gap-2 text-xs">
-                                  <span className="font-mono font-bold w-10 shrink-0" style={{ color: '#7B90C8' }}>{fmtSec(s.gameTimeSec)}</span>
+                                  <span className="font-mono font-bold w-10 shrink-0" style={{ color: 'var(--brand-7b90c8)' }}>{fmtSec(s.gameTimeSec)}</span>
                                   {s.posLabel && (
-                                    <span className="text-xs font-bold px-1.5 rounded shrink-0" style={{ color: '#1A3FAB', background: '#E4ECFE' }}>{s.posLabel}</span>
+                                    <span className="text-xs font-bold px-1.5 rounded shrink-0" style={{ color: 'var(--brand-1a3fab)', background: 'var(--brand-e4ecfe)' }}>{s.posLabel}</span>
                                   )}
                                   <span className="font-semibold" style={{ color: '#16A34A' }}>↑ {pIn?.name}</span>
                                   <span className="font-semibold" style={{ color: '#DC2626' }}>↓ {pOut?.name}</span>
@@ -2888,7 +3349,7 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
 
                       {g.goals && g.goals.length > 0 && (
                         <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: '#7B90C8' }}>Doelpunten</h4>
+                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Doelpunten</h4>
                           <div className="flex flex-wrap gap-1.5">
                             {Object.entries(
                               g.goals.reduce<Record<string, number>>((acc, goal) => {
@@ -2899,7 +3360,7 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
                               const p = getPlayer(g, playerId)
                               return (
                                 <span key={playerId} className="text-xs px-2 py-1 rounded-lg font-medium"
-                                  style={{ background: '#EEF3FF', color: '#1A2F6B', border: '1px solid #D0DCFA' }}>
+                                  style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
                                   <HockeyBallIcon /> {p?.name ?? 'Onbekende speler'}{count > 1 ? ` ×${count}` : ''}
                                 </span>
                               )
@@ -2910,13 +3371,13 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
 
                       {g.cards && g.cards.length > 0 && (
                         <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: '#7B90C8' }}>Kaarten</h4>
+                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Kaarten</h4>
                           <div className="flex flex-wrap gap-1.5">
                             {g.cards.map(c => {
                               const p = getPlayer(g, c.playerId)
                               return (
                                 <span key={c.id} className="text-xs px-2 py-1 rounded-lg font-medium"
-                                  style={{ background: '#EEF3FF', color: '#1A2F6B', border: '1px solid #D0DCFA' }}>
+                                  style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
                                   <span className="inline-block w-3 h-4 rounded-sm mr-1 align-middle"
                                     style={{ background: c.color === 'green' ? '#16A34A' : c.color === 'yellow' ? '#EAB308' : '#DC2626' }} />
                                   {p?.name ?? 'Onbekende speler'}
@@ -2929,7 +3390,7 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
 
                       {g.playedSeconds && Object.keys(g.playedSeconds).length > 0 && (
                         <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: '#7B90C8' }}>Speeltijd</h4>
+                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Speeltijd</h4>
                           <div className="flex flex-wrap gap-1.5">
                             {Object.entries(g.playedSeconds)
                               .map(([playerId, sec]) => ({ playerId, sec, player: getPlayer(g, playerId) }))
@@ -2937,8 +3398,8 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
                               .sort((a, b) => (a.player.number ?? Infinity) - (b.player.number ?? Infinity) || a.player.name.localeCompare(b.player.name))
                               .map(x => (
                                 <span key={x.playerId} className="text-xs px-2 py-1 rounded-lg font-medium"
-                                  style={{ background: '#EEF3FF', color: '#1A2F6B', border: '1px solid #D0DCFA' }}>
-                                  {x.player.name} <span style={{ color: '#3B5299' }}>· {fmtSec(x.sec)}</span>
+                                  style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
+                                  {x.player.name} <span style={{ color: 'var(--brand-3b5299)' }}>· {fmtSec(x.sec)}</span>
                                 </span>
                               ))}
                           </div>
@@ -2947,11 +3408,11 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
 
                       {g.media && g.media.length > 0 && (
                         <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: '#7B90C8' }}>Media</h4>
+                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Media</h4>
                           <div className="grid grid-cols-4 gap-1.5">
                             {g.media.map(item => (
                               <a key={item.id} href={mediaSrc(item.url)} target="_blank" rel="noreferrer"
-                                className="block rounded-lg overflow-hidden" style={{ border: '1px solid #D0DCFA', background: '#0D2B7A' }}>
+                                className="block rounded-lg overflow-hidden" style={{ border: '1px solid var(--brand-d0dcfa)', background: 'var(--brand-0d2b7a)' }}>
                                 {item.type === 'image' ? (
                                   <img src={mediaSrc(item.url)} alt={item.name} className="w-full h-16 object-cover" />
                                 ) : (
@@ -2965,14 +3426,14 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
 
                       {g.notes && (
                         <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-1" style={{ color: '#7B90C8' }}>Notities</h4>
-                          <p className="text-sm whitespace-pre-wrap" style={{ color: '#3B4F7A' }}>{g.notes}</p>
+                          <h4 className="font-display text-sm font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)' }}>Notities</h4>
+                          <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--brand-3b4f7a)' }}>{g.notes}</p>
                         </div>
                       )}
 
                       {canManageSharing && (
                         <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: '#7B90C8' }}>Delen</h4>
+                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Delen</h4>
                           <GameShareManager shares={shares} onAdd={addShare} onRemove={removeShare} />
                         </div>
                       )}
@@ -2980,7 +3441,7 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
                       <div className="flex gap-2">
                         <button onClick={() => onEdit(g)}
                           className="text-xs font-bold px-3 py-1.5 rounded-lg text-white"
-                          style={{ background: '#1A3FAB' }}>
+                          style={{ background: 'var(--brand-1a3fab)' }}>
                           {(g.permission ?? 'owner') === 'view' ? 'Bekijken' : 'Bewerken'}
                         </button>
                         {(!g.ownerId || g.ownerId === user?.id) && (
@@ -3127,7 +3588,7 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
     }
   }
 
-  if (loading) return <p className="text-sm text-center py-4" style={{ color: '#A8BEF0' }}>Laden…</p>
+  if (loading) return <p className="text-sm text-center py-4" style={{ color: 'var(--brand-a8bef0)' }}>Laden…</p>
 
   return (
     <div>
@@ -3136,13 +3597,13 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
           onChange={e => { onFileChange(e.target.files?.[0]); e.target.value = '' }} />
       )}
       {!canEdit && (
-        <p className="text-xs mb-3" style={{ color: '#7B90C8' }}>
+        <p className="text-xs mb-3" style={{ color: 'var(--brand-7b90c8)' }}>
           Alleen coaches kunnen spelers en foto's beheren.
         </p>
       )}
       {error && <p className="text-xs font-semibold mb-2" style={{ color: '#DC2626' }}>{error}</p>}
       {players.length === 0 ? (
-        <p className="text-sm" style={{ color: '#7B90C8' }}>Geen spelers gevonden voor dit team.</p>
+        <p className="text-sm" style={{ color: 'var(--brand-7b90c8)' }}>Geen spelers gevonden voor dit team.</p>
       ) : (
         <div className="space-y-2">
           {players.map(p => {
@@ -3150,13 +3611,13 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
             const avatar = p.photoUrl ? (
               <img src={mediaSrc(p.photoUrl)} alt={p.name} className="w-11 h-11 rounded-full object-cover" />
             ) : (
-              <div className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-sm" style={{ background: '#1A3FAB' }}>
+              <div className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-sm" style={{ background: 'var(--brand-1a3fab)' }}>
                 {initials(p.name)}
               </div>
             )
             return (
               <div key={p.id} className="flex items-center gap-3 p-2.5 rounded-xl"
-                style={{ background: '#F8FAFF', border: '1px solid #E8EFFD' }}>
+                style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
                 {canEdit ? (
                   <button onClick={() => triggerUpload(p.id)} disabled={busy}
                     className="relative w-11 h-11 rounded-full shrink-0 group overflow-hidden disabled:opacity-50" title="Foto wijzigen">
@@ -3170,12 +3631,12 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
                   <div className="w-11 h-11 rounded-full shrink-0 overflow-hidden">{avatar}</div>
                 )}
                 {editId === p.id ? (
-                  <input autoFocus className="flex-1 text-sm font-semibold rounded-lg px-2 py-1" style={{ border: '1.5px solid #D0DCFA' }}
+                  <input autoFocus className="flex-1 text-sm font-semibold rounded-lg px-2 py-1" style={{ border: '1.5px solid var(--brand-d0dcfa)' }}
                     value={editName} onChange={e => setEditName(e.target.value)}
                     onBlur={() => saveRename(p.id)}
                     onKeyDown={e => { if (e.key === 'Enter') saveRename(p.id); if (e.key === 'Escape') setEditId(null) }} />
                 ) : (
-                  <span className="flex-1 text-sm font-semibold truncate" style={{ color: '#1A2F6B', cursor: canEdit ? 'pointer' : 'default' }}
+                  <span className="flex-1 text-sm font-semibold truncate" style={{ color: 'var(--brand-1a2f6b)', cursor: canEdit ? 'pointer' : 'default' }}
                     onClick={() => { if (canEdit) { setEditId(p.id); setEditName(p.name) } }}>
                     {p.name}
                   </span>
@@ -3184,7 +3645,7 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
                   <button onClick={() => removePhoto(p.id, p.name)} className="font-bold text-sm" style={{ color: '#DC2626' }} title="Foto verwijderen">×</button>
                 )}
                 {canEdit && !busy && (
-                  <button onClick={() => removePlayer(p.id, p.name)} className="text-xs font-bold" style={{ color: '#A8BEF0' }} title="Speler verwijderen">🗑</button>
+                  <button onClick={() => removePlayer(p.id, p.name)} className="text-xs font-bold" style={{ color: 'var(--brand-a8bef0)' }} title="Speler verwijderen">🗑</button>
                 )}
               </div>
             )
@@ -3193,11 +3654,11 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
       )}
       {canEdit && (
         <div className="flex gap-2 mt-3">
-          <input className="flex-1 rounded-xl px-3 py-2 text-sm" style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }}
+          <input className="flex-1 rounded-xl px-3 py-2 text-sm" style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }}
             value={newName} onChange={e => setNewName(e.target.value)}
             placeholder="Naam nieuwe speler"
             onKeyDown={e => e.key === 'Enter' && addPlayer()} />
-          <button onClick={addPlayer} className="px-4 py-2 rounded-xl font-bold text-white text-lg" style={{ background: '#1A3FAB' }}>+</button>
+          <button onClick={addPlayer} className="px-4 py-2 rounded-xl font-bold text-white text-lg" style={{ background: 'var(--brand-1a3fab)' }}>+</button>
         </div>
       )}
     </div>
@@ -3215,9 +3676,9 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   onBack: () => void
   onHistory: () => void
   gameCount: number
-  onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => void
+  onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => void
 }) {
-  const inputStyle = { border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }
+  const inputStyle = { border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }
   const [firstName, setFirstName] = useState(user?.firstName ?? '')
   const [lastName, setLastName] = useState(user?.lastName ?? '')
   const [role, setRole] = useState(user?.role ?? '')
@@ -3264,12 +3725,11 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null)
 
   return (
-    <div className="min-h-screen" style={{ background: '#EEF3FF' }}>
-      <header style={{ background: '#0D2B7A' }} className="text-white sticky top-0 z-20 shadow-lg">
+    <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
+      <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
           <div className="flex items-center gap-4">
-            <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: '#7B9DE0' }}>← Terug</button>
-            <SCMuidenLogo size={32} />
+            <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>← Terug</button>
             <h1 className="font-display text-2xl font-bold uppercase tracking-widest">Profiel</h1>
           </div>
           <div className="flex justify-center">
@@ -3280,9 +3740,9 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-8">
-        <section className="bg-white rounded-2xl p-6 shadow-sm" style={{ border: '1px solid #D0DCFA' }}>
+        <section className="bg-white rounded-2xl p-6 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
           {loading ? (
-            <p className="text-sm text-center py-6" style={{ color: '#A8BEF0' }}>Laden…</p>
+            <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Laden…</p>
           ) : user ? (
             <div className="space-y-5">
               <div className="flex items-start justify-between gap-4">
@@ -3293,7 +3753,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                       <img src={user.picture} alt="" className="w-16 h-16 rounded-full object-cover" referrerPolicy="no-referrer" />
                     ) : (
                       <div className="w-16 h-16 rounded-full flex items-center justify-center text-white font-bold text-xl"
-                        style={{ background: '#1A3FAB' }}>
+                        style={{ background: 'var(--brand-1a3fab)' }}>
                         {initials(user.name ?? user.email)}
                       </div>
                     )}
@@ -3305,8 +3765,8 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                   <input ref={photoInputRef} type="file" accept="image/*" className="hidden"
                     onChange={e => { pickPhoto(e.target.files?.[0]); e.target.value = '' }} />
                   <div className="min-w-0">
-                    <div className="font-display font-bold text-lg truncate" style={{ color: '#0D2B7A' }}>{user.name ?? user.email}</div>
-                    <div className="text-sm truncate" style={{ color: '#7B90C8' }}>{user.email}</div>
+                    <div className="font-display font-bold text-lg truncate" style={{ color: 'var(--brand-0d2b7a)' }}>{user.name ?? user.email}</div>
+                    <div className="text-sm truncate" style={{ color: 'var(--brand-7b90c8)' }}>{user.email}</div>
                   </div>
                 </div>
                 <button onClick={onLogout}
@@ -3315,34 +3775,53 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                   Uitloggen
                 </button>
               </div>
+              {user.defaultClub && (
+                <div className="flex items-center gap-2.5">
+                  <ClubLogo club={user.defaultClub} size={40} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--brand-1a2f6b)' }}>{user.defaultClub}</span>
+                </div>
+              )}
               {photoError && <p className="text-xs font-semibold" style={{ color: '#DC2626' }}>{photoError}</p>}
 
               <div>
-                <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Voorkeursteam</label>
-                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: user.defaultTeam ? '#1A2F6B' : '#7B90C8' }}
+                <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Club</label>
+                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: user.defaultClub ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
+                  value={user.defaultClub ?? ''}
+                  onChange={e => onUpdateProfile({ defaultClub: e.target.value || null })}>
+                  <option value="">Kies club…</option>
+                  {KNHB_CLUBS.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Team</label>
+                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: user.defaultTeam ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
                   value={user.defaultTeam ?? ''}
                   onChange={e => onUpdateProfile({ defaultTeam: e.target.value || null })}>
                   <option value="">Kies team…</option>
-                  {teamNames.map(t => <option key={t} value={t}>{t}</option>)}
+                  {/* teamNames is this club's real roster list — only meaningful for SC
+                      Muiden, the only club this app actually manages rosters for. Any
+                      other club falls back to the generic age-category list. */}
+                  {(user.defaultClub === 'SC Muiden' ? teamNames : GENERIC_TEAM_CATEGORIES).map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
-                <p className="text-xs mt-1.5" style={{ color: '#7B90C8' }}>Wordt automatisch geselecteerd bij het starten van een wedstrijd.</p>
+                <p className="text-xs mt-1.5" style={{ color: 'var(--brand-7b90c8)' }}>Wordt automatisch geselecteerd bij het starten van een wedstrijd.</p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Naam</label>
+                  <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Naam</label>
                   <input className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle}
                     value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="Voornaam" />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Achternaam</label>
+                  <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Achternaam</label>
                   <input className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle}
                     value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Achternaam" />
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: '#6B82B8', letterSpacing: '0.12em' }}>Rol</label>
-                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: role ? '#1A2F6B' : '#7B90C8' }}
+                <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Rol</label>
+                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: role ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
                   value={role} onChange={e => setRole(e.target.value)}>
                   <option value="">Kies rol…</option>
                   {ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
@@ -3351,28 +3830,28 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
               <div className="flex items-center gap-3">
                 <button onClick={saveDetails}
                   className="px-4 py-2.5 rounded-xl font-bold text-sm text-white"
-                  style={{ background: '#1A3FAB' }}>
+                  style={{ background: 'var(--brand-1a3fab)' }}>
                   Opslaan
                 </button>
                 {saved && <span className="text-sm font-semibold" style={{ color: '#16A34A' }}>Opgeslagen!</span>}
               </div>
 
-              <button onClick={onHistory} className="text-sm font-medium hover:underline" style={{ color: '#1A3FAB' }}>
+              <button onClick={onHistory} className="text-sm font-medium hover:underline" style={{ color: 'var(--brand-1a3fab)' }}>
                 {gameCount} opgeslagen wedstrijd{gameCount !== 1 ? 'en' : ''} →
               </button>
             </div>
           ) : (
             <div className="space-y-5 text-center py-4">
-              <p className="text-sm" style={{ color: '#6B82B8' }}>
+              <p className="text-sm" style={{ color: 'var(--brand-6b82b8)' }}>
                 Log in om wedstrijden op te slaan en later terug te vinden.
               </p>
               <div className="flex justify-center">
                 <GoogleSignInButton onCredential={onCredential} />
               </div>
               <div className="flex items-center gap-3">
-                <div className="flex-1 h-px" style={{ background: '#E4ECFE' }} />
-                <span className="text-xs font-semibold uppercase" style={{ color: '#A8BEF0' }}>of</span>
-                <div className="flex-1 h-px" style={{ background: '#E4ECFE' }} />
+                <div className="flex-1 h-px" style={{ background: 'var(--brand-e4ecfe)' }} />
+                <span className="text-xs font-semibold uppercase" style={{ color: 'var(--brand-a8bef0)' }}>of</span>
+                <div className="flex-1 h-px" style={{ background: 'var(--brand-e4ecfe)' }} />
               </div>
               <EmailAuthForm onLogin={onLoginPassword} onRegister={onRegister} onResend={onResendVerification} />
             </div>
@@ -3380,11 +3859,11 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
         </section>
 
         {user && user.defaultTeam && (
-          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid #D0DCFA' }}>
-            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-1" style={{ color: '#0D2B7A' }}>
+          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-1" style={{ color: 'var(--brand-0d2b7a)' }}>
               Spelers — {user.defaultTeam}
             </h2>
-            <p className="text-xs mb-4" style={{ color: '#7B90C8' }}>
+            <p className="text-xs mb-4" style={{ color: 'var(--brand-7b90c8)' }}>
               Foto's per speler verschijnen tijdens wedstrijden op het veld en de bank.
             </p>
             <TeamPlayerPhotos team={user.defaultTeam} canEdit={user.role === 'Coach' || user.role === 'Trainer & Coach'} />
@@ -3392,26 +3871,26 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
         )}
 
         {isAdmin && (
-          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid #D0DCFA' }}>
-            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-4" style={{ color: '#0D2B7A' }}>
+          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-4" style={{ color: 'var(--brand-0d2b7a)' }}>
               Beheer — Gebruikers
             </h2>
             {adminLoading ? (
-              <p className="text-sm text-center py-4" style={{ color: '#A8BEF0' }}>Laden…</p>
+              <p className="text-sm text-center py-4" style={{ color: 'var(--brand-a8bef0)' }}>Laden…</p>
             ) : adminError ? (
               <p className="text-sm font-semibold" style={{ color: '#DC2626' }}>{adminError}</p>
             ) : adminUsers.length === 0 ? (
-              <p className="text-sm" style={{ color: '#7B90C8' }}>Nog geen gebruikers.</p>
+              <p className="text-sm" style={{ color: 'var(--brand-7b90c8)' }}>Nog geen gebruikers.</p>
             ) : (
               <div className="space-y-2">
                 {adminUsers.map(u => (
-                  <div key={u.id} className="p-3 rounded-xl" style={{ border: '1px solid #E8EFFD', background: '#F8FAFF' }}>
+                  <div key={u.id} className="p-3 rounded-xl" style={{ border: '1px solid var(--brand-e8effd)', background: 'var(--brand-f8faff)' }}>
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="text-sm font-bold truncate" style={{ color: '#1A2F6B' }}>
+                        <div className="text-sm font-bold truncate" style={{ color: 'var(--brand-1a2f6b)' }}>
                           {[u.firstName, u.lastName].filter(Boolean).join(' ') || u.name || u.email}
                         </div>
-                        <div className="text-xs truncate" style={{ color: '#7B90C8' }}>{u.email}</div>
+                        <div className="text-xs truncate" style={{ color: 'var(--brand-7b90c8)' }}>{u.email}</div>
                       </div>
                       <div className="flex gap-2 shrink-0">
                         {u.id !== user?.id && u.email.toLowerCase() !== ADMIN_EMAIL && (
@@ -3421,8 +3900,8 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                           }}
                             className="text-xs font-bold px-2.5 py-1.5 rounded-lg"
                             style={u.isAdmin
-                              ? { color: '#7B90C8', border: '1px solid #D0DCFA' }
-                              : { color: '#1A3FAB', border: '1px solid #A8BEF0' }}>
+                              ? { color: 'var(--brand-7b90c8)', border: '1px solid var(--brand-d0dcfa)' }
+                              : { color: 'var(--brand-1a3fab)', border: '1px solid var(--brand-a8bef0)' }}>
                             {u.isAdmin ? 'Beheerder verwijderen' : 'Maak beheerder'}
                           </button>
                         )}
@@ -3444,16 +3923,16 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                         </span>
                       )}
                       {u.defaultTeam && (
-                        <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#EEF3FF', color: '#1A3FAB' }}>
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
                           {u.defaultTeam}
                         </span>
                       )}
                       {u.role && (
-                        <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#EEF3FF', color: '#1A3FAB' }}>
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
                           {u.role}
                         </span>
                       )}
-                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#EEF3FF', color: '#1A3FAB' }}>
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
                         {u.gameCount} wedstrijd{u.gameCount !== 1 ? 'en' : ''}
                       </span>
                       <span className="text-xs px-2 py-0.5 rounded-full font-medium"
@@ -3462,7 +3941,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                           : { background: '#FEF3C7', color: '#D97706' }}>
                         {u.emailVerified ? 'Geverifieerd' : 'Niet geverifieerd'}
                       </span>
-                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#EEF3FF', color: '#1A3FAB' }}>
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
                         {u.hasPassword ? 'E-mail/wachtwoord' : 'Google'}
                       </span>
                     </div>
@@ -3474,25 +3953,25 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
         )}
 
         {isAdmin && (
-          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid #D0DCFA' }}>
-            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-4" style={{ color: '#0D2B7A' }}>
+          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-4" style={{ color: 'var(--brand-0d2b7a)' }}>
               Beheer — Teams
             </h2>
             {adminTeamsLoading ? (
-              <p className="text-sm text-center py-4" style={{ color: '#A8BEF0' }}>Laden…</p>
+              <p className="text-sm text-center py-4" style={{ color: 'var(--brand-a8bef0)' }}>Laden…</p>
             ) : adminTeamsError ? (
               <p className="text-sm font-semibold" style={{ color: '#DC2626' }}>{adminTeamsError}</p>
             ) : (
               <div className="space-y-2">
                 {adminTeams.length === 0 && (
-                  <p className="text-sm" style={{ color: '#7B90C8' }}>Nog geen teams.</p>
+                  <p className="text-sm" style={{ color: 'var(--brand-7b90c8)' }}>Nog geen teams.</p>
                 )}
                 {adminTeams.map(t => (
-                  <div key={t.id} className="rounded-xl overflow-hidden" style={{ border: '1px solid #E8EFFD', background: '#F8FAFF' }}>
+                  <div key={t.id} className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--brand-e8effd)', background: 'var(--brand-f8faff)' }}>
                     <div className="flex items-center gap-2 p-2.5">
-                      <span className="flex-1 text-sm font-semibold truncate px-1" style={{ color: '#1A2F6B' }}>{t.name}</span>
+                      <span className="flex-1 text-sm font-semibold truncate px-1" style={{ color: 'var(--brand-1a2f6b)' }}>{t.name}</span>
                       <button onClick={() => setExpandedTeamId(id => id === t.id ? null : t.id)}
-                        className="text-xs font-bold px-2.5 py-1.5 rounded-lg shrink-0" style={{ color: '#1A3FAB', border: '1px solid #D0DCFA' }}>
+                        className="text-xs font-bold px-2.5 py-1.5 rounded-lg shrink-0" style={{ color: 'var(--brand-1a3fab)', border: '1px solid var(--brand-d0dcfa)' }}>
                         {expandedTeamId === t.id ? 'Sluiten' : 'Aanpassen'}
                       </button>
                       <button onClick={() => {
@@ -3506,8 +3985,8 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                     {expandedTeamId === t.id && (
                       <div className="px-2.5 pb-2.5 space-y-3">
                         <div>
-                          <label className="text-xs font-bold uppercase tracking-wide block mb-1" style={{ color: '#7B90C8' }}>Teamnaam</label>
-                          <input className="w-full text-sm font-semibold rounded-lg px-2 py-1.5" style={{ border: '1.5px solid #D0DCFA', color: '#1A2F6B' }}
+                          <label className="text-xs font-bold uppercase tracking-wide block mb-1" style={{ color: 'var(--brand-7b90c8)' }}>Teamnaam</label>
+                          <input className="w-full text-sm font-semibold rounded-lg px-2 py-1.5" style={{ border: '1.5px solid var(--brand-d0dcfa)', color: 'var(--brand-1a2f6b)' }}
                             defaultValue={t.name} key={`${t.id}-${t.name}`}
                             onBlur={e => { const name = e.target.value.trim(); if (name && name !== t.name) renameTeam(t.id, name) }} />
                         </div>
@@ -3519,12 +3998,12 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
               </div>
             )}
             <div className="flex gap-2 mt-3">
-              <input className="flex-1 rounded-xl px-3 py-2 text-sm" style={{ border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }}
+              <input className="flex-1 rounded-xl px-3 py-2 text-sm" style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }}
                 value={newTeamName} onChange={e => setNewTeamName(e.target.value)}
                 placeholder="Naam nieuw team, bv. MO13-1"
                 onKeyDown={e => { if (e.key === 'Enter' && newTeamName.trim()) { createTeam(newTeamName.trim()); setNewTeamName('') } }} />
               <button onClick={() => { if (newTeamName.trim()) { createTeam(newTeamName.trim()); setNewTeamName('') } }}
-                className="px-4 py-2 rounded-xl font-bold text-white text-lg" style={{ background: '#1A3FAB' }}>+</button>
+                className="px-4 py-2 rounded-xl font-bold text-white text-lg" style={{ background: 'var(--brand-1a3fab)' }}>+</button>
             </div>
           </section>
         )}
@@ -3543,6 +4022,7 @@ interface AuthUser {
   name: string | null
   picture: string | null
   defaultTeam: string | null
+  defaultClub: string | null
   firstName: string | null
   lastName: string | null
   role: string | null
@@ -3623,7 +4103,7 @@ function useAuth() {
   // Persists profile fields (team preference, name, role, photo) so they're
   // available next time this coach logs in, on any device. Only the fields
   // passed in are changed — the API leaves the rest untouched.
-  const updateProfile = useCallback(async (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => {
+  const updateProfile = useCallback(async (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => {
     const res = await fetch('/api/auth/me', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -3686,7 +4166,7 @@ function EmailAuthForm({ onLogin, onRegister, onResend }: {
   onRegister: (email: string, password: string, name: string) => Promise<{ ok: true } | { ok: false; error: string }>
   onResend: (email: string) => Promise<void>
 }) {
-  const inputStyle = { border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }
+  const inputStyle = { border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -3738,12 +4218,12 @@ function EmailAuthForm({ onLogin, onRegister, onResend }: {
       <div className="flex gap-2 justify-center">
         <button onClick={() => switchMode('login')}
           className="text-xs font-bold uppercase px-3 py-1.5 rounded-lg"
-          style={{ color: mode === 'login' ? '#fff' : '#1A3FAB', background: mode === 'login' ? '#1A3FAB' : '#EEF3FF' }}>
+          style={{ color: mode === 'login' ? '#fff' : 'var(--brand-1a3fab)', background: mode === 'login' ? 'var(--brand-1a3fab)' : 'var(--brand-eef3ff)' }}>
           Inloggen
         </button>
         <button onClick={() => switchMode('register')}
           className="text-xs font-bold uppercase px-3 py-1.5 rounded-lg"
-          style={{ color: mode === 'register' ? '#fff' : '#1A3FAB', background: mode === 'register' ? '#1A3FAB' : '#EEF3FF' }}>
+          style={{ color: mode === 'register' ? '#fff' : 'var(--brand-1a3fab)', background: mode === 'register' ? 'var(--brand-1a3fab)' : 'var(--brand-eef3ff)' }}>
           Registreren
         </button>
       </div>
@@ -3760,14 +4240,14 @@ function EmailAuthForm({ onLogin, onRegister, onResend }: {
       {error && <p className="text-xs font-semibold" style={{ color: '#DC2626' }}>{error}</p>}
       {info && <p className="text-xs font-semibold" style={{ color: '#16A34A' }}>{info}</p>}
       {showResend && (
-        <button onClick={resend} disabled={busy} className="text-xs font-bold" style={{ color: '#1A3FAB' }}>
+        <button onClick={resend} disabled={busy} className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>
           Verificatie-e-mail opnieuw versturen
         </button>
       )}
 
       <button onClick={submit} disabled={busy || !email || !password}
         className="w-full px-4 py-2.5 rounded-xl font-bold text-sm text-white disabled:opacity-50"
-        style={{ background: '#1A3FAB' }}>
+        style={{ background: 'var(--brand-1a3fab)' }}>
         {mode === 'register' ? 'Account aanmaken' : 'Inloggen'}
       </button>
     </div>
@@ -3902,7 +4382,7 @@ function GameShareManager({ shares, onAdd, onRemove }: {
   onAdd: (email: string, permission: 'view' | 'edit') => Promise<{ ok: true } | { ok: false; error: string }>
   onRemove: (userId: string) => void
 }) {
-  const inputStyle = { border: '1.5px solid #D0DCFA', background: '#F8FAFF', outline: 'none' }
+  const inputStyle = { border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }
   const allUsers = useAllUsers()
   const sharedIds = new Set(shares.map(s => s.userId))
   const available = allUsers.filter(u => !sharedIds.has(u.id))
@@ -3925,7 +4405,7 @@ function GameShareManager({ shares, onAdd, onRemove }: {
     <div>
       <div className="space-y-2">
         <select className="w-full min-w-0 rounded-xl px-3 py-2 text-sm"
-          style={{ ...inputStyle, color: userId ? '#1A2F6B' : '#7B90C8' }}
+          style={{ ...inputStyle, color: userId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
           value={userId} onChange={e => setUserId(e.target.value)}>
           <option value="">Kies gebruiker…</option>
           {available.map(u => <option key={u.id} value={u.id}>{u.name ?? u.email}</option>)}
@@ -3938,22 +4418,22 @@ function GameShareManager({ shares, onAdd, onRemove }: {
           </select>
           <button onClick={submit} disabled={busy || !userId}
             className="px-3 py-2 rounded-xl font-bold text-white text-sm shrink-0 disabled:opacity-50"
-            style={{ background: '#1A3FAB' }}>
+            style={{ background: 'var(--brand-1a3fab)' }}>
             Delen
           </button>
         </div>
       </div>
       {available.length === 0 && (
-        <p className="text-xs mt-1" style={{ color: '#A8BEF0' }}>Geen andere gebruikers gevonden om mee te delen.</p>
+        <p className="text-xs mt-1" style={{ color: 'var(--brand-a8bef0)' }}>Geen andere gebruikers gevonden om mee te delen.</p>
       )}
       {error && <p className="text-xs font-semibold mt-1" style={{ color: '#DC2626' }}>{error}</p>}
       {shares.length > 0 && (
         <div className="mt-2 space-y-1">
           {shares.map(s => (
             <div key={s.userId} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-              style={{ background: '#F8FAFF', border: '1px solid #E8EFFD' }}>
-              <span style={{ color: '#1A2F6B' }}>
-                {s.name ?? s.email} <span style={{ color: '#7B90C8' }}>· {s.permission === 'edit' ? 'Bewerken' : 'Bekijken'}</span>
+              style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+              <span style={{ color: 'var(--brand-1a2f6b)' }}>
+                {s.name ?? s.email} <span style={{ color: 'var(--brand-7b90c8)' }}>· {s.permission === 'edit' ? 'Bewerken' : 'Bekijken'}</span>
               </span>
               <button onClick={() => onRemove(s.userId)} className="font-bold" style={{ color: '#DC2626' }}>×</button>
             </div>
@@ -4097,7 +4577,7 @@ function SplashScreen({ onContinue }: { onContinue: () => void }) {
         style={{ opacity: visible ? 1 : 0, transition: 'opacity 0.4s ease-out' }} />
       <button onClick={onContinue}
         className="text-sm font-bold uppercase italic"
-        style={{ color: '#2563EB', letterSpacing: '0.15em', opacity: visible ? 1 : 0, transition: 'opacity 0.4s ease-out' }}>
+        style={{ color: 'var(--brand-2563eb)', letterSpacing: '0.15em', opacity: visible ? 1 : 0, transition: 'opacity 0.4s ease-out' }}>
         Continue →
       </button>
     </div>
@@ -4119,6 +4599,22 @@ export default function App() {
   const [editingGame, setEditingGame] = useState<SavedGame | null>(null)
   const { user, loading: authLoading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, logout, updateProfile } = useAuth()
   const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user)
+
+  // Recolors the app to the selected club's logo — see applyClubTheme/
+  // extractDominantHue above. Runs before the splash early-return so it
+  // still fires on the very first render a club is known, not just after.
+  useEffect(() => {
+    const club = user?.defaultClub
+    const src = club ? CLUB_LOGOS[club] : null
+    if (!src) { clearClubTheme(); return }
+    let cancelled = false
+    extractDominantHue(mediaSrc(src)).then(hue => {
+      if (cancelled) return
+      if (hue == null) clearClubTheme()
+      else applyClubTheme(hue)
+    })
+    return () => { cancelled = true }
+  }, [user?.defaultClub])
 
   if (showSplash) return <SplashScreen onContinue={dismissSplash} />
 
