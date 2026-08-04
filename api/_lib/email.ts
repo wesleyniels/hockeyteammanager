@@ -35,3 +35,37 @@ export async function sendVerificationEmail(to: string, name: string | null, ver
     throw new Error(`Resend request failed (${res.status}): ${body}`)
   }
 }
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+// Fired off best-effort whenever a new account is created (password
+// registration or first-time Google sign-in) — name/email come from the new
+// user, hence the escaping, since they end up straight in the admins' inbox.
+export async function sendNewRegistrationEmail(adminEmails: string[], newUserEmail: string, newUserName: string | null) {
+  if (adminEmails.length === 0) return
+
+  const apiKey = process.env.RESEND_API_KEY
+  const from = process.env.EMAIL_FROM
+  if (!apiKey || !from) throw new Error('Resend is not configured (RESEND_API_KEY / EMAIL_FROM)')
+
+  const who = newUserName ? `${escapeHtml(newUserName)} (${escapeHtml(newUserEmail)})` : escapeHtml(newUserEmail)
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px; color: #1A2F6B;">
+      <h1 style="color: #0D2B7A; font-size: 20px; margin: 0 0 16px;">Hockey One</h1>
+      <p style="font-size: 14px; line-height: 1.6;">Er heeft zich een nieuw account geregistreerd:</p>
+      <p style="font-size: 14px; line-height: 1.6; font-weight: bold;">${who}</p>
+    </div>
+  `
+
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from, to: adminEmails, subject: 'Nieuwe registratie — Hockey One', html }),
+  })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Resend request failed (${res.status}): ${body}`)
+  }
+}
