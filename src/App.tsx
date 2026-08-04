@@ -2183,6 +2183,12 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
             )}
           </div>
 
+          {!user && (
+            <p className="text-xs text-center mt-2" style={{ color: '#A8BEF0' }}>
+              Log in om deze wedstrijd te kunnen opslaan.
+            </p>
+          )}
+
           {selectedFieldPos && (
             <div className="flex gap-2 mt-2" onClick={e => e.stopPropagation()}>
               {slots.find(s => s.posId === selectedFieldPos)?.playerId && (
