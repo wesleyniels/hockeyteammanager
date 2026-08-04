@@ -1458,9 +1458,14 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
               <option value="">Kies club tegenstander…</option>
               {KNHB_CLUBS.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
-            <input type="text" className="w-full rounded-xl px-3 py-2.5 text-sm mt-2" style={inputStyle}
-              value={opponentTeam} onChange={e => setOpponentTeam(e.target.value)}
-              placeholder="Teamnaam (bijv. MO11-1 of JO9-Blauw)" />
+            {/* Always the generic category list, even when the opponent club is SC
+                Muiden — that roster is for the coach's own team, not for naming
+                whichever of their teams happens to be the opponent here. */}
+            <select className="w-full rounded-xl px-3 py-2.5 text-sm mt-2" style={{ ...inputStyle, color: opponentTeam ? '#1A2F6B' : '#7B90C8' }}
+              value={opponentTeam} onChange={e => setOpponentTeam(e.target.value)}>
+              <option value="">Kies teamnaam tegenstander…</option>
+              {GENERIC_TEAM_CATEGORIES.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
           </div>
           <div className="flex gap-3">
             {(['Thuis', 'Uit'] as const).map(ha => (
@@ -3333,7 +3338,10 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                   value={user.defaultTeam ?? ''}
                   onChange={e => onUpdateProfile({ defaultTeam: e.target.value || null })}>
                   <option value="">Kies team…</option>
-                  {teamNames.map(t => <option key={t} value={t}>{t}</option>)}
+                  {/* teamNames is this club's real roster list — only meaningful for SC
+                      Muiden, the only club this app actually manages rosters for. Any
+                      other club falls back to the generic age-category list. */}
+                  {(user.defaultClub === 'SC Muiden' ? teamNames : GENERIC_TEAM_CATEGORIES).map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
                 <p className="text-xs mt-1.5" style={{ color: '#7B90C8' }}>Wordt automatisch geselecteerd bij het starten van een wedstrijd.</p>
               </div>
