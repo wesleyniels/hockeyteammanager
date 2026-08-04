@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { del as delBlob } from '@vercel/blob'
 import { sql, ensureSchema } from '../_lib/db.js'
 import { getSessionFromCookies, type SessionUser } from '../_lib/session.js'
-import { isAdminEmail } from '../_lib/admin.js'
+import { isAdmin } from '../_lib/admin.js'
 import { randomUUID } from '../_lib/crypto.js'
 import { slugify } from '../_lib/slug.js'
 import { isCoachOfTeamName, canEditPlayer } from '../_lib/team-access.js'
@@ -15,12 +15,6 @@ function blobToken(): string | undefined {
   return process.env.BLOB_READ_WRITE_TOKEN
     ?? process.env.TEST_BLOB_READ_WRITE_TOKEN
     ?? process.env.PROD_BLOB_READ_WRITE_TOKEN
-}
-
-async function isAdmin(user: SessionUser): Promise<boolean> {
-  if (isAdminEmail(user.email)) return true
-  const rows = await sql`SELECT is_admin FROM users WHERE id = ${user.id}`
-  return rows[0]?.is_admin === true
 }
 
 // Any authenticated user can see team names and rosters/photos — matches the

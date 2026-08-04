@@ -5,15 +5,17 @@ import { handleUpload, type HandleUploadBody } from '@vercel/blob/client'
 import { getSessionFromCookies, type SessionUser } from '../_lib/session.js'
 import { ensureSchema } from '../_lib/db.js'
 import { canEditPlayer } from '../_lib/team-access.js'
+import { isAdmin } from '../_lib/admin.js'
 
 // Player-photo pathnames are players/{playerId}/photo.ext, where playerId is
 // a server-generated team_players.id (not derivable from any public data —
 // unlike the earlier team+name-slug scheme this replaced), so there's no
 // enumeration risk in allowOverwrite here. The upload/delete UI already
-// hides itself from non-coaches, but that's cosmetic only — this check is
-// what actually stops another authenticated account from overwriting or
-// deleting a different team's player photos.
+// hides itself from non-coaches/non-admins, but that's cosmetic only — this
+// check is what actually stops another authenticated account from
+// overwriting or deleting a different team's player photos.
 async function canEditPlayerPhoto(user: SessionUser, pathname: string): Promise<boolean> {
+  if (await isAdmin(user)) return true
   const playerId = pathname.split('/')[1]
   return !!playerId && canEditPlayer(user, playerId)
 }
