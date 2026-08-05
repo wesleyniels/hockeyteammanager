@@ -30,8 +30,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'POST') {
     const game = req.body
     if (!game?.id) { res.status(400).json({ error: 'Missing id' }); return }
-    await sql`INSERT INTO games (id, data, user_id) VALUES (${game.id}, ${JSON.stringify(game)}::jsonb, ${user.id})`
-    res.status(201).json({ ...game, ownerId: user.id, permission: 'owner' })
+    const safeGame = JSON.parse(JSON.stringify(game))
+    await sql`INSERT INTO games (id, data, user_id) VALUES (${safeGame.id}, ${JSON.stringify(safeGame)}::jsonb, ${user.id})`
+    res.status(201).json({ ...safeGame, ownerId: user.id, permission: 'owner' })
     return
   }
 
