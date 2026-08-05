@@ -1683,6 +1683,7 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
 }) {
   const [club, setClub] = useLS('fh_club', '')
   const [team, setTeam] = useLS('fh_team', '')
+  const [teamSuffix, setTeamSuffix] = useState('')
   const [teamNames, setTeamNames] = useState<string[]>([])
   const ageGroup = team ? ageGroupFromTeamName(team) : 'U7'
   const [opponent, setOpponent] = useState('')
@@ -1801,6 +1802,10 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
   const minPlayers = AGE_CONFIG[ageGroup].total
   // e.g. "MO11" + "Wit" -> "MO11-Wit", matching the real MO11-1/JO9-Blauw style names.
   const opponentTeamFull = [opponentTeam, opponentTeamSuffix.trim()].filter(Boolean).join('-')
+  // Logged-in users already pick the full official team name from the roster
+  // dropdown; only logged-out users pick a bare generic category and need the
+  // suffix to name their own team as specifically as the opponent's.
+  const teamFull = user ? team : [team, teamSuffix.trim()].filter(Boolean).join('-')
   const canStart = club && team && (opponent || opponentTeamFull)
 
   const inputStyle = { border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }
@@ -1886,11 +1891,16 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
                   {(user ? teamNames : GENERIC_TEAM_CATEGORIES).map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
                 {!user && (
-                  <p className="text-xs mt-1.5" style={{ color: 'var(--brand-7b90c8)' }}>
-                    Dit is een algemene categorie zonder spelerslijst.{' '}
-                    <button onClick={onProfile} className="font-bold" style={{ color: 'var(--brand-1a3fab)' }}>Log in</button>
-                    {' '}voor de officiële teamnamen en spelerslijst.
-                  </p>
+                  <>
+                    <input type="text" className="w-full rounded-xl px-3 py-2.5 text-sm mt-2" style={inputStyle}
+                      value={teamSuffix} onChange={e => setTeamSuffix(e.target.value)}
+                      placeholder="Toevoeging (bijv. Wit, 1, 2)" />
+                    <p className="text-xs mt-1.5" style={{ color: 'var(--brand-7b90c8)' }}>
+                      Dit is een algemene categorie zonder spelerslijst.{' '}
+                      <button onClick={onProfile} className="font-bold" style={{ color: 'var(--brand-1a3fab)' }}>Log in</button>
+                      {' '}voor de officiële teamnamen en spelerslijst.
+                    </p>
+                  </>
                 )}
                 {team && (
                   <>
@@ -2001,7 +2011,7 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
 
         <button
           disabled={!canStart}
-          onClick={() => onStart({ club, team, ageGroup, opponent: [opponent, opponentTeamFull].filter(Boolean).join(' '), homeAway, squad })}
+          onClick={() => onStart({ club, team: teamFull, ageGroup, opponent: [opponent, opponentTeamFull].filter(Boolean).join(' '), homeAway, squad })}
           className="w-full py-4 rounded-2xl font-display text-xl font-bold uppercase tracking-widest text-white shadow-lg"
           style={{ background: canStart ? 'var(--brand-1a3fab)' : 'var(--brand-b8c8f0)', cursor: canStart ? 'pointer' : 'not-allowed' }}>
           Wedstrijd starten →
