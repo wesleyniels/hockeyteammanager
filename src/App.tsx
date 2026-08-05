@@ -1687,6 +1687,7 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
   const ageGroup = team ? ageGroupFromTeamName(team) : 'U7'
   const [opponent, setOpponent] = useState('')
   const [opponentTeam, setOpponentTeam] = useState('')
+  const [opponentTeamSuffix, setOpponentTeamSuffix] = useState('')
   const [homeAway, setHomeAway] = useState<'Thuis' | 'Uit'>('Thuis')
   const [squad, setSquad] = useLS<Player[]>('fh_squad', [])
   const [newName, setNewName] = useState('')
@@ -1798,7 +1799,9 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
   }, [team])
 
   const minPlayers = AGE_CONFIG[ageGroup].total
-  const canStart = club && team && (opponent || opponentTeam.trim())
+  // e.g. "MO11" + "Wit" -> "MO11-Wit", matching the real MO11-1/JO9-Blauw style names.
+  const opponentTeamFull = [opponentTeam, opponentTeamSuffix.trim()].filter(Boolean).join('-')
+  const canStart = club && team && (opponent || opponentTeamFull)
 
   const inputStyle = { border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }
 
@@ -1914,14 +1917,18 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
               <option value="">Kies club tegenstander…</option>
               {KNHB_CLUBS.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
+            <label className="block text-xs font-bold uppercase mb-1.5 mt-3" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Teamnaam</label>
             {/* Always the generic category list, even when the opponent club is SC
                 Muiden — that roster is for the coach's own team, not for naming
                 whichever of their teams happens to be the opponent here. */}
-            <select className="w-full rounded-xl px-3 py-2.5 text-sm mt-2" style={{ ...inputStyle, color: opponentTeam ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
+            <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: opponentTeam ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
               value={opponentTeam} onChange={e => setOpponentTeam(e.target.value)}>
               <option value="">Kies teamnaam tegenstander…</option>
               {GENERIC_TEAM_CATEGORIES.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
+            <input type="text" className="w-full rounded-xl px-3 py-2.5 text-sm mt-2" style={inputStyle}
+              value={opponentTeamSuffix} onChange={e => setOpponentTeamSuffix(e.target.value)}
+              placeholder="Toevoeging (bijv. Wit, 1, 2)" />
           </div>
           <div className="flex gap-3">
             {(['Thuis', 'Uit'] as const).map(ha => (
@@ -1994,7 +2001,7 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
 
         <button
           disabled={!canStart}
-          onClick={() => onStart({ club, team, ageGroup, opponent: [opponent, opponentTeam.trim()].filter(Boolean).join(' '), homeAway, squad })}
+          onClick={() => onStart({ club, team, ageGroup, opponent: [opponent, opponentTeamFull].filter(Boolean).join(' '), homeAway, squad })}
           className="w-full py-4 rounded-2xl font-display text-xl font-bold uppercase tracking-widest text-white shadow-lg"
           style={{ background: canStart ? 'var(--brand-1a3fab)' : 'var(--brand-b8c8f0)', cursor: canStart ? 'pointer' : 'not-allowed' }}>
           Wedstrijd starten →
