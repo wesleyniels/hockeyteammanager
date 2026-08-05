@@ -33,5 +33,10 @@
     "typescript": "^5.9.3",
     "vercel": "^58.5.1",
     "vite": "^8.2.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "tar": "^7.5.22"
+    }
   }
 }
