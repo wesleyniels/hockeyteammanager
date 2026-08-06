@@ -16,7 +16,13 @@ import { getAdminEmails } from '../_lib/admin.js'
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID)
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+// The domain part is a repeated (label + literal dot) rather than a single
+// [^\s@]+\.[^\s@]+ — the old shape let both quantifiers match across the
+// same dots with no way to tell them apart, which is quadratic-time on a
+// crafted input (confirmed: ~40k chars took ~0.9s, scaling as n²) on this
+// unauthenticated register/login endpoint. Each label here is anchored by
+// an excluded '.', so there's exactly one way to parse it — no backtracking.
+const EMAIL_RE = /^[^\s@]+@([^\s@.]+\.)+[^\s@]+$/
 const MAX_PICTURE_LENGTH = 2_000_000 // ~1.5MB decoded — the client resizes photos well below this
 
 function originOf(req: VercelRequest): string {
