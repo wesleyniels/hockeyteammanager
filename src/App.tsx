@@ -4971,13 +4971,15 @@ function MessagesView({ user, onBack, onProfile, onRefreshUnread }: {
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
-          <button onClick={activeId ? closeThread : onBack} className="text-sm font-semibold shrink-0 justify-self-start" style={{ color: 'var(--brand-7b9de0)' }}>
-            ← {activeId ? 'Berichten' : 'Terug'}
-          </button>
+          <div className="shrink-0 justify-self-start">
+            <ClubLogo club={user.defaultClub ?? ''} size={28} />
+          </div>
           <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">
             {activeId ? activeName : 'Berichten'}
           </h1>
-          <div />
+          <button onClick={activeId ? closeThread : onBack} className="text-sm font-semibold shrink-0 justify-self-end" style={{ color: 'var(--brand-7b9de0)' }}>
+            ← {activeId ? 'Berichten' : 'Terug'}
+          </button>
         </div>
       </header>
 
