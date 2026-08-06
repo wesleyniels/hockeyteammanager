@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { sql, ensureSchema } from '../_lib/db.js'
 import { getSessionFromCookies } from '../_lib/session.js'
 import { isAdminEmail } from '../_lib/admin.js'
+import { createNotification } from '../_lib/notifications.js'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   await ensureSchema()
@@ -50,6 +51,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!id || typeof isAdmin !== 'boolean') { res.status(400).json({ error: 'Missing id or isAdmin' }); return }
     if (id === session.id) { res.status(400).json({ error: 'Je kunt je eigen beheerdersrechten niet aanpassen' }); return }
     await sql`UPDATE users SET is_admin = ${isAdmin} WHERE id = ${id}`
+    // Only on grant, not revoke — losing a permission isn't the kind of
+    // thing this notification type is for (see the feature's own spec).
+    if (isAdmin) await createNotification(id, 'admin-granted', 'Je hebt beheerdersrechten gekregen.')
     res.status(200).json({ ok: true })
     return
   }

@@ -1,6 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { sql, ensureSchema } from './_lib/db.js'
 import { getSessionFromCookies } from './_lib/session.js'
+import { createNotification } from './_lib/notifications.js'
+import { displayName } from './_lib/messages.js'
 
 // Only a game's owner can view/manage who it's shared with — this file
 // checks that on every method rather than trusting the caller.
@@ -45,6 +47,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       INSERT INTO game_shares (game_id, user_id, permission) VALUES (${gameId}, ${target[0].id}, ${permission})
       ON CONFLICT (game_id, user_id) DO UPDATE SET permission = ${permission}
     `
+    const gameRows = await sql`SELECT data FROM games WHERE id = ${gameId}`
+    const gameData = gameRows[0]?.data ?? {}
+    const sharerName = displayName({ email: user.email, name: user.name, first_name: null, last_name: null })
+    const matchLabel = gameData.team && gameData.opponent ? `${gameData.team} vs ${gameData.opponent}` : 'een wedstrijd'
+    await createNotification(target[0].id, 'game-shared', `${sharerName} heeft ${matchLabel} met je gedeeld.`, gameId)
     res.status(200).json({ ok: true })
     return
   }

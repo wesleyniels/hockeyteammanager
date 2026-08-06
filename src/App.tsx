@@ -4,7 +4,7 @@ import { upload as uploadToBlob } from '@vercel/blob/client'
 // ── Types ───────────────────────────────────────────────────────────────────
 
 type AgeGroup = 'U7' | 'U8' | 'U9' | 'U10' | 'U11' | 'U12' | 'U14' | 'U16' | 'U18' | 'Senioren'
-type View = 'setup' | 'game' | 'history' | 'profile'
+type View = 'setup' | 'game' | 'history' | 'profile' | 'messages'
 
 interface Player {
   id: string
@@ -578,6 +578,99 @@ async function fetchTeamRoster(team: string): Promise<RosterPlayer[]> {
   }
 }
 
+// ── Messages & notifications ─────────────────────────────────────────────────
+// Backed by api/messages/[action].ts and api/notifications.ts. Eligibility
+// (who can message whom) is fully re-checked server-side on every send —
+// the contacts list below is a UI convenience, never trusted as the actual
+// authorization.
+
+interface Contact { id: string; name: string; defaultClub: string | null; role: string | null; isHockeyOne: boolean }
+interface Conversation {
+  userId: string; name: string; isHockeyOne: boolean
+  lastMessage: string; lastAt: string; mine: boolean; unreadCount: number
+}
+interface ChatMessage { id: string; senderId: string; body: string; createdAt: string; mine: boolean }
+interface AppNotification { id: string; type: string; body: string; gameId: string | null; createdAt: string; read: boolean }
+
+async function fetchContacts(): Promise<{ contacts: Contact[]; canSend: boolean }> {
+  try {
+    const res = await fetch('/api/messages/contacts')
+    if (!res.ok) return { contacts: [], canSend: false }
+    return await res.json()
+  } catch {
+    return { contacts: [], canSend: false }
+  }
+}
+
+async function fetchConversations(): Promise<Conversation[]> {
+  try {
+    const res = await fetch('/api/messages/conversations')
+    if (!res.ok) return []
+    const { conversations } = await res.json() as { conversations: Conversation[] }
+    return conversations
+  } catch {
+    return []
+  }
+}
+
+async function fetchThread(userId: string): Promise<ChatMessage[]> {
+  try {
+    const res = await fetch(`/api/messages/thread?userId=${encodeURIComponent(userId)}`)
+    if (!res.ok) return []
+    const { messages } = await res.json() as { messages: ChatMessage[] }
+    return messages
+  } catch {
+    return []
+  }
+}
+
+async function sendMessage(recipientId: string, body: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await fetch('/api/messages/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipientId, body }),
+    })
+    if (!res.ok) { const data = await res.json().catch(() => ({})); return { ok: false, error: data.error ?? 'Verzenden mislukt' } }
+    return { ok: true }
+  } catch {
+    return { ok: false, error: 'Verzenden mislukt' }
+  }
+}
+
+async function fetchUnreadMessageCount(): Promise<number> {
+  try {
+    const res = await fetch('/api/messages/unread-count')
+    if (!res.ok) return 0
+    const { count } = await res.json() as { count: number }
+    return count
+  } catch {
+    return 0
+  }
+}
+
+async function fetchNotifications(): Promise<{ notifications: AppNotification[]; unreadCount: number }> {
+  try {
+    const res = await fetch('/api/notifications')
+    if (!res.ok) return { notifications: [], unreadCount: 0 }
+    return await res.json()
+  } catch {
+    return { notifications: [], unreadCount: 0 }
+  }
+}
+
+async function markNotificationRead(id: string): Promise<void> {
+  try {
+    await fetch('/api/notifications', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
+  } catch { /* best-effort */ }
+}
+
+async function markAllNotificationsRead(): Promise<void> {
+  try {
+    await fetch('/api/notifications', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ all: true }) })
+  } catch { /* best-effort */ }
+}
+
 const playerPhotoPathname = (playerId: string) => `players/${playerId}/photo.jpg`
 const p2 = (n: number) => n.toString().padStart(2, '0')
 const fmtSec = (s: number) => `${p2(Math.floor(s / 60))}:${p2(s % 60)}`
@@ -588,6 +681,17 @@ const fmtHM = (s: number) => {
   return h > 0 ? `${h}u ${m}m` : `${m}m`
 }
 const todayStr = () => new Date().toISOString().slice(0, 10)
+function formatRelativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime()
+  const min = Math.round(diffMs / 60000)
+  if (min < 1) return 'nu'
+  if (min < 60) return `${min}m geleden`
+  const hours = Math.round(min / 60)
+  if (hours < 24) return `${hours}u geleden`
+  const days = Math.round(hours / 24)
+  if (days < 7) return `${days}d geleden`
+  return new Date(iso).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })
+}
 const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name
 const initials = (name: string) => name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()
 const sortPlayers = <T extends { number?: number; name: string }>(list: T[]) =>
@@ -3740,7 +3844,7 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
   )
 }
 
-function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword, onResendVerification, onLogout, onBack, onHistory, gameCount, onUpdateProfile }: {
+function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword, onResendVerification, onLogout, onBack, onHistory, onMessages, gameCount, onUpdateProfile }: {
   user: AuthUser | null
   loading: boolean
   onCredential: (credential: string) => void
@@ -3750,6 +3854,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   onLogout: () => void
   onBack: () => void
   onHistory: () => void
+  onMessages: () => void
   gameCount: number
   onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => void
 }) {
@@ -3907,9 +4012,14 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                 {saved && <span className="text-sm font-semibold" style={{ color: '#16A34A' }}>Opgeslagen!</span>}
               </div>
 
-              <button onClick={onHistory} className="text-sm font-medium hover:underline" style={{ color: 'var(--brand-1a3fab)' }}>
-                {gameCount} opgeslagen wedstrijd{gameCount !== 1 ? 'en' : ''} →
-              </button>
+              <div className="flex items-center gap-4">
+                <button onClick={onHistory} className="text-sm font-medium hover:underline" style={{ color: 'var(--brand-1a3fab)' }}>
+                  {gameCount} opgeslagen wedstrijd{gameCount !== 1 ? 'en' : ''} →
+                </button>
+                <button onClick={onMessages} className="text-sm font-medium hover:underline" style={{ color: 'var(--brand-1a3fab)' }}>
+                  Berichtencentrum →
+                </button>
+              </div>
             </div>
           ) : (
             <div className="space-y-5 text-center py-4">
@@ -4375,6 +4485,46 @@ function useRemoteGames(enabled: boolean) {
   return { games, loading, error, addGame, updateGame, deleteGame }
 }
 
+// Polls both unread counts on a plain interval rather than anything
+// real-time (websockets, SSE) — this is a small club app, a ~20s badge
+// delay is an entirely reasonable tradeoff against not running any
+// always-on infrastructure for it.
+function useNotificationCenter(enabled: boolean) {
+  const [unreadMessages, setUnreadMessages] = useState(0)
+  const [notifications, setNotifications] = useState<AppNotification[]>([])
+  const [unreadNotifications, setUnreadNotifications] = useState(0)
+
+  const refresh = useCallback(() => {
+    if (!enabled) return
+    fetchUnreadMessageCount().then(setUnreadMessages)
+    fetchNotifications().then(({ notifications, unreadCount }) => {
+      setNotifications(notifications)
+      setUnreadNotifications(unreadCount)
+    })
+  }, [enabled])
+
+  useEffect(() => {
+    if (!enabled) { setUnreadMessages(0); setNotifications([]); setUnreadNotifications(0); return }
+    refresh()
+    const interval = setInterval(refresh, 20000)
+    return () => clearInterval(interval)
+  }, [enabled, refresh])
+
+  const markRead = useCallback(async (id: string) => {
+    setNotifications(ns => ns.map(n => n.id === id ? { ...n, read: true } : n))
+    setUnreadNotifications(n => Math.max(0, n - 1))
+    await markNotificationRead(id)
+  }, [])
+
+  const markAllRead = useCallback(async () => {
+    setNotifications(ns => ns.map(n => ({ ...n, read: true })))
+    setUnreadNotifications(0)
+    await markAllNotificationsRead()
+  }, [])
+
+  return { unreadMessages, notifications, unreadNotifications, refresh, markRead, markAllRead }
+}
+
 // ── Game sharing ───────────────────────────────────────────────────────────────
 // Management (list/add/remove shares) is owner-only, enforced by the API —
 // gameId is only passed in as non-null when the caller already knows the
@@ -4655,6 +4805,299 @@ function SplashScreen({ onContinue }: { onContinue: () => void }) {
   )
 }
 
+// ── Bottom bar ───────────────────────────────────────────────────────────────
+// Persistent across every logged-in view except the live match (GameView
+// wants the full screen). Notifications open an inline popover here;
+// Messages navigates to its own full view since threads need real space.
+
+function BottomBar({ unreadMessages, unreadNotifications, notifications, onMessages, onMarkRead, onMarkAllRead, onOpenHistory }: {
+  unreadMessages: number
+  unreadNotifications: number
+  notifications: AppNotification[]
+  onMessages: () => void
+  onMarkRead: (id: string) => void
+  onMarkAllRead: () => void
+  onOpenHistory: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    return () => document.removeEventListener('mousedown', onPointerDown)
+  }, [open])
+
+  const badge = (n: number) => n > 0 && (
+    <span className="absolute -top-1.5 -right-2.5 text-[10px] font-bold rounded-full px-1.5 py-0.5 text-white leading-tight" style={{ background: '#DC2626' }}>
+      {n > 9 ? '9+' : n}
+    </span>
+  )
+
+  return (
+    <>
+      {open && (
+        <div ref={panelRef} className="fixed z-40 left-1/2 -translate-x-1/2 w-full max-w-md px-4" style={{ bottom: 76 }}>
+          <div className="rounded-2xl shadow-2xl overflow-hidden bg-white" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--brand-e8effd)' }}>
+              <span className="font-display font-bold uppercase text-sm tracking-wide" style={{ color: 'var(--brand-0d2b7a)' }}>Meldingen</span>
+              {notifications.some(n => !n.read) && (
+                <button onClick={onMarkAllRead} className="text-xs font-semibold" style={{ color: 'var(--brand-1a3fab)' }}>Alles gelezen</button>
+              )}
+            </div>
+            <div className="max-h-80 overflow-y-auto">
+              {notifications.length === 0 ? (
+                <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Geen meldingen</p>
+              ) : (
+                notifications.map(n => (
+                  <button key={n.id} onClick={() => { onMarkRead(n.id); if (n.gameId) { setOpen(false); onOpenHistory() } }}
+                    className="w-full text-left px-4 py-3 text-sm flex items-start gap-2"
+                    style={{ borderBottom: '1px solid var(--brand-f0f5ff)', background: n.read ? 'transparent' : 'var(--brand-f0f5ff)' }}>
+                    {!n.read && <span className="w-2 h-2 rounded-full shrink-0 mt-1.5" style={{ background: 'var(--brand-1a3fab)' }} />}
+                    <span className="flex-1" style={{ color: 'var(--brand-1a2f6b)' }}>
+                      {n.body}
+                      <span className="block text-xs mt-0.5" style={{ color: 'var(--brand-a8bef0)' }}>{formatRelativeTime(n.createdAt)}</span>
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      <div className="fixed bottom-0 left-0 right-0 z-30 shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
+        <div className="max-w-2xl mx-auto grid grid-cols-2">
+          <button onClick={() => setOpen(o => !o)} className="flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-white">
+            <span className="relative text-base">🔔{badge(unreadNotifications)}</span>
+            Meldingen
+          </button>
+          <button onClick={onMessages} className="flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-white" style={{ borderLeft: '1px solid rgba(255,255,255,0.12)' }}>
+            <span className="relative text-base">✉️{badge(unreadMessages)}</span>
+            Berichten
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ── Messages View ────────────────────────────────────────────────────────────
+// Two-pane-in-one: a conversation list (or contact picker, for starting a
+// new one) when no thread is open, and the thread itself when one is.
+// Eligibility (canSend, and who shows up as a contact) always comes from
+// the server — see api/messages/[action].ts — this just renders what it's
+// given.
+
+function MessagesView({ user, onBack, onProfile, onRefreshUnread }: {
+  user: AuthUser | null
+  onBack: () => void
+  onProfile: () => void
+  onRefreshUnread: () => void
+}) {
+  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [loadingConversations, setLoadingConversations] = useState(true)
+  const [contacts, setContacts] = useState<Contact[]>([])
+  const [canSend, setCanSend] = useState(false)
+  const [showContactPicker, setShowContactPicker] = useState(false)
+
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const [activeName, setActiveName] = useState('')
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [loadingThread, setLoadingThread] = useState(false)
+  const [composeText, setComposeText] = useState('')
+  const [sending, setSending] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
+
+  const loadConversations = useCallback(() => {
+    setLoadingConversations(true)
+    fetchConversations().then(cs => { setConversations(cs); setLoadingConversations(false) })
+  }, [])
+
+  useEffect(() => {
+    if (!user) return
+    loadConversations()
+    fetchContacts().then(({ contacts, canSend }) => { setContacts(contacts); setCanSend(canSend) })
+  }, [user, loadConversations])
+
+  const openThread = (id: string, name: string) => {
+    setActiveId(id)
+    setActiveName(name)
+    setShowContactPicker(false)
+    setLoadingThread(true)
+    setSendError(null)
+    fetchThread(id).then(msgs => {
+      setMessages(msgs)
+      setLoadingThread(false)
+      onRefreshUnread()
+      loadConversations()
+    })
+  }
+
+  const closeThread = () => {
+    setActiveId(null)
+    setMessages([])
+    loadConversations()
+  }
+
+  const send = async () => {
+    const body = composeText.trim()
+    if (!body || !activeId) return
+    setSending(true)
+    setSendError(null)
+    const result = await sendMessage(activeId, body)
+    if (result.ok) {
+      setComposeText('')
+      fetchThread(activeId).then(setMessages)
+      loadConversations()
+    } else {
+      setSendError(result.error)
+    }
+    setSending(false)
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-4" style={{ background: 'var(--brand-eef3ff)' }}>
+        <p className="text-sm text-center" style={{ color: 'var(--brand-6b82b8)' }}>Log in om berichten te bekijken en te versturen.</p>
+        <button onClick={onProfile} className="px-4 py-2.5 rounded-xl font-bold text-white text-sm" style={{ background: 'var(--brand-1a3fab)' }}>Inloggen</button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
+      <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
+        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
+          <button onClick={activeId ? closeThread : onBack} className="text-sm font-semibold shrink-0 justify-self-start" style={{ color: 'var(--brand-7b9de0)' }}>
+            ← {activeId ? 'Berichten' : 'Terug'}
+          </button>
+          <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">
+            {activeId ? activeName : 'Berichten'}
+          </h1>
+          <div />
+        </div>
+      </header>
+
+      <div className="max-w-2xl mx-auto px-4 py-6">
+        {activeId ? (
+          <div className="space-y-3">
+            {loadingThread ? (
+              <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Laden…</p>
+            ) : messages.length === 0 ? (
+              <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Nog geen berichten. Stuur de eerste!</p>
+            ) : (
+              messages.map(m => (
+                <div key={m.id} className={`flex ${m.mine ? 'justify-end' : 'justify-start'}`}>
+                  <div className="max-w-[75%] rounded-2xl px-4 py-2.5 text-sm"
+                    style={m.mine
+                      ? { background: 'var(--brand-1a3fab)', color: '#fff' }
+                      : { background: '#fff', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-e8effd)' }}>
+                    <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                    <p className="text-[10px] mt-1" style={{ color: m.mine ? 'rgba(255,255,255,0.7)' : 'var(--brand-a8bef0)' }}>
+                      {formatRelativeTime(m.createdAt)}
+                    </p>
+                  </div>
+                </div>
+              ))
+            )}
+            {sendError && <p className="text-xs font-semibold" style={{ color: '#DC2626' }}>{sendError}</p>}
+            {canSend ? (
+              <div className="flex gap-2 sticky bottom-2 pt-2">
+                <input className="flex-1 rounded-xl px-3 py-2.5 text-sm" style={{ border: '1.5px solid var(--brand-d0dcfa)', background: '#fff', outline: 'none' }}
+                  value={composeText} onChange={e => setComposeText(e.target.value)}
+                  placeholder="Typ een bericht…"
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} />
+                <button onClick={send} disabled={sending || !composeText.trim()}
+                  className="px-4 py-2.5 rounded-xl font-bold text-white text-sm disabled:opacity-50"
+                  style={{ background: 'var(--brand-1a3fab)' }}>
+                  {sending ? '…' : 'Stuur'}
+                </button>
+              </div>
+            ) : (
+              <p className="text-xs text-center py-2" style={{ color: 'var(--brand-a8bef0)' }}>
+                Alleen coaches en trainers kunnen berichten versturen.
+              </p>
+            )}
+          </div>
+        ) : showContactPicker ? (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="font-display text-lg font-bold uppercase" style={{ color: 'var(--brand-0d2b7a)' }}>Nieuw bericht</h2>
+              <button onClick={() => setShowContactPicker(false)} className="text-sm font-semibold" style={{ color: 'var(--brand-1a3fab)' }}>Annuleren</button>
+            </div>
+            {contacts.length === 0 ? (
+              <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>
+                Geen coaches of trainers gevonden om een bericht naar te sturen.
+              </p>
+            ) : (
+              contacts.map(c => (
+                <button key={c.id} onClick={() => openThread(c.id, c.name)}
+                  className="w-full text-left flex items-center gap-3 p-3 rounded-xl"
+                  style={{ background: '#fff', border: '1px solid var(--brand-e8effd)' }}>
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0"
+                    style={{ background: c.isHockeyOne ? 'var(--brand-2563eb)' : 'var(--brand-1a3fab)' }}>
+                    {c.isHockeyOne ? 'H1' : initials(c.name)}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-bold truncate" style={{ color: 'var(--brand-1a2f6b)' }}>{c.name}</div>
+                    <div className="text-xs truncate" style={{ color: 'var(--brand-7b90c8)' }}>{c.role ?? ''}{c.defaultClub ? ` · ${c.defaultClub}` : ''}</div>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="font-display text-lg font-bold uppercase" style={{ color: 'var(--brand-0d2b7a)' }}>Gesprekken</h2>
+              {canSend && (
+                <button onClick={() => setShowContactPicker(true)} className="px-3 py-1.5 rounded-xl font-bold text-white text-sm" style={{ background: 'var(--brand-1a3fab)' }}>
+                  + Nieuw
+                </button>
+              )}
+            </div>
+            {loadingConversations ? (
+              <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Laden…</p>
+            ) : conversations.length === 0 ? (
+              <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>
+                {canSend ? 'Nog geen gesprekken. Start er één met "+ Nieuw".' : 'Nog geen gesprekken.'}
+              </p>
+            ) : (
+              conversations.map(c => (
+                <button key={c.userId} onClick={() => openThread(c.userId, c.name)}
+                  className="w-full text-left flex items-center gap-3 p-3 rounded-xl"
+                  style={{ background: '#fff', border: '1px solid var(--brand-e8effd)' }}>
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0"
+                    style={{ background: c.isHockeyOne ? 'var(--brand-2563eb)' : 'var(--brand-1a3fab)' }}>
+                    {c.isHockeyOne ? 'H1' : initials(c.name)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-sm font-bold truncate" style={{ color: 'var(--brand-1a2f6b)' }}>{c.name}</span>
+                      <span className="text-[11px] shrink-0" style={{ color: 'var(--brand-a8bef0)' }}>{formatRelativeTime(c.lastAt)}</span>
+                    </div>
+                    <div className="text-xs truncate" style={{ color: c.unreadCount > 0 ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', fontWeight: c.unreadCount > 0 ? 700 : 400 }}>
+                      {c.mine ? 'Jij: ' : ''}{c.lastMessage}
+                    </div>
+                  </div>
+                  {c.unreadCount > 0 && (
+                    <span className="text-[10px] font-bold rounded-full px-1.5 py-0.5 text-white shrink-0" style={{ background: '#DC2626' }}>
+                      {c.unreadCount}
+                    </span>
+                  )}
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── App ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -4670,6 +5113,31 @@ export default function App() {
   const [editingGame, setEditingGame] = useState<SavedGame | null>(null)
   const { user, loading: authLoading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, logout, updateProfile } = useAuth()
   const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user)
+  const notif = useNotificationCenter(!!user)
+
+  // The live match view (GameView) gets the full screen to itself — every
+  // other view gets the bar, plus a same-height spacer so the last bit of
+  // real content never sits behind the fixed bar.
+  const showBottomBar = !!user && view !== 'game'
+  const withBottomBar = (content: React.ReactNode) => (
+    <>
+      {content}
+      {showBottomBar && (
+        <>
+          <div style={{ height: 64 }} />
+          <BottomBar
+            unreadMessages={notif.unreadMessages}
+            unreadNotifications={notif.unreadNotifications}
+            notifications={notif.notifications}
+            onMessages={() => setView('messages')}
+            onMarkRead={notif.markRead}
+            onMarkAllRead={notif.markAllRead}
+            onOpenHistory={() => setView('history')}
+          />
+        </>
+      )}
+    </>
+  )
 
   // Recolors the app to the selected club's logo — see applyClubTheme/
   // extractDominantHue above. Runs before the splash early-return so it
@@ -4696,7 +5164,7 @@ export default function App() {
   }
 
   if (view === 'profile')
-    return (
+    return withBottomBar(
       <ProfileView
         user={user}
         loading={authLoading}
@@ -4707,12 +5175,13 @@ export default function App() {
         onLogout={logout}
         onBack={() => setView('setup')}
         onHistory={() => setView('history')}
+        onMessages={() => setView('messages')}
         gameCount={games.length}
         onUpdateProfile={updateProfile}
       />
     )
   if (view === 'history')
-    return (
+    return withBottomBar(
       <HistoryView
         games={games}
         user={user}
@@ -4722,6 +5191,10 @@ export default function App() {
         onEdit={startEdit}
         onProfile={() => setView('profile')}
       />
+    )
+  if (view === 'messages')
+    return withBottomBar(
+      <MessagesView user={user} onBack={() => setView('setup')} onProfile={() => setView('profile')} onRefreshUnread={notif.refresh} />
     )
   if (view === 'game' && gameParams)
     return (
@@ -4733,7 +5206,7 @@ export default function App() {
         onBack={() => { setEditingGame(null); setView('setup') }}
       />
     )
-  return (
+  return withBottomBar(
     <>
       <SetupView
         onStart={p => { setEditingGame(null); setGameParams(p); setView('game') }}

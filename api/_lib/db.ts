@@ -139,6 +139,33 @@ export function ensureSchema() {
       )
     `
     await sql`CREATE INDEX IF NOT EXISTS team_players_team_idx ON team_players (team_id)`
+    await sql`
+      CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY,
+        sender_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        recipient_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        body TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        read_at TIMESTAMPTZ
+      )
+    `
+    await sql`CREATE INDEX IF NOT EXISTS messages_recipient_idx ON messages (recipient_id, read_at)`
+    await sql`CREATE INDEX IF NOT EXISTS messages_pair_idx ON messages (sender_id, recipient_id, created_at)`
+    // game_id is nullable and SET NULL on delete — a notification about a
+    // match that's since been removed should stick around (just without a
+    // working deep link) rather than disappear or block the game's deletion.
+    await sql`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        type TEXT NOT NULL,
+        body TEXT NOT NULL,
+        game_id TEXT REFERENCES games(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        read_at TIMESTAMPTZ
+      )
+    `
+    await sql`CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications (user_id, read_at)`
 
     // A failure here must not take the rest of the app down with it — every
     // route calls ensureSchema(), so an unhandled rejection here would 500
