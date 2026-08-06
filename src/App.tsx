@@ -1672,6 +1672,72 @@ function FormationVariantEditor({ ageGroup, variant, onBack }: { ageGroup: AgeGr
   )
 }
 
+// A plain <select> with 350+ KNHB clubs is scrollable but not searchable —
+// this swaps it for a text input that filters the same option list as you
+// type, while still behaving like a normal controlled value/onChange field.
+function SearchableSelect({ value, onChange, options, placeholder, inputStyle }: {
+  value: string
+  onChange: (value: string) => void
+  options: string[]
+  placeholder: string
+  inputStyle: React.CSSProperties
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    return () => document.removeEventListener('mousedown', onPointerDown)
+  }, [open])
+
+  const filtered = query.trim()
+    ? options.filter(o => o.toLowerCase().includes(query.trim().toLowerCase()))
+    : options
+
+  const pick = (v: string) => { onChange(v); setQuery(''); setOpen(false) }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <input type="text" className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: value ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
+        value={open ? query : value} placeholder={placeholder}
+        onFocus={() => setQuery('')}
+        onChange={e => { setQuery(e.target.value); setOpen(true) }}
+        onClick={() => setOpen(true)}
+        onKeyDown={e => {
+          if (e.key === 'Escape') { setOpen(false); (e.target as HTMLInputElement).blur() }
+          if (e.key === 'Enter' && filtered.length > 0) { e.preventDefault(); pick(filtered[0]) }
+        }} />
+      {open && (
+        <div className="absolute z-20 left-0 right-0 mt-1 max-h-60 overflow-y-auto rounded-xl bg-white shadow-lg py-1"
+          style={{ border: '1.5px solid var(--brand-d0dcfa)' }}>
+          {value && (
+            <button type="button" onClick={() => pick('')}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-[var(--brand-f0f5ff)]" style={{ color: 'var(--brand-7b90c8)' }}>
+              {placeholder}
+            </button>
+          )}
+          {filtered.length === 0 ? (
+            <p className="px-3 py-2 text-sm" style={{ color: 'var(--brand-a8bef0)' }}>Geen resultaten</p>
+          ) : (
+            filtered.map(o => (
+              <button key={o} type="button" onClick={() => pick(o)}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-[var(--brand-f0f5ff)]"
+                style={{ color: 'var(--brand-1a2f6b)', background: o === value ? 'var(--brand-f0f5ff)' : undefined }}>
+                {o}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Setup View ───────────────────────────────────────────────────────────────
 
 function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
@@ -1870,11 +1936,7 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
 
           <div>
             <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Club</label>
-            <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: club ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
-              value={club} onChange={e => setClub(e.target.value)}>
-              <option value="">Kies club…</option>
-              {KNHB_CLUBS.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <SearchableSelect value={club} onChange={setClub} options={KNHB_CLUBS} placeholder="Kies club…" inputStyle={inputStyle} />
           </div>
 
           <div>
@@ -1922,11 +1984,7 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
           <h2 className="font-display text-2xl font-bold uppercase tracking-wide" style={{ color: 'var(--brand-0d2b7a)' }}>Tegenstander</h2>
           <div>
             <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Club</label>
-            <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: opponent ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
-              value={opponent} onChange={e => setOpponent(e.target.value)}>
-              <option value="">Kies club tegenstander…</option>
-              {KNHB_CLUBS.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <SearchableSelect value={opponent} onChange={setOpponent} options={KNHB_CLUBS} placeholder="Kies club tegenstander…" inputStyle={inputStyle} />
             <label className="block text-xs font-bold uppercase mb-1.5 mt-3" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Teamnaam</label>
             {/* Always the generic category list, even when the opponent club is SC
                 Muiden — that roster is for the coach's own team, not for naming
@@ -3802,12 +3860,8 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
 
               <div>
                 <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Club</label>
-                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: user.defaultClub ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
-                  value={user.defaultClub ?? ''}
-                  onChange={e => onUpdateProfile({ defaultClub: e.target.value || null })}>
-                  <option value="">Kies club…</option>
-                  {KNHB_CLUBS.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
+                <SearchableSelect value={user.defaultClub ?? ''} onChange={v => onUpdateProfile({ defaultClub: v || null })}
+                  options={KNHB_CLUBS} placeholder="Kies club…" inputStyle={inputStyle} />
               </div>
 
               <div>
