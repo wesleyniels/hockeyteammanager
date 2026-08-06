@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { sql, ensureSchema } from '../_lib/db.js'
 import { getSessionFromCookies, type SessionUser } from '../_lib/session.js'
 import { randomUUID } from '../_lib/crypto.js'
-import { ELIGIBLE_ROLES, HOCKEY_ONE_EMAIL, canMessage, displayName, isHockeyOne, loadAdminEmailSet, type MessagingUser } from '../_lib/messages.js'
+import { ELIGIBLE_ROLES, HOCKEY_ONE_EMAIL, canMessage, displayName, ensureHockeyOneUser, isHockeyOne, loadAdminEmailSet, type MessagingUser } from '../_lib/messages.js'
 
 // /api/messages/contacts, /api/messages/send, etc. collapsed into one
 // dynamic-segment file — see the comment in api/auth/[action].ts for why
@@ -25,6 +25,10 @@ async function handleContacts(req: VercelRequest, res: VercelResponse, user: Ses
   const me = await loadUser(user.id)
   if (!me) { res.status(401).json({ error: 'Not authenticated' }); return }
 
+  // "Always available" can't wait for that address to have logged in first
+  // — provision it (once, ever) before either branch below queries for it.
+  await ensureHockeyOneUser()
+
   const adminEmails = await loadAdminEmailSet()
   const meIsAdmin = adminEmails.has(me.email.toLowerCase())
   const meEligible = meIsAdmin || ELIGIBLE_ROLES.includes(me.role ?? '')
@@ -38,17 +42,21 @@ async function handleContacts(req: VercelRequest, res: VercelResponse, user: Ses
     return
   }
 
+  // Hockey One is matched by its own email explicitly here — it's a
+  // standalone concept, not something that piggybacks on admin status (it
+  // isn't necessarily in adminEmailList at all).
   const adminEmailList = [...adminEmails]
   const rows = meIsAdmin
     ? await sql`
         SELECT id, email, name, first_name, last_name, default_club, role FROM users
-        WHERE id != ${user.id} AND (lower(email) = ANY(${adminEmailList}::text[]) OR role = ANY(${ELIGIBLE_ROLES}::text[]))
+        WHERE id != ${user.id} AND (lower(email) = ${HOCKEY_ONE_EMAIL} OR lower(email) = ANY(${adminEmailList}::text[]) OR role = ANY(${ELIGIBLE_ROLES}::text[]))
         ORDER BY first_name, last_name, email
       `
     : await sql`
         SELECT id, email, name, first_name, last_name, default_club, role FROM users
         WHERE id != ${user.id} AND (
-          lower(email) = ANY(${adminEmailList}::text[])
+          lower(email) = ${HOCKEY_ONE_EMAIL}
+          OR lower(email) = ANY(${adminEmailList}::text[])
           OR (role = ANY(${ELIGIBLE_ROLES}::text[]) AND lower(default_club) = lower(${me.default_club ?? ''}))
         )
         ORDER BY first_name, last_name, email
