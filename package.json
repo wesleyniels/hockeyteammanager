@@ -37,7 +37,8 @@
   "pnpm": {
     "overrides": {
       "tar": "^7.5.22",
-      "undici": "^6.28.0"
+      "undici": "^6.28.0",
+      "js-yaml": "^4.3.1"
     }
   }
 }
