@@ -16,14 +16,24 @@ import { getAdminEmails } from '../_lib/admin.js'
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID)
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000
-// The domain part is a repeated (label + literal dot) rather than a single
-// [^\s@]+\.[^\s@]+ — the old shape let both quantifiers match across the
-// same dots with no way to tell them apart, which is quadratic-time on a
-// crafted input (confirmed: ~40k chars took ~0.9s, scaling as n²) on this
-// unauthenticated register/login endpoint. Each label here is anchored by
-// an excluded '.', so there's exactly one way to parse it — no backtracking.
-const EMAIL_RE = /^[^\s@]+@([^\s@.]+\.)+[^\s@]+$/
 const MAX_PICTURE_LENGTH = 2_000_000 // ~1.5MB decoded — the client resizes photos well below this
+
+// A regex here is the wrong tool, not just a matter of getting one right —
+// two attempts at this shape ([^\s@]+\.[^\s@]+, then a repeated-label
+// version) both turned out to be quadratic-time on a crafted string, on
+// this unauthenticated register/login endpoint. Plain string ops can't
+// backtrack: indexOf/lastIndexOf/includes/slice are all linear, and the
+// only regex left (/\s/, no quantifier) has nothing to be ambiguous about.
+function isValidEmail(email: string): boolean {
+  if (email.length === 0 || email.length > 254) return false
+  if (/\s/.test(email)) return false
+  const at = email.indexOf('@')
+  if (at <= 0 || at !== email.lastIndexOf('@') || at === email.length - 1) return false
+  const domain = email.slice(at + 1)
+  const dot = domain.indexOf('.')
+  if (dot <= 0 || dot === domain.length - 1 || domain.includes('..')) return false
+  return true
+}
 
 function originOf(req: VercelRequest): string {
   const proto = (req.headers['x-forwarded-proto'] as string) ?? 'https'
@@ -214,7 +224,7 @@ async function handleRegister(req: VercelRequest, res: VercelResponse) {
   const password = String(req.body?.password ?? '')
   const name = req.body?.name ? String(req.body.name).trim() : null
 
-  if (!EMAIL_RE.test(email)) { res.status(400).json({ error: 'Ongeldig e-mailadres' }); return }
+  if (!isValidEmail(email)) { res.status(400).json({ error: 'Ongeldig e-mailadres' }); return }
   if (password.length < 8) { res.status(400).json({ error: 'Wachtwoord moet minstens 8 tekens zijn' }); return }
 
   const existing = await sql`SELECT id FROM users WHERE lower(email) = ${email}`
