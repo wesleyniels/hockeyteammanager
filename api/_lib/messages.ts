@@ -4,8 +4,10 @@ export const ELIGIBLE_ROLES = ['Coach', 'Trainer', 'Trainer & Coach']
 
 // "Hockey One" is a friendly display identity for this one specific admin
 // account (see ADMIN_EMAILS in admin.ts) — every other beheerder still shows
-// their own real name.
-const HOCKEY_ONE_EMAIL = 'wesleyniels@gmail.com'
+// their own real name. It doubles as the app's virtual support contact:
+// always messageable by anyone (see canMessage below), even players and
+// supporters who can't message anyone else.
+export const HOCKEY_ONE_EMAIL = 'wesleyniels@gmail.com'
 
 export interface MessagingUser {
   id: string
@@ -35,6 +37,8 @@ export async function loadAdminEmailSet(): Promise<Set<string>> {
 // either direction) — see the feature spec this implements. Players and
 // supporters can neither send nor receive, admin status notwithstanding.
 export function canMessage(sender: MessagingUser, recipient: MessagingUser, adminEmails: Set<string>): boolean {
+  if (isHockeyOne(recipient.email)) return true
+
   const senderIsAdmin = adminEmails.has(sender.email.toLowerCase())
   const recipientIsAdmin = adminEmails.has(recipient.email.toLowerCase())
   const senderEligible = senderIsAdmin || ELIGIBLE_ROLES.includes(sender.role ?? '')

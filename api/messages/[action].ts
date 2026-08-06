@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { sql, ensureSchema } from '../_lib/db.js'
 import { getSessionFromCookies, type SessionUser } from '../_lib/session.js'
 import { randomUUID } from '../_lib/crypto.js'
-import { ELIGIBLE_ROLES, canMessage, displayName, isHockeyOne, loadAdminEmailSet, type MessagingUser } from '../_lib/messages.js'
+import { ELIGIBLE_ROLES, HOCKEY_ONE_EMAIL, canMessage, displayName, isHockeyOne, loadAdminEmailSet, type MessagingUser } from '../_lib/messages.js'
 
 // /api/messages/contacts, /api/messages/send, etc. collapsed into one
 // dynamic-segment file — see the comment in api/auth/[action].ts for why
@@ -16,9 +16,10 @@ async function loadUser(id: string): Promise<MessagingUser | null> {
 // Who the caller is allowed to start a conversation with: coaches/trainers
 // at their own club, plus every beheerder (Hockey One included) — or, if the
 // caller is themselves a beheerder, every coach/trainer regardless of club.
-// Players/supporters get an empty list and canSend:false rather than a 403,
-// since viewing an (always-empty, for them) contact list isn't itself
-// forbidden — they just have nobody eligible to message.
+// Players/supporters get just Hockey One (this app's virtual support
+// contact, always messageable by anyone — see canMessage) rather than the
+// broader list, instead of a 403, since viewing a contact list isn't itself
+// forbidden — they just have nobody else eligible to message.
 async function handleContacts(req: VercelRequest, res: VercelResponse, user: SessionUser) {
   if (req.method !== 'GET') { res.status(405).json({ error: 'Method not allowed' }); return }
   const me = await loadUser(user.id)
@@ -27,7 +28,15 @@ async function handleContacts(req: VercelRequest, res: VercelResponse, user: Ses
   const adminEmails = await loadAdminEmailSet()
   const meIsAdmin = adminEmails.has(me.email.toLowerCase())
   const meEligible = meIsAdmin || ELIGIBLE_ROLES.includes(me.role ?? '')
-  if (!meEligible) { res.status(200).json({ contacts: [], canSend: false }); return }
+  if (!meEligible) {
+    const hockeyOne = await sql`
+      SELECT id, email, name, first_name, last_name, default_club, role FROM users
+      WHERE lower(email) = ${HOCKEY_ONE_EMAIL} AND id != ${user.id}
+    `
+    const contacts = hockeyOne.map(r => ({ id: r.id, name: displayName(r), defaultClub: r.default_club, role: r.role, isHockeyOne: true }))
+    res.status(200).json({ contacts, canSend: contacts.length > 0 })
+    return
+  }
 
   const adminEmailList = [...adminEmails]
   const rows = meIsAdmin
