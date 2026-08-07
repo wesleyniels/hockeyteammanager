@@ -49,11 +49,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'PATCH') {
     if (req.body?.all === true) {
       await sql`UPDATE notifications SET read_at = now() WHERE user_id = ${user.id} AND read_at IS NULL`
-    } else {
-      const id = req.body?.id
-      if (!id) { res.status(400).json({ error: 'Missing id' }); return }
-      await sql`UPDATE notifications SET read_at = now() WHERE id = ${id} AND user_id = ${user.id}`
+      res.status(200).json({ ok: true })
+      return
     }
+    const id = req.body?.id
+    if (!id) { res.status(400).json({ error: 'Missing id' }); return }
+    // `read` defaults to true so existing "mark as read" callers (which only
+    // ever send { id }) keep working; explicitly passing false is what lets a
+    // user flip an already-read notification back to unread.
+    const readAt = req.body?.read === false ? null : new Date().toISOString()
+    await sql`UPDATE notifications SET read_at = ${readAt} WHERE id = ${id} AND user_id = ${user.id}`
+    res.status(200).json({ ok: true })
+    return
+  }
+
+  if (req.method === 'DELETE') {
+    const id = typeof req.query.id === 'string' ? req.query.id : req.body?.id
+    if (!id) { res.status(400).json({ error: 'Missing id' }); return }
+    await sql`DELETE FROM notifications WHERE id = ${id} AND user_id = ${user.id}`
     res.status(200).json({ ok: true })
     return
   }
