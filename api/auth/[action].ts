@@ -35,6 +35,23 @@ function isValidEmail(email: string): boolean {
   return true
 }
 
+const PASSWORD_POLICY_ERROR = 'Wachtwoord moet minstens 8 tekens bevatten, met een hoofdletter, kleine letter, cijfer en speciaal teken'
+
+// Plain character-class scan, same reasoning as isValidEmail above: no
+// regex needed, so there's nothing to backtrack on this unauthenticated
+// endpoint.
+function isStrongPassword(password: string): boolean {
+  if (password.length < 8) return false
+  let hasUpper = false, hasLower = false, hasDigit = false, hasSpecial = false
+  for (const ch of password) {
+    if (ch >= 'A' && ch <= 'Z') hasUpper = true
+    else if (ch >= 'a' && ch <= 'z') hasLower = true
+    else if (ch >= '0' && ch <= '9') hasDigit = true
+    else hasSpecial = true
+  }
+  return hasUpper && hasLower && hasDigit && hasSpecial
+}
+
 function originOf(req: VercelRequest): string {
   const proto = (req.headers['x-forwarded-proto'] as string) ?? 'https'
   return `${proto}://${req.headers.host}`
@@ -225,7 +242,7 @@ async function handleRegister(req: VercelRequest, res: VercelResponse) {
   const name = req.body?.name ? String(req.body.name).trim() : null
 
   if (!isValidEmail(email)) { res.status(400).json({ error: 'Ongeldig e-mailadres' }); return }
-  if (password.length < 8) { res.status(400).json({ error: 'Wachtwoord moet minstens 8 tekens zijn' }); return }
+  if (!isStrongPassword(password)) { res.status(400).json({ error: PASSWORD_POLICY_ERROR }); return }
 
   const existing = await sql`SELECT id FROM users WHERE lower(email) = ${email}`
   if (existing.length > 0) { res.status(409).json({ error: 'Dit e-mailadres is al geregistreerd' }); return }
@@ -241,7 +258,8 @@ async function handleRegister(req: VercelRequest, res: VercelResponse) {
   await notifyAdminsOfNewRegistration(email, name)
 
   try {
-    await sendVerificationEmail(email, name, `${originOf(req)}/api/auth/verify-email?token=${token}`)
+    const origin = originOf(req)
+    await sendVerificationEmail(email, name, `${origin}/api/auth/verify-email?token=${token}`, origin)
   } catch (err) {
     console.error('Failed to send verification email', err)
     res.status(502).json({ error: 'Account aangemaakt, maar de verificatie-e-mail kon niet worden verzonden. Probeer opnieuw in te loggen om een nieuwe link aan te vragen.' })
@@ -264,9 +282,10 @@ async function handleResendVerification(req: VercelRequest, res: VercelResponse)
     const token = newToken()
     const expires = new Date(Date.now() + TOKEN_TTL_MS).toISOString()
     await sql`UPDATE users SET verification_token = ${token}, verification_expires = ${expires} WHERE id = ${row.id}`
-    const verifyUrl = `${originOf(req)}/api/auth/verify-email?token=${token}`
+    const origin = originOf(req)
+    const verifyUrl = `${origin}/api/auth/verify-email?token=${token}`
     try {
-      await sendVerificationEmail(email, row.name, verifyUrl)
+      await sendVerificationEmail(email, row.name, verifyUrl, origin)
     } catch (err) {
       console.error('Failed to resend verification email', err)
     }

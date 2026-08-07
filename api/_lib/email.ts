@@ -1,7 +1,7 @@
 // Talks to Resend's plain HTTP API directly instead of pulling in their SDK
 // — this project's deploy pipeline can't run `pnpm install` unattended, so
 // avoiding new dependencies avoids a lockfile-mismatch build failure.
-export async function sendVerificationEmail(to: string, name: string | null, verifyUrl: string) {
+export async function sendVerificationEmail(to: string, name: string | null, verifyUrl: string, origin: string) {
   const apiKey = process.env.RESEND_API_KEY
   const from = process.env.EMAIL_FROM
   if (!apiKey || !from) throw new Error('Resend is not configured (RESEND_API_KEY / EMAIL_FROM)')
@@ -9,7 +9,7 @@ export async function sendVerificationEmail(to: string, name: string | null, ver
   const greeting = name ? `Hoi ${name},` : 'Hoi,'
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px; color: #1A2F6B;">
-      <h1 style="color: #0D2B7A; font-size: 20px; margin: 0 0 16px;">Hockey One</h1>
+      <img src="${origin}/hockey-one-splash.png" alt="Hockey One" width="120" style="display: block; width: 120px; margin: 0 0 20px; border-radius: 12px;" />
       <p style="font-size: 14px; line-height: 1.6;">${greeting}</p>
       <p style="font-size: 14px; line-height: 1.6;">Bevestig je e-mailadres om je account te activeren.</p>
       <p style="margin: 28px 0;">

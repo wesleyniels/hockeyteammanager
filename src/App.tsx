@@ -4417,6 +4417,11 @@ function EmailAuthForm({ onLogin, onRegister, onResend }: {
         value={email} onChange={e => setEmail(e.target.value)} placeholder="E-mailadres" />
       <input className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle} type="password"
         value={password} onChange={e => setPassword(e.target.value)} placeholder="Wachtwoord" />
+      {mode === 'register' && (
+        <p className="text-xs" style={{ color: 'var(--brand-a8bef0)' }}>
+          Minimaal 8 tekens, met een hoofdletter, kleine letter, cijfer en speciaal teken.
+        </p>
+      )}
 
       {error && <p className="text-xs font-semibold" style={{ color: '#DC2626' }}>{error}</p>}
       {info && <p className="text-xs font-semibold" style={{ color: '#16A34A' }}>{info}</p>}
