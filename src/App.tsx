@@ -671,6 +671,33 @@ async function markAllNotificationsRead(): Promise<void> {
   } catch { /* best-effort */ }
 }
 
+async function markNotificationUnread(id: string): Promise<void> {
+  try {
+    await fetch('/api/notifications', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, read: false }) })
+  } catch { /* best-effort */ }
+}
+
+async function deleteNotification(id: string): Promise<void> {
+  try {
+    await fetch(`/api/notifications?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+  } catch { /* best-effort */ }
+}
+
+async function publishAnnouncement(body: string): Promise<{ ok: true; count: number } | { ok: false; error: string }> {
+  try {
+    const res = await fetch('/api/notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) return { ok: false, error: data.error ?? 'Versturen mislukt' }
+    return { ok: true, count: data.count ?? 0 }
+  } catch {
+    return { ok: false, error: 'Versturen mislukt' }
+  }
+}
+
 const playerPhotoPathname = (playerId: string) => `players/${playerId}/photo.jpg`
 const p2 = (n: number) => n.toString().padStart(2, '0')
 const fmtSec = (s: number) => `${p2(Math.floor(s / 60))}:${p2(s % 60)}`
@@ -692,6 +719,48 @@ function formatRelativeTime(iso: string): string {
   if (days < 7) return `${days}d geleden`
   return new Date(iso).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })
 }
+// Renders the plain-text markers the admin announcement toolbar writes
+// (**bold**, _italic_, "- " bullets) as real elements — built directly as
+// React nodes rather than through dangerouslySetInnerHTML, so arbitrary
+// admin-authored text can never be interpreted as HTML/script, only as
+// this fixed, closed set of inline tokens.
+function renderInlineFormatting(text: string, keyPrefix: string): React.ReactNode[] {
+  return text.split(/(\*\*.+?\*\*|_.+?_)/g).map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
+      return <strong key={`${keyPrefix}-${i}`}>{part.slice(2, -2)}</strong>
+    }
+    if (part.startsWith('_') && part.endsWith('_') && part.length >= 2) {
+      return <em key={`${keyPrefix}-${i}`}>{part.slice(1, -1)}</em>
+    }
+    return part
+  })
+}
+
+function renderFormattedText(text: string): React.ReactNode {
+  const blocks: React.ReactNode[] = []
+  let listItems: string[] = []
+  const flushList = () => {
+    if (listItems.length === 0) return
+    blocks.push(
+      <ul key={`ul-${blocks.length}`} className="list-disc pl-4 space-y-0.5">
+        {listItems.map((item, i) => <li key={i}>{renderInlineFormatting(item, `li-${blocks.length}-${i}`)}</li>)}
+      </ul>
+    )
+    listItems = []
+  }
+  text.split('\n').forEach(line => {
+    if (line.startsWith('- ')) {
+      listItems.push(line.slice(2))
+      return
+    }
+    flushList()
+    if (line.trim() === '') return
+    blocks.push(<div key={`line-${blocks.length}`}>{renderInlineFormatting(line, `line-${blocks.length}`)}</div>)
+  })
+  flushList()
+  return blocks
+}
+
 const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name
 const initials = (name: string) => name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()
 const sortPlayers = <T extends { number?: number; name: string }>(list: T[]) =>
@@ -3907,23 +3976,56 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   const [announcement, setAnnouncement] = useState('')
   const [announcementBusy, setAnnouncementBusy] = useState(false)
   const [announcementResult, setAnnouncementResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const announcementRef = useRef<HTMLTextAreaElement>(null)
 
-  const publishAnnouncement = async () => {
+  // Wraps the current selection (or, with nothing selected, inserts a
+  // placeholder) with a marker pair — **bold**/_italic_ — and keeps the
+  // selection on the wrapped text so hitting the same button again toggles
+  // it back off from the toolbar.
+  const wrapSelection = (marker: string) => {
+    const el = announcementRef.current
+    if (!el) return
+    const { selectionStart, selectionEnd } = el
+    const selected = announcement.slice(selectionStart, selectionEnd) || 'tekst'
+    const next = announcement.slice(0, selectionStart) + marker + selected + marker + announcement.slice(selectionEnd)
+    setAnnouncement(next)
+    requestAnimationFrame(() => {
+      el.focus()
+      el.setSelectionRange(selectionStart + marker.length, selectionStart + marker.length + selected.length)
+    })
+  }
+
+  // Toggles "- " bullets on every line the selection touches (a plain-text
+  // convention rendered as a real <ul> in renderFormattedText below) — off
+  // again if every touched line already has one, on otherwise.
+  const toggleBulletList = () => {
+    const el = announcementRef.current
+    if (!el) return
+    const { selectionStart, selectionEnd } = el
+    const lineStart = announcement.lastIndexOf('\n', selectionStart - 1) + 1
+    const nextBreak = announcement.indexOf('\n', selectionEnd)
+    const lineEnd = nextBreak === -1 ? announcement.length : nextBreak
+    const lines = announcement.slice(lineStart, lineEnd).split('\n')
+    const allBulleted = lines.every(l => l.startsWith('- ') || l.trim() === '')
+    const newLines = lines.map(l => {
+      if (l.trim() === '') return l
+      return allBulleted ? l.slice(2) : (l.startsWith('- ') ? l : `- ${l}`)
+    })
+    setAnnouncement(announcement.slice(0, lineStart) + newLines.join('\n') + announcement.slice(lineEnd))
+    requestAnimationFrame(() => el.focus())
+  }
+
+  const submitAnnouncement = async () => {
     const body = announcement.trim()
     if (!body) return
     setAnnouncementBusy(true)
     setAnnouncementResult(null)
-    const res = await fetch('/api/notifications', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body }),
-    })
-    const data = await res.json().catch(() => ({}))
-    if (res.ok) {
+    const result = await publishAnnouncement(body)
+    if (result.ok) {
       setAnnouncement('')
-      setAnnouncementResult({ ok: true, message: `Verstuurd naar ${data.count} gebruiker${data.count !== 1 ? 's' : ''}.` })
+      setAnnouncementResult({ ok: true, message: `Verstuurd naar ${result.count} gebruiker${result.count !== 1 ? 's' : ''}.` })
     } else {
-      setAnnouncementResult({ ok: false, message: data.error ?? 'Versturen mislukt' })
+      setAnnouncementResult({ ok: false, message: result.error })
     }
     setAnnouncementBusy(false)
   }
@@ -4083,18 +4185,35 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
             <p className="text-xs mb-4" style={{ color: 'var(--brand-7b90c8)' }}>
               Stuurt een melding naar Meldingen van alle andere gebruikers.
             </p>
-            <textarea className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, minHeight: 90, resize: 'vertical' }}
+            <div className="flex gap-1.5 mb-1.5">
+              <button type="button" onClick={() => wrapSelection('**')}
+                className="w-8 h-8 rounded-lg font-bold text-sm" style={{ border: '1.5px solid var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}
+                title="Vet">B</button>
+              <button type="button" onClick={() => wrapSelection('_')}
+                className="w-8 h-8 rounded-lg italic text-sm" style={{ border: '1.5px solid var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}
+                title="Cursief">I</button>
+              <button type="button" onClick={toggleBulletList}
+                className="w-8 h-8 rounded-lg text-sm" style={{ border: '1.5px solid var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}
+                title="Opsomming">☰</button>
+            </div>
+            <textarea ref={announcementRef} className="w-full rounded-xl px-3 py-2.5 text-sm font-mono" style={{ ...inputStyle, minHeight: 90, resize: 'vertical' }}
               value={announcement} onChange={e => setAnnouncement(e.target.value)}
               maxLength={500} placeholder="Typ hier je melding…" />
             <div className="flex items-center justify-between mt-1.5">
               <span className="text-xs" style={{ color: 'var(--brand-a8bef0)' }}>{announcement.length}/500</span>
             </div>
+            {announcement.trim() && (
+              <div className="mt-2 p-3 rounded-xl text-sm" style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)', color: 'var(--brand-1a2f6b)' }}>
+                <div className="text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.1em' }}>Voorbeeld</div>
+                {renderFormattedText(announcement)}
+              </div>
+            )}
             {announcementResult && (
               <p className="text-xs font-semibold mt-2" style={{ color: announcementResult.ok ? '#16A34A' : '#DC2626' }}>
                 {announcementResult.message}
               </p>
             )}
-            <button onClick={publishAnnouncement} disabled={announcementBusy || !announcement.trim()}
+            <button onClick={submitAnnouncement} disabled={announcementBusy || !announcement.trim()}
               className="mt-3 px-4 py-2.5 rounded-xl font-bold text-white text-sm disabled:opacity-50"
               style={{ background: 'var(--brand-1a3fab)' }}>
               {announcementBusy ? 'Versturen…' : 'Publiceren'}
@@ -4578,7 +4697,20 @@ function useNotificationCenter(enabled: boolean) {
     await markAllNotificationsRead()
   }, [])
 
-  return { unreadMessages, notifications, unreadNotifications, refresh, markRead, markAllRead }
+  const markUnread = useCallback(async (id: string) => {
+    setNotifications(ns => ns.map(n => n.id === id ? { ...n, read: false } : n))
+    setUnreadNotifications(n => n + 1)
+    await markNotificationUnread(id)
+  }, [])
+
+  const remove = useCallback(async (id: string) => {
+    const target = notifications.find(n => n.id === id)
+    setNotifications(ns => ns.filter(n => n.id !== id))
+    if (target && !target.read) setUnreadNotifications(n => Math.max(0, n - 1))
+    await deleteNotification(id)
+  }, [notifications])
+
+  return { unreadMessages, notifications, unreadNotifications, refresh, markRead, markAllRead, markUnread, remove }
 }
 
 // ── Game sharing ───────────────────────────────────────────────────────────────
@@ -4866,13 +4998,15 @@ function SplashScreen({ onContinue }: { onContinue: () => void }) {
 // wants the full screen). Notifications open an inline popover here;
 // Messages navigates to its own full view since threads need real space.
 
-function BottomBar({ unreadMessages, unreadNotifications, notifications, onMessages, onMarkRead, onMarkAllRead, onOpenHistory }: {
+function BottomBar({ unreadMessages, unreadNotifications, notifications, onMessages, onMarkRead, onMarkAllRead, onMarkUnread, onDelete, onOpenHistory }: {
   unreadMessages: number
   unreadNotifications: number
   notifications: AppNotification[]
   onMessages: () => void
   onMarkRead: (id: string) => void
   onMarkAllRead: () => void
+  onMarkUnread: (id: string) => void
+  onDelete: (id: string) => void
   onOpenHistory: () => void
 }) {
   const [open, setOpen] = useState(false)
@@ -4909,15 +5043,27 @@ function BottomBar({ unreadMessages, unreadNotifications, notifications, onMessa
                 <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Geen meldingen</p>
               ) : (
                 notifications.map(n => (
-                  <button key={n.id} onClick={() => { onMarkRead(n.id); if (n.gameId) { setOpen(false); onOpenHistory() } }}
-                    className="w-full text-left px-4 py-3 text-sm flex items-start gap-2"
+                  <div key={n.id} className="flex items-start gap-2 px-4 py-3 text-sm"
                     style={{ borderBottom: '1px solid var(--brand-f0f5ff)', background: n.read ? 'transparent' : 'var(--brand-f0f5ff)' }}>
                     {!n.read && <span className="w-2 h-2 rounded-full shrink-0 mt-1.5" style={{ background: 'var(--brand-1a3fab)' }} />}
-                    <span className="flex-1" style={{ color: 'var(--brand-1a2f6b)' }}>
-                      {n.body}
-                      <span className="block text-xs mt-0.5" style={{ color: 'var(--brand-a8bef0)' }}>{formatRelativeTime(n.createdAt)}</span>
-                    </span>
-                  </button>
+                    <button onClick={() => { onMarkRead(n.id); if (n.gameId) { setOpen(false); onOpenHistory() } }}
+                      className="flex-1 min-w-0 text-left">
+                      <div style={{ color: 'var(--brand-1a2f6b)' }}>{renderFormattedText(n.body)}</div>
+                      <div className="text-xs mt-0.5" style={{ color: 'var(--brand-a8bef0)' }}>{formatRelativeTime(n.createdAt)}</div>
+                    </button>
+                    <div className="flex flex-col items-center gap-1.5 shrink-0 pt-0.5">
+                      <button onClick={() => n.read ? onMarkUnread(n.id) : onMarkRead(n.id)}
+                        className="text-xs leading-none" style={{ color: 'var(--brand-a8bef0)' }}
+                        title={n.read ? 'Markeer als ongelezen' : 'Markeer als gelezen'}>
+                        {n.read ? '○' : '●'}
+                      </button>
+                      <button onClick={() => onDelete(n.id)}
+                        className="text-xs leading-none" style={{ color: '#DC2626' }}
+                        title="Verwijderen">
+                        ✕
+                      </button>
+                    </div>
+                  </div>
                 ))
               )}
             </div>
@@ -5190,6 +5336,8 @@ export default function App() {
             onMessages={() => setView('messages')}
             onMarkRead={notif.markRead}
             onMarkAllRead={notif.markAllRead}
+            onMarkUnread={notif.markUnread}
+            onDelete={notif.remove}
             onOpenHistory={() => setView('history')}
           />
         </>
