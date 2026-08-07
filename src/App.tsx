@@ -3904,6 +3904,30 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   const [newTeamName, setNewTeamName] = useState('')
   const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null)
 
+  const [announcement, setAnnouncement] = useState('')
+  const [announcementBusy, setAnnouncementBusy] = useState(false)
+  const [announcementResult, setAnnouncementResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  const publishAnnouncement = async () => {
+    const body = announcement.trim()
+    if (!body) return
+    setAnnouncementBusy(true)
+    setAnnouncementResult(null)
+    const res = await fetch('/api/notifications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      setAnnouncement('')
+      setAnnouncementResult({ ok: true, message: `Verstuurd naar ${data.count} gebruiker${data.count !== 1 ? 's' : ''}.` })
+    } else {
+      setAnnouncementResult({ ok: false, message: data.error ?? 'Versturen mislukt' })
+    }
+    setAnnouncementBusy(false)
+  }
+
   return (
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
@@ -4048,6 +4072,33 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
               Foto's per speler verschijnen tijdens wedstrijden op het veld en de bank.
             </p>
             <TeamPlayerPhotos team={user.defaultTeam} canEdit={user.role === 'Coach' || user.role === 'Trainer & Coach'} />
+          </section>
+        )}
+
+        {isAdmin && (
+          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-1" style={{ color: 'var(--brand-0d2b7a)' }}>
+              Beheer — Melding versturen
+            </h2>
+            <p className="text-xs mb-4" style={{ color: 'var(--brand-7b90c8)' }}>
+              Stuurt een melding naar Meldingen van alle andere gebruikers.
+            </p>
+            <textarea className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, minHeight: 90, resize: 'vertical' }}
+              value={announcement} onChange={e => setAnnouncement(e.target.value)}
+              maxLength={500} placeholder="Typ hier je melding…" />
+            <div className="flex items-center justify-between mt-1.5">
+              <span className="text-xs" style={{ color: 'var(--brand-a8bef0)' }}>{announcement.length}/500</span>
+            </div>
+            {announcementResult && (
+              <p className="text-xs font-semibold mt-2" style={{ color: announcementResult.ok ? '#16A34A' : '#DC2626' }}>
+                {announcementResult.message}
+              </p>
+            )}
+            <button onClick={publishAnnouncement} disabled={announcementBusy || !announcement.trim()}
+              className="mt-3 px-4 py-2.5 rounded-xl font-bold text-white text-sm disabled:opacity-50"
+              style={{ background: 'var(--brand-1a3fab)' }}>
+              {announcementBusy ? 'Versturen…' : 'Publiceren'}
+            </button>
           </section>
         )}
 
