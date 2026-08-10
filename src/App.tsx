@@ -2304,6 +2304,10 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   const [cards, setCards] = useState<Card[]>(() => initial?.cards ?? [])
   const [cardPlayerId, setCardPlayerId] = useState('')
   const [cardColor, setCardColor] = useState<Card['color']>('green')
+  // A red card ends a player's match — recomputed from `cards` rather than
+  // tracked separately, so undoing a mis-given card (the × next to it)
+  // immediately lifts the restriction again.
+  const redCardedIds = new Set(cards.filter(c => c.color === 'red').map(c => c.playerId))
   const [tacticsBoards, setTacticsBoards] = useState<TacticsBoard[]>(() =>
     initial?.tacticsBoards?.length ? initial.tacticsBoards : [{ id: uid(), name: 'Opstelling 1', markers: [], arrows: [] }]
   )
@@ -2508,7 +2512,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   }
 
   const doSub = (inId: string, posId: string) => {
-    if (readOnly) return
+    if (readOnly || redCardedIds.has(inId)) return
     const pos = slots.find(s => s.posId === posId)
     const outId = pos?.playerId ?? null
     setSlots(sl => sl.map(s => s.posId === posId ? { ...s, playerId: inId } : s))
@@ -2653,7 +2657,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   }, [])
 
   const beginDrag = (type: DragKind, id: string, e: React.PointerEvent) => {
-    if (readOnly) return
+    if (readOnly || (type === 'bench' && redCardedIds.has(id))) return
     dragInfoRef.current = { type, id }
     dragStartRef.current = { x: e.clientX, y: e.clientY }
   }
@@ -2687,7 +2691,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   }
 
   const handleBenchClick = (playerId: string) => {
-    if (suppressClickRef.current || readOnly) return
+    if (suppressClickRef.current || readOnly || redCardedIds.has(playerId)) return
     if (selected?.type === 'field') {
       doSub(playerId, selected.posId)
     } else if (selected?.type === 'bench' && selected.playerId === playerId) {
@@ -3014,13 +3018,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                     const elapsed = Math.max(0, gameSec - sinceGameSec)
                     const isSel = selected?.type === 'bench' && selected.playerId === playerId
                     const isBeingDragged = dragPreview?.type === 'bench' && dragPreview.id === playerId
+                    const isRedCarded = redCardedIds.has(playerId)
                     return (
                       <div key={playerId}
-                        className="flex items-center gap-2.5 p-2.5 rounded-xl cursor-grab transition-all touch-none select-none"
+                        className={`flex items-center gap-2.5 p-2.5 rounded-xl transition-all touch-none select-none ${isRedCarded ? 'cursor-not-allowed' : 'cursor-grab'}`}
                         style={{
-                          background: isSel ? 'var(--brand-eef3ff)' : 'var(--brand-f8faff)',
+                          background: isSel ? 'var(--brand-eef3ff)' : isRedCarded ? 'var(--brand-f0f5ff)' : 'var(--brand-f8faff)',
                           border: isSel ? '1.5px solid var(--brand-1a3fab)' : '1.5px solid var(--brand-e8effd)',
-                          opacity: isBeingDragged ? 0.35 : 1,
+                          opacity: isBeingDragged ? 0.35 : isRedCarded ? 0.6 : 1,
                         }}
                         onPointerDown={e => beginDrag('bench', playerId, e)}
                         onClick={() => handleBenchClick(playerId)}>
@@ -3039,6 +3044,9 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                             {gameSec > 0 ? fmtSec(elapsed) : '—:—'}
                           </div>
                         </div>
+                        {isRedCarded && (
+                          <span className="inline-block w-3 h-4 rounded-sm shrink-0" style={{ background: '#DC2626' }} title="Rode kaart — kan niet meer meedoen" />
+                        )}
                         {isSel && <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>↔</span>}
                       </div>
                     )
@@ -3199,6 +3207,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                     <button onClick={() => {
                       if (readOnly || !cardPlayerId) return
                       setCards(c => [...c, { id: uid(), playerId: cardPlayerId, color: cardColor }])
+                      // A red card ends the player's match — take them off the
+                      // field immediately rather than leaving it to be noticed
+                      // (and enforced) only the next time someone tries to sub
+                      // them back in.
+                      if (cardColor === 'red') {
+                        const onFieldSlot = slots.find(s => s.playerId === cardPlayerId)
+                        if (onFieldSlot) sendToBench(onFieldSlot.posId)
+                      }
                     }}
                       disabled={readOnly}
                       className="px-4 py-1 rounded-xl font-bold text-white text-lg shrink-0 disabled:opacity-50"

@@ -6,6 +6,7 @@ import { signSession, sessionCookieHeader, clearSessionCookieHeader, getSessionF
 import { sendVerificationEmail, sendNewRegistrationEmail } from '../_lib/email.js'
 import { toUser } from '../_lib/users.js'
 import { getAdminEmails } from '../_lib/admin.js'
+import { createNotification } from '../_lib/notifications.js'
 
 // All /api/auth/* routes are collapsed into this single dynamic-segment file
 // (dispatching on the [action] path piece below) — Vercel's Hobby plan caps
@@ -66,6 +67,22 @@ async function notifyAdminsOfNewRegistration(email: string, name: string | null)
   }
 }
 
+function welcomeNotificationBody(name: string | null): string {
+  const greeting = name ? `Hi ${name},` : 'Hi,'
+  return `${greeting} welkom bij Hockey One! Deze app helpt je met het maken van opstellingen voor de wedstrijden van je team. De app houdt ook bij hoe lang je spelers op de bank zitten en hoe lang ze al in het veld staan. Tevens kun je verschillende tactieken opnemen voor bijvoorbeeld strafcorners. Daarnaast is het ook mogelijk om berichten te sturen naar andere coaches, trainers of managers van dezelfde club. Heb je nog vragen, opmerkingen of andere meldingen dan kun je via berichten ook je vraag aan Hockey One stellen. Succes! Groeten, Hockey One.`
+}
+
+// Best-effort, same reasoning as notifyAdminsOfNewRegistration — a brand new
+// account should never fail to be created just because this notification
+// couldn't be written.
+async function sendWelcomeNotification(userId: string, name: string | null) {
+  try {
+    await createNotification(userId, 'welcome', welcomeNotificationBody(name))
+  } catch (err) {
+    console.error('Failed to send welcome notification', err)
+  }
+}
+
 async function handleGoogle(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return }
 
@@ -114,6 +131,7 @@ async function handleGoogle(req: VercelRequest, res: VercelResponse) {
       RETURNING id, email, name, picture, default_team, default_club, first_name, last_name, role
     `
     await notifyAdminsOfNewRegistration(email, name)
+    await sendWelcomeNotification(payload.sub, name)
   }
 
   const u = rows[0]
@@ -256,6 +274,7 @@ async function handleRegister(req: VercelRequest, res: VercelResponse) {
     VALUES (${id}, ${email}, ${name}, ${hashPassword(password)}, false, ${token}, ${expires})
   `
   await notifyAdminsOfNewRegistration(email, name)
+  await sendWelcomeNotification(id, name)
 
   try {
     const origin = originOf(req)
