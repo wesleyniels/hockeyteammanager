@@ -426,8 +426,7 @@ function getSelectedVariant(ag: AgeGroup): FormationVariant {
 // them onto the now-correct labels.
 const layoutKey = (ag: AgeGroup, variantId: string) => `fh_layout_v2_${ag}_${variantId}`
 
-function getPositions(ag: AgeGroup): PosDef[] {
-  const variant = getSelectedVariant(ag)
+function getPositionsForVariant(ag: AgeGroup, variant: FormationVariant): PosDef[] {
   const base = variant.positions
   try {
     const saved = JSON.parse(localStorage.getItem(layoutKey(ag, variant.id)) ?? 'null') as PosDef[] | null
@@ -439,6 +438,20 @@ function getPositions(ag: AgeGroup): PosDef[] {
     }
   } catch { /* fall through to base */ }
   return base
+}
+
+// Which formation variant a set of already-assigned slots was built from —
+// matched by comparing posId sets, since that's the only thing tying a slot
+// back to a specific variant's template. Falls back to this device's
+// currently-selected variant when there's nothing to match (a brand-new
+// match, or a variant that's since been removed from FORMATIONS).
+function findVariantForSlots(ag: AgeGroup, slots: PositionSlot[] | undefined): FormationVariant {
+  if (slots && slots.length > 0) {
+    const slotIds = new Set(slots.map(s => s.posId))
+    const match = getFormationVariants(ag).find(v => v.positions.length === slots.length && v.positions.every(p => slotIds.has(p.id)))
+    if (match) return match
+  }
+  return getSelectedVariant(ag)
 }
 
 // ── Utils ────────────────────────────────────────────────────────────────────
@@ -1717,7 +1730,7 @@ function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, sel
 
 // ── Formation Editor ─────────────────────────────────────────────────────────
 // Lets a club drag the default position markers to match how they actually
-// line up; saved per age group in localStorage and picked up by getPositions().
+// line up; saved per age group in localStorage and picked up by getPositionsForVariant().
 
 function FormationEditorView({ ageGroup, onBack }: { ageGroup: AgeGroup; onBack: () => void }) {
   const variants = getFormationVariants(ageGroup)
@@ -2259,9 +2272,14 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
 
 // ── Game View ────────────────────────────────────────────────────────────────
 
-function normalizeSlots(saved: PositionSlot[] | undefined, ageGroup: AgeGroup): PositionSlot[] {
-  const template = getPositions(ageGroup)
-  if (!saved) return template.map(p => ({ posId: p.id, label: p.label, playerId: null, x: p.x, y: p.y }))
+// An empty (but defined) `saved` array means there's no real slot data to
+// preserve — e.g. a Hockey-One fixture seeded with `slots: []` (see
+// seedTeamFixtures in db.ts) — so it's treated the same as no saved data at
+// all: build a fresh template instead of handing back zero slots, which
+// would leave the field with nowhere to drag a player onto.
+function normalizeSlots(saved: PositionSlot[] | undefined, ageGroup: AgeGroup, variant: FormationVariant): PositionSlot[] {
+  const template = getPositionsForVariant(ageGroup, variant)
+  if (!saved || saved.length === 0) return template.map(p => ({ posId: p.id, label: p.label, playerId: null, x: p.x, y: p.y }))
   return saved.map(s => {
     const base = template.find(p => p.id === s.posId)
     return {
@@ -2272,6 +2290,25 @@ function normalizeSlots(saved: PositionSlot[] | undefined, ageGroup: AgeGroup): 
       y: s.y ?? base?.y ?? 50,
     }
   })
+}
+
+// Rebuilds slots against a different formation variant, carrying over
+// whoever's already on the field by matching posId between the old and new
+// templates (see the FORMATIONS comment on id conventions — d1/m1/f1 etc.
+// mean roughly the same role across variants of the same age group). Anyone
+// whose posId doesn't exist in the new variant falls off the field onto the
+// bench instead of just disappearing.
+function reassignSlotsForVariant(oldSlots: PositionSlot[], ageGroup: AgeGroup, variant: FormationVariant): { slots: PositionSlot[]; benched: string[] } {
+  const template = getPositionsForVariant(ageGroup, variant)
+  const oldByPosId = new Map(oldSlots.map(s => [s.posId, s.playerId]))
+  const kept = new Set<string>()
+  const slots = template.map(p => {
+    const playerId = oldByPosId.get(p.id) ?? null
+    if (playerId) kept.add(playerId)
+    return { posId: p.id, label: p.label, playerId, x: p.x, y: p.y }
+  })
+  const benched = oldSlots.map(s => s.playerId).filter((id): id is string => !!id && !kept.has(id))
+  return { slots, benched }
 }
 
 function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, user, onSave, onBack }: GameParams & {
@@ -2292,7 +2329,10 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   const [gameId] = useState(() => initial?.id ?? uid())
   const [gameDate] = useState(() => initial?.date ?? todayStr())
 
-  const [slots, setSlots] = useState<PositionSlot[]>(() => normalizeSlots(initial?.slots, ageGroup))
+  const formationVariants = getFormationVariants(ageGroup)
+  const [variantId, setVariantId] = useState(() => findVariantForSlots(ageGroup, initial?.slots).id)
+  const activeVariant = formationVariants.find(v => v.id === variantId) ?? formationVariants[0]
+  const [slots, setSlots] = useState<PositionSlot[]>(() => normalizeSlots(initial?.slots, ageGroup, activeVariant))
   const [bench, setBench] = useState<BenchEntry[]>(() => {
     const onField = new Set((initial?.slots ?? []).map(s => s.playerId).filter(Boolean))
     return squad.filter(p => !onField.has(p.id)).map(p => ({ playerId: p.id, sinceGameSec: initial?.finalTime ?? 0 }))
@@ -2539,6 +2579,24 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     if (!pid) return
     setSlots(sl => sl.map(s => s.posId === posId ? { ...s, playerId: null } : s))
     setBench(b => [...b.filter(e => e.playerId !== pid), { playerId: pid, sinceGameSec: gameSec }])
+    setSelected(null)
+  }
+
+  // Lets a coach change the base setup mid-match (e.g. switching from
+  // 1-4-3-3 to 1-4-4-2 at half-time) instead of being stuck with whichever
+  // formation the match started in. Whoever's still recognizable in the new
+  // template (same posId, see reassignSlotsForVariant) stays on the field;
+  // everyone else goes to the bench rather than vanishing.
+  const switchFormation = (newVariantId: string) => {
+    if (readOnly || newVariantId === variantId) return
+    const newVariant = formationVariants.find(v => v.id === newVariantId)
+    if (!newVariant) return
+    const { slots: newSlots, benched } = reassignSlotsForVariant(slots, ageGroup, newVariant)
+    setVariantId(newVariantId)
+    setSlots(newSlots)
+    if (benched.length > 0) {
+      setBench(b => [...b.filter(e => !benched.includes(e.playerId)), ...benched.map(playerId => ({ playerId, sinceGameSec: gameSec }))])
+    }
     setSelected(null)
   }
 
@@ -2876,14 +2934,23 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
         {/* Field column */}
         <div className="flex flex-col flex-1 overflow-hidden p-3 items-center"
           onClick={e => e.stopPropagation()}>
-          <div className="flex items-center justify-between w-full mb-2"
+          <div className="flex items-center justify-between w-full mb-2 gap-2"
             style={{ maxWidth: isDual ? (panelCollapsed ? '820px' : '600px') : (panelCollapsed ? '460px' : '330px') }}>
-            <span className="text-xs font-bold" style={{ color: 'var(--brand-6b82b8)' }}>
-              Op veld:&nbsp;
-              <span style={{ color: onFieldCount < targetCount ? '#DC2626' : '#16A34A' }}>
-                {onFieldCount}/{targetCount}
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-xs font-bold shrink-0" style={{ color: 'var(--brand-6b82b8)' }}>
+                Op veld:&nbsp;
+                <span style={{ color: onFieldCount < targetCount ? '#DC2626' : '#16A34A' }}>
+                  {onFieldCount}/{targetCount}
+                </span>
               </span>
-            </span>
+              {!readOnly && formationVariants.length > 1 && (
+                <select value={variantId} onChange={e => switchFormation(e.target.value)}
+                  className="text-xs font-semibold rounded-lg px-1.5 py-1 min-w-0"
+                  style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: 'var(--brand-1a3fab)', outline: 'none' }}>
+                  {formationVariants.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                </select>
+              )}
+            </div>
             {selected ? (
               <span className="text-xs font-bold px-2 py-0.5 rounded-full"
                 style={{ background: 'var(--brand-dbeafe)', color: 'var(--brand-1a3fab)' }}>
