@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { sql, ensureSchema } from './_lib/db.js'
 import { getSessionFromCookies } from './_lib/session.js'
+import { ELIGIBLE_ROLES } from './_lib/messages.js'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   await ensureSchema()
@@ -9,21 +10,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!user) { res.status(401).json({ error: 'Not authenticated' }); return }
 
   if (req.method === 'GET') {
-    // Own matches plus anything shared with this account — the viewer's
-    // effective permission for each is folded into the returned data so the
-    // frontend can gate editing without a second round trip.
+    // Own matches, anything explicitly shared with this account, plus any
+    // Hockey-One-owned fixture (see seedTeamFixtures in db.ts) for this
+    // account's own default_team — a coach/trainer gets 'edit' on those so
+    // they can build the squad and run the match, everyone else (player,
+    // supporter, or no role at all) only gets 'view'. The viewer's effective
+    // permission for each is folded into the returned data so the frontend
+    // can gate editing without a second round trip.
+    const me = await sql`SELECT default_team, role FROM users WHERE id = ${user.id}`
+    const defaultTeam = me[0]?.default_team ?? null
+    const role = me[0]?.role ?? null
     const rows = await sql`
-      SELECT g.data, g.user_id AS owner_id, gs.permission
+      SELECT g.data, g.user_id AS owner_id, gs.permission AS share_permission
       FROM games g
       LEFT JOIN game_shares gs ON gs.game_id = g.id AND gs.user_id = ${user.id}
-      WHERE g.user_id = ${user.id} OR gs.user_id = ${user.id}
+      WHERE g.user_id = ${user.id}
+         OR gs.user_id = ${user.id}
+         OR (g.user_id = 'hockey-one' AND ${defaultTeam}::text IS NOT NULL AND g.data->>'team' = ${defaultTeam})
       ORDER BY g.created_at ASC
     `
-    res.status(200).json(rows.map(r => ({
-      ...r.data,
-      ownerId: r.owner_id,
-      permission: r.owner_id === user.id ? 'owner' : r.permission,
-    })))
+    res.status(200).json(rows.map(r => {
+      let permission: string | undefined
+      if (r.owner_id === user.id) permission = 'owner'
+      else if (r.share_permission) permission = r.share_permission
+      else if (r.owner_id === 'hockey-one') permission = ELIGIBLE_ROLES.includes(role ?? '') ? 'edit' : 'view'
+      return { ...r.data, ownerId: r.owner_id, permission }
+    }))
     return
   }
 
@@ -39,13 +51,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'PUT') {
     const game = req.body
     if (!game?.id) { res.status(400).json({ error: 'Missing id' }); return }
-    // Owner can always edit; a shared user needs an explicit 'edit' grant.
+    const me = await sql`SELECT default_team, role FROM users WHERE id = ${user.id}`
+    const defaultTeam = me[0]?.default_team ?? null
+    const eligible = ELIGIBLE_ROLES.includes(me[0]?.role ?? '')
+    // Owner can always edit; a shared user needs an explicit 'edit' grant; a
+    // coach/trainer can also build out their own team's Hockey-One-owned
+    // fixture (see the matching GET branch above for the read-side rule).
     const rows = await sql`
       UPDATE games g SET data = ${JSON.stringify(game)}::jsonb, updated_at = now()
       WHERE g.id = ${game.id}
-        AND (g.user_id = ${user.id} OR EXISTS (
-          SELECT 1 FROM game_shares gs WHERE gs.game_id = g.id AND gs.user_id = ${user.id} AND gs.permission = 'edit'
-        ))
+        AND (
+          g.user_id = ${user.id}
+          OR EXISTS (SELECT 1 FROM game_shares gs WHERE gs.game_id = g.id AND gs.user_id = ${user.id} AND gs.permission = 'edit')
+          OR (g.user_id = 'hockey-one' AND ${eligible} AND ${defaultTeam}::text IS NOT NULL AND g.data->>'team' = ${defaultTeam})
+        )
       RETURNING data, g.user_id AS owner_id
     `
     if (rows.length === 0) { res.status(404).json({ error: 'Not found' }); return }

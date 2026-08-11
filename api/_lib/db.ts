@@ -3,6 +3,7 @@ import { list as listBlobs } from '@vercel/blob'
 import { randomUUID } from './crypto.js'
 import { slugify } from './slug.js'
 import { SEED_TEAMS } from './seed-teams.js'
+import { TEAM_FIXTURES, ageGroupFromTeamName } from './team-fixtures.js'
 
 export const sql = neon(process.env.POSTGRES_URL!)
 
@@ -69,6 +70,48 @@ async function seedTeams() {
     // rest of schema setup, it would just mean old photos need re-uploading.
     console.error('Player-photo backfill skipped:', err)
   }
+}
+
+// Seeds TEAM_FIXTURES (see team-fixtures.ts) as real games, owned by the
+// Hockey One system account rather than any individual coach — so they're
+// visible (see the GET/PUT handlers in games.ts) to every coach, trainer,
+// player, and supporter whose own default_team matches, not just whoever
+// happened to trigger an import. Ids are deterministic
+// (fixture-<team-slug>-<date>), so ON CONFLICT DO NOTHING makes the whole
+// batch safely re-runnable — this can just run on every cold start instead
+// of needing an "already seeded" flag, and picks up newly-added teams or
+// fixtures on the next deploy without wiping existing ones.
+//
+// 'hockey-one' / 'admin@hockeyone.nl' here must stay in sync with
+// HOCKEY_ONE_ID/HOCKEY_ONE_EMAIL in _lib/messages.ts — duplicated rather
+// than imported to avoid a circular dependency (messages.ts already imports
+// `sql` from this file).
+async function seedTeamFixtures() {
+  await sql`
+    INSERT INTO users (id, email, name, email_verified) VALUES ('hockey-one', 'admin@hockeyone.nl', 'Hockey One', true)
+    ON CONFLICT (id) DO NOTHING
+  `
+
+  const ids: string[] = []
+  const datas: string[] = []
+  for (const [team, fixtures] of Object.entries(TEAM_FIXTURES)) {
+    for (const fx of fixtures) {
+      const id = `fixture-${slugify(team)}-${fx.date}`
+      ids.push(id)
+      datas.push(JSON.stringify({
+        id, date: fx.date, club: 'SC Muiden', team, ageGroup: ageGroupFromTeamName(team),
+        opponent: fx.opponent, homeAway: fx.homeAway, squad: [], slots: [], subs: [], oppMarkers: [],
+        goals: [], cards: [], tacticsBoards: [], playedSeconds: {}, media: [], notes: '', result: '',
+        scoreOwn: 0, scoreOpp: 0, finalTime: 0,
+      }))
+    }
+  }
+  if (ids.length === 0) return
+  await sql`
+    INSERT INTO games (id, data, user_id)
+    SELECT id, data::jsonb, 'hockey-one' FROM unnest(${ids}::text[], ${datas}::text[]) AS t(id, data)
+    ON CONFLICT (id) DO NOTHING
+  `
 }
 
 // Every serverless invocation is a cold-start candidate, so this runs on
@@ -177,6 +220,12 @@ export function ensureSchema() {
       if (seeded.length === 0) await seedTeams()
     } catch (err) {
       console.error('Team seeding failed:', err)
+    }
+
+    try {
+      await seedTeamFixtures()
+    } catch (err) {
+      console.error('Fixture seeding failed:', err)
     }
   })()
   return schemaReady
