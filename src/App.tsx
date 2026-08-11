@@ -2877,7 +2877,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
         <div className="flex flex-col flex-1 overflow-hidden p-3 items-center"
           onClick={e => e.stopPropagation()}>
           <div className="flex items-center justify-between w-full mb-2"
-            style={{ maxWidth: isDual ? (panelCollapsed ? '820px' : '540px') : (panelCollapsed ? '460px' : '290px') }}>
+            style={{ maxWidth: isDual ? (panelCollapsed ? '820px' : '600px') : (panelCollapsed ? '460px' : '330px') }}>
             <span className="text-xs font-bold" style={{ color: 'var(--brand-6b82b8)' }}>
               Op veld:&nbsp;
               <span style={{ color: onFieldCount < targetCount ? '#DC2626' : '#16A34A' }}>
@@ -2899,7 +2899,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
           </div>
 
           <div className="flex-1 flex items-center justify-center w-full"
-            style={{ maxWidth: isDual ? (panelCollapsed ? '820px' : '540px') : (panelCollapsed ? '460px' : '290px') }}>
+            style={{ maxWidth: isDual ? (panelCollapsed ? '820px' : '600px') : (panelCollapsed ? '460px' : '330px') }}>
             {activeTab === 'tactics' ? (
               <TacticsFieldEditor
                 isDual={isDual}
@@ -2983,24 +2983,24 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
             </span>
           </button>
         ) : (
-        <div className="w-64 flex flex-col bg-white shrink-0 overflow-hidden"
+        <div className="w-56 flex flex-col bg-white shrink-0 overflow-hidden"
           style={{ borderLeft: '1px solid var(--brand-d0dcfa)' }}
           onClick={e => e.stopPropagation()}>
           {/* Tabs */}
           <div className="flex shrink-0 items-stretch" style={{ borderBottom: '1px solid var(--brand-e8effd)' }}>
             <button onClick={() => setPanelCollapsed(true)}
-              className="shrink-0 px-2 text-sm font-bold"
+              className="shrink-0 px-1.5 text-sm font-bold"
               style={{ color: 'var(--brand-a8bef0)' }}>
               ›
             </button>
             {(['bench', 'subs', 'notes', 'tactics', 'media'] as const).map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)}
-                className="flex-1 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors"
+                className="flex-1 min-w-0 py-2.5 px-0.5 text-[10px] font-bold uppercase transition-colors"
                 style={{
                   color: activeTab === tab ? 'var(--brand-1a3fab)' : 'var(--brand-a8bef0)',
                   borderBottom: activeTab === tab ? '2.5px solid var(--brand-1a3fab)' : '2.5px solid transparent',
                 }}>
-                {tab === 'bench' ? `Bank (${benchPlayers.length})` : tab === 'subs' ? `Wissels (${subs.length})` : tab === 'notes' ? 'Score' : tab === 'tactics' ? 'Tactiek' : 'Media'}
+                {tab === 'bench' ? `Bank (${benchPlayers.length})` : tab === 'subs' ? `Wissel (${subs.length})` : tab === 'notes' ? 'Score' : tab === 'tactics' ? 'Tactiek' : 'Media'}
               </button>
             ))}
           </div>
