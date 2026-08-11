@@ -1913,10 +1913,11 @@ function SearchableSelect({ value, onChange, options, placeholder, inputStyle }:
 
 // ── Setup View ───────────────────────────────────────────────────────────────
 
-function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
+function SetupView({ onStart, onHistory, onProfile, onTeamSelected, user, authLoading }: {
   onStart: (p: GameParams) => void
   onHistory: () => void
   onProfile: () => void
+  onTeamSelected: (team: string) => void
   user: AuthUser | null
   authLoading: boolean
 }) {
@@ -1995,6 +1996,7 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
   const selectTeam = (newTeam: string) => {
     setTeam(newTeam)
     if (!user) return
+    onTeamSelected(newTeam)
     fetchTeamRoster(newTeam).then(players => {
       if (players.length) {
         setSquad(players.map(p => ({ id: p.id, name: p.name, photoUrl: p.photoUrl ?? undefined })))
@@ -5318,6 +5320,22 @@ function MessagesView({ user, onBack, onProfile, onRefreshUnread }: {
   )
 }
 
+// ── One-time fixture import: Muiden MO11-1 ─────────────────────────────────────
+// This app's own roster-naming convention calls SC Muiden's MO11-1 team
+// "MO11-Wit" (jersey-color naming, like MO9-Blauw/MO9-Geel elsewhere) — there's
+// no live sync with hockey.nl, so this is a fixed, one-time transcription of
+// its KNHB voorcompetitie schedule (match center, read 2026-08-11) for the
+// only poule it had fixtures in at the time. Re-run this by hand next season
+// rather than building a standing scraper against hockey.nl's API.
+const MO11_WIT_TEAM = 'MO11-Wit'
+const MO11_WIT_FIXTURES: { date: string; opponent: string; homeAway: 'Thuis' | 'Uit' }[] = [
+  { date: '2026-09-05', opponent: 'Gooische Hockey Club MO11-3', homeAway: 'Thuis' },
+  { date: '2026-09-12', opponent: 'Hockey Club Naarden MO11-3', homeAway: 'Uit' },
+  { date: '2026-09-19', opponent: 'Huizer HC MO11-2', homeAway: 'Thuis' },
+  { date: '2026-09-26', opponent: 'Hilversum MO11-2', homeAway: 'Thuis' },
+  { date: '2026-10-03', opponent: 'Almeerse HC MO11-2', homeAway: 'Uit' },
+]
+
 // ── App ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -5332,8 +5350,33 @@ export default function App() {
   const [gameParams, setGameParams] = useState<GameParams | null>(null)
   const [editingGame, setEditingGame] = useState<SavedGame | null>(null)
   const { user, loading: authLoading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, logout, updateProfile } = useAuth()
-  const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user)
+  const { games, loading: gamesLoading, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user)
   const notif = useNotificationCenter(!!user)
+
+  // Fires once whoever's using the app picks MO11-Wit in Setup, creating any
+  // of that team's fixtures (see MO11_WIT_FIXTURES above) they don't already
+  // have a game for. Deferred to an effect (rather than running inline from
+  // the dropdown's own callback) because `games` may still be mid-fetch right
+  // when the team gets picked — e.g. the profile-default auto-select fires
+  // the moment `user` loads, which can easily race the separate games
+  // request. The per-fixture existence check (not a one-time flag) is what
+  // actually makes this idempotent: safe to fire on every selection, on any
+  // device, forever.
+  const [pendingTeamForImport, setPendingTeamForImport] = useState<string | null>(null)
+  useEffect(() => {
+    if (gamesLoading || pendingTeamForImport !== MO11_WIT_TEAM) return
+    for (const fx of MO11_WIT_FIXTURES) {
+      const exists = games.some(g => g.team === MO11_WIT_TEAM && g.date === fx.date && g.opponent === fx.opponent)
+      if (exists) continue
+      addGame({
+        id: uid(), date: fx.date, club: 'SC Muiden', team: MO11_WIT_TEAM, ageGroup: 'U11',
+        opponent: fx.opponent, homeAway: fx.homeAway, squad: [], slots: [], subs: [], oppMarkers: [],
+        goals: [], cards: [], tacticsBoards: [], playedSeconds: {}, media: [], notes: '', result: '',
+        scoreOwn: 0, scoreOpp: 0, finalTime: 0,
+      })
+    }
+    setPendingTeamForImport(null)
+  }, [pendingTeamForImport, gamesLoading, games, addGame])
 
   // The live match view (GameView) gets the full screen to itself — every
   // other view gets the bar, plus a same-height spacer so the last bit of
@@ -5434,6 +5477,7 @@ export default function App() {
         onStart={p => { setEditingGame(null); setGameParams(p); setView('game') }}
         onHistory={() => setView('history')}
         onProfile={() => setView('profile')}
+        onTeamSelected={setPendingTeamForImport}
         user={user}
         authLoading={authLoading}
       />
