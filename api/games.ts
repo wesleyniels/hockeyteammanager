@@ -29,12 +29,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
          OR (g.user_id = 'hockey-one' AND ${defaultTeam}::text IS NOT NULL AND g.data->>'team' = ${defaultTeam})
       ORDER BY g.created_at ASC
     `
+    // A freshly-seeded Hockey-One fixture starts with an empty squad (see
+    // seedTeamFixtures in db.ts) — fill it in from the team's current roster
+    // here rather than at seed time, so it stays in sync as players are
+    // added/removed all season instead of freezing whatever the roster
+    // looked like on import day. Only applies while the squad is still
+    // empty: the moment a coach saves the match (PUT), its squad becomes
+    // real match data and this overlay stops applying to it.
+    let roster: { id: string; name: string; photoUrl: string | null }[] = []
+    if (defaultTeam && rows.some(r => r.owner_id === 'hockey-one' && (r.data.squad?.length ?? 0) === 0)) {
+      const rosterRows = await sql`
+        SELECT tp.id, tp.name, tp.photo_url FROM team_players tp
+        JOIN teams t ON t.id = tp.team_id
+        WHERE lower(t.name) = lower(${defaultTeam})
+        ORDER BY tp.sort_order, tp.name
+      `
+      roster = rosterRows.map(r => ({ id: r.id, name: r.name, photoUrl: r.photo_url }))
+    }
     res.status(200).json(rows.map(r => {
       let permission: string | undefined
       if (r.owner_id === user.id) permission = 'owner'
       else if (r.share_permission) permission = r.share_permission
       else if (r.owner_id === 'hockey-one') permission = ELIGIBLE_ROLES.includes(role ?? '') ? 'edit' : 'view'
-      return { ...r.data, ownerId: r.owner_id, permission }
+      const needsRoster = r.owner_id === 'hockey-one' && (r.data.squad?.length ?? 0) === 0 && roster.length > 0
+      const data = needsRoster ? { ...r.data, squad: roster.map(p => ({ id: p.id, name: p.name, photoUrl: p.photoUrl ?? undefined })) } : r.data
+      return { ...data, ownerId: r.owner_id, permission }
     }))
     return
   }

@@ -4630,7 +4630,11 @@ function EmailAuthForm({ onLogin, onRegister, onResend }: {
 // Saved matches are private per account now, so this only fetches once a
 // session exists — logging out clears the list rather than erroring.
 
-function useRemoteGames(enabled: boolean) {
+// `teamKey` isn't read inside the effect — it's only here so switching teams
+// (which changes which Hockey-One fixtures the API returns, see games.ts)
+// re-runs the fetch instead of leaving the previous team's games on screen
+// until a manual page reload.
+function useRemoteGames(enabled: boolean, teamKey: string | null) {
   const [games, setGames] = useState<SavedGame[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -4653,7 +4657,7 @@ function useRemoteGames(enabled: boolean) {
       }
     })()
     return () => { cancelled = true }
-  }, [enabled])
+  }, [enabled, teamKey])
 
   const addGame = useCallback((g: SavedGame) => {
     setGames(gs => [...gs, g])
@@ -5332,7 +5336,7 @@ export default function App() {
   const [gameParams, setGameParams] = useState<GameParams | null>(null)
   const [editingGame, setEditingGame] = useState<SavedGame | null>(null)
   const { user, loading: authLoading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, logout, updateProfile } = useAuth()
-  const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user)
+  const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user, user?.defaultTeam ?? null)
   const notif = useNotificationCenter(!!user)
 
   // The live match view (GameView) gets the full screen to itself — every
