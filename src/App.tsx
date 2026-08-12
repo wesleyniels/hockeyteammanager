@@ -218,6 +218,32 @@ const KNHB_CLUBS = [
   "Zwaluwen Utrecht", "Zwollywood Sticks",
 ]
 
+// Seeded fixture data (team-fixtures.ts) sometimes names an opponent by the
+// short/colloquial name coaches actually use rather than KNHB's formal one —
+// resolved here so ClubLogo can still find the right crest either way.
+const CLUB_NAME_ALIASES: Record<string, string> = {
+  'Hilversum': 'HMHC',
+  'Amsterdam': 'AH & BC',
+  'Hurley': 'THC Hurley',
+  'Soest': 'MHC Soest',
+  'SCHC': 'Stichtsche Cricket & Hockey Club',
+}
+
+// A game's `opponent` field is a free-text "club + team" string (e.g.
+// "Gooische Hockey Club MO8-Lila") — there's no separate opponent-club field
+// to look a logo up by. This recovers the club name by finding the longest
+// KNHB_CLUBS entry the string starts with, so ClubLogo can still resolve it.
+function matchKnhbClub(s: string): string {
+  for (const [alias, official] of Object.entries(CLUB_NAME_ALIASES)) {
+    if (s === alias || s.startsWith(alias + ' ')) { s = official + s.slice(alias.length); break }
+  }
+  let best = ''
+  for (const c of KNHB_CLUBS) {
+    if ((s === c || s.startsWith(c + ' ')) && c.length > best.length) best = c
+  }
+  return best || s
+}
+
 // ── Age group config ─────────────────────────────────────────────────────────
 
 const AGE_CONFIG: Record<AgeGroup, { total: number; field: number; label: string; dual?: boolean }> = {
@@ -1260,7 +1286,12 @@ function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, 
 // are drawn by dragging rather than the live field's pointer-drag machinery,
 // since nothing here is tied to the actual on-field slots.
 
-function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, selectedMarker, onFieldClick, onMarkerClick, onMarkerMove, onArrowDrawn }: {
+function TacticsFieldEditor({
+  isDual, slots, squad, oppMarkers, board, tool, selectedMarker, fieldRef,
+  selected, dragOverPos, dragPreview,
+  onFieldClick, onMarkerClick, onMarkerMove, onArrowDrawn,
+  onSquadSlotClick, onSquadMarkerPointerDown, onOppMarkerPointerDown, onOppMarkerClick,
+}: {
   isDual: boolean
   slots: PositionSlot[]
   squad: Player[]
@@ -1268,15 +1299,22 @@ function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, sel
   board: TacticsBoard
   tool: 'select' | 'marker' | 'arrow'
   selectedMarker: string | null
+  fieldRef: React.RefObject<HTMLDivElement | null>
+  selected: Selected
+  dragOverPos: string | null
+  dragPreview: { type: DragKind; id: string; x: number; y: number } | null
   onFieldClick: (x: number, y: number) => void
   onMarkerClick: (id: string) => void
   onMarkerMove: (id: string, x: number, y: number) => void
   onArrowDrawn: (x1: number, y1: number, x2: number, y2: number) => void
+  onSquadSlotClick: (posId: string) => void
+  onSquadMarkerPointerDown: (posId: string, e: React.PointerEvent) => void
+  onOppMarkerPointerDown: (id: string, e: React.PointerEvent) => void
+  onOppMarkerClick: (id: string) => void
 }) {
   const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
   const [dragArrow, setDragArrow] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null)
   const draggingRef = useRef(false)
-  const fieldRef = useRef<HTMLDivElement>(null)
 
   // Percent-of-field coordinates from a raw client point, always measured
   // against the field container itself — needed for marker dragging below,
@@ -1333,23 +1371,53 @@ function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, sel
       onPointerCancel={() => { draggingRef.current = false; setDragArrow(null) }}>
       {isCorner ? <FieldSVG half="bottom" /> : isDual ? <DualFieldSVG /> : <FieldSVG />}
 
-      {/* Live squad positions — visual reference only, not interactive here.
-          Skipped for a Strafcorner board: its coordinates are calibrated for
-          the full pitch and would land in the wrong spot once cropped. */}
+      {/* Live squad positions — kept fully interactive (same handlers as the
+          normal veld view) so substitutions/swaps still work while sketching
+          a formation. Skipped for a Strafcorner board: its coordinates are
+          calibrated for the full pitch and would land in the wrong spot once
+          cropped. */}
       {!isCorner && slots.map(slot => {
+        const isBeingDragged = dragPreview?.type === 'field' && dragPreview.id === slot.posId
         const player = getPlayer(slot.playerId)
+        const isFieldSel = selected?.type === 'field' && selected.posId === slot.posId
+        const isBenchSel = selected?.type === 'bench'
+        const isDragTarget = dragOverPos === slot.posId
         const isGK = slot.posId === 'gk'
+        const x = isBeingDragged ? dragPreview.x : slot.x
+        const y = isBeingDragged ? dragPreview.y : slot.y
         return (
-          <div key={slot.posId} className="absolute transform -translate-x-1/2 -translate-y-1/2 pointer-events-none"
-            style={{ left: `${slot.x}%`, top: `${slot.y}%`, zIndex: 5 }}>
+          <div key={slot.posId}
+            className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab select-none touch-none"
+            style={{ left: `${x}%`, top: `${y}%`, zIndex: isBeingDragged ? 30 : 5 }}
+            onPointerDown={e => { e.stopPropagation(); onSquadMarkerPointerDown(slot.posId, e) }}
+            onClick={e => { e.stopPropagation(); onSquadSlotClick(slot.posId) }}>
             <div style={{
               width: player ? '46px' : '36px',
               height: player ? '46px' : '36px',
               background: isGK ? '#FBBF24' : player ? '#fff' : 'rgba(255,255,255,0.18)',
-              border: player ? '2px solid rgba(255,255,255,0.85)' : '1.5px dashed rgba(255,255,255,0.45)',
+              border: isDragTarget
+                ? '2.5px solid #86EFAC'
+                : isFieldSel
+                  ? '2.5px solid #fff'
+                  : isBenchSel && !player
+                    ? '2px dashed #86EFAC'
+                    : player
+                      ? '2px solid rgba(255,255,255,0.85)'
+                      : '1.5px dashed rgba(255,255,255,0.45)',
               borderRadius: '50%',
               display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-              boxShadow: player ? '0 2px 8px rgba(0,0,0,0.3)' : 'none',
+              boxShadow: isBeingDragged
+                ? '0 6px 20px rgba(0,0,0,0.45)'
+                : isFieldSel
+                  ? '0 0 0 3px rgba(26,63,171,0.7), 0 3px 12px rgba(0,0,0,0.4)'
+                  : isDragTarget
+                    ? '0 0 0 3px rgba(134,239,172,0.6), 0 3px 12px rgba(0,0,0,0.3)'
+                    : player
+                      ? '0 2px 8px rgba(0,0,0,0.3)'
+                      : 'none',
+              transform: isBeingDragged ? 'scale(1.18)' : isFieldSel ? 'scale(1.12)' : isDragTarget ? 'scale(1.08)' : 'scale(1)',
+              opacity: isBeingDragged ? 0.95 : 1,
+              transition: isBeingDragged ? 'none' : 'transform 0.1s, box-shadow 0.1s',
             }}>
               {player ? (
                 player.photoUrl ? (
@@ -1372,12 +1440,32 @@ function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, sel
         )
       })}
 
-      {!isCorner && oppMarkers.map(o => (
-        <div key={o.id} className="absolute transform -translate-x-1/2 -translate-y-1/2 pointer-events-none"
-          style={{ left: `${o.x}%`, top: `${o.y}%`, zIndex: 4 }}>
-          <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#DC2626', border: '2px solid rgba(255,255,255,0.85)', boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }} />
-        </div>
-      ))}
+      {!isCorner && oppMarkers.map(o => {
+        const isBeingDragged = dragPreview?.type === 'opp-marker' && dragPreview.id === o.id
+        const isSel = selected?.type === 'opp-marker' && selected.id === o.id
+        const x = isBeingDragged ? dragPreview.x : o.x
+        const y = isBeingDragged ? dragPreview.y : o.y
+        return (
+          <div key={o.id}
+            className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab select-none touch-none"
+            style={{ left: `${x}%`, top: `${y}%`, zIndex: isBeingDragged ? 30 : 4 }}
+            onPointerDown={e => { e.stopPropagation(); onOppMarkerPointerDown(o.id, e) }}
+            onClick={e => { e.stopPropagation(); onOppMarkerClick(o.id) }}>
+            <div style={{
+              width: '32px', height: '32px', borderRadius: '50%',
+              background: '#DC2626', border: isSel ? '2.5px solid #fff' : '2px solid rgba(255,255,255,0.85)',
+              boxShadow: isBeingDragged
+                ? '0 6px 20px rgba(0,0,0,0.45)'
+                : isSel
+                  ? '0 0 0 3px rgba(26,63,171,0.7), 0 3px 12px rgba(0,0,0,0.4)'
+                  : '0 2px 8px rgba(0,0,0,0.3)',
+              transform: isBeingDragged ? 'scale(1.18)' : isSel ? 'scale(1.12)' : 'scale(1)',
+              opacity: isBeingDragged ? 0.95 : 1,
+              transition: isBeingDragged ? 'none' : 'transform 0.1s, box-shadow 0.1s',
+            }} />
+          </div>
+        )
+      })}
 
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none', zIndex: 8 }}>
         <defs>
@@ -2252,6 +2340,19 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     }
   }
 
+  // Background taps on the tactics board serve two independent purposes —
+  // placing/relocating a tactics marker, or completing a pending squad
+  // action (a bench player or field slot selected before switching to this
+  // tab) — so route to whichever is actually pending. Placing a tactics
+  // marker (tool + a chosen player) or relocating a selected one takes
+  // priority since those are explicit in-progress actions; otherwise fall
+  // through to the same background-click handling FieldView uses.
+  const handleTacticsBoardBackgroundClick = (x: number, y: number) => {
+    if (tacticsTool === 'marker' && tacticsPlayerId) { handleTacticsFieldClick(x, y); return }
+    if (tacticsTool === 'select' && selectedTacticsMarker) { handleTacticsFieldClick(x, y); return }
+    if (selected) { handleBackgroundClick(x, y); return }
+  }
+
   const handleTacticsArrowDrawn = (x1: number, y1: number, x2: number, y2: number) => {
     if (readOnly) return
     updateActiveBoard(b => ({ ...b, arrows: [...b.arrows, { id: uid(), x1, y1, x2, y2 }] }))
@@ -2709,10 +2810,18 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                 board={activeBoard}
                 tool={tacticsTool}
                 selectedMarker={selectedTacticsMarker}
-                onFieldClick={handleTacticsFieldClick}
+                fieldRef={fieldRef}
+                selected={selected}
+                dragOverPos={dragOverPos}
+                dragPreview={dragPreview}
+                onFieldClick={handleTacticsBoardBackgroundClick}
                 onMarkerClick={handleTacticsMarkerClick}
                 onMarkerMove={handleTacticsMarkerMove}
                 onArrowDrawn={handleTacticsArrowDrawn}
+                onSquadSlotClick={handleFieldClick}
+                onSquadMarkerPointerDown={(posId, e) => beginDrag('field', posId, e)}
+                onOppMarkerPointerDown={(id, e) => beginDrag('opp-marker', id, e)}
+                onOppMarkerClick={handleOppMarkerClick}
               />
             ) : (
               <FieldView
@@ -3303,7 +3412,26 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
           <div className="flex justify-center">
             <H1Logo height={24} />
           </div>
-          <div />
+          <div className="flex justify-end">
+            <button onClick={onProfile}
+              className={user ? 'rounded-full' : 'text-sm px-3 py-1.5 rounded-lg font-semibold'}
+              style={user
+                ? {}
+                : { color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
+              {user ? (
+                user.picture ? (
+                  <img src={user.picture} alt="Profiel" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
+                ) : (
+                  <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                    style={{ background: 'var(--brand-1a3fab)' }}>
+                    {initials(user.name ?? user.email)}
+                  </span>
+                )
+              ) : (
+                'Inloggen'
+              )}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -3351,7 +3479,7 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
                       <ClubLogo club={g.club} size={20} />
                       <span>{g.club} {g.team}</span>
                       <span style={{ color: 'var(--brand-7b90c8)', fontWeight: 400 }}>{g.homeAway === 'Thuis' ? 'Thuis' : 'Uit'}</span>
-                      <ClubLogo club={g.opponent} size={20} />
+                      <ClubLogo club={matchKnhbClub(g.opponent)} size={20} />
                       <span>{g.opponent}</span>
                     </div>
                     <div className="flex flex-wrap gap-3 mt-0.5">
@@ -5006,9 +5134,23 @@ function MessagesView({ user, onBack, onProfile, onRefreshUnread }: {
           <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">
             {activeId ? activeName : 'Berichten'}
           </h1>
-          <button onClick={activeId ? closeThread : onBack} className="text-sm font-semibold shrink-0 justify-self-end" style={{ color: 'var(--brand-7b9de0)' }}>
-            ← {activeId ? 'Berichten' : 'Terug'}
-          </button>
+          <div className="flex items-center gap-2 justify-self-end">
+            {!activeId && (
+              <button onClick={onProfile} className="rounded-full shrink-0">
+                {user.picture ? (
+                  <img src={user.picture} alt="Profiel" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
+                ) : (
+                  <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                    style={{ background: 'var(--brand-1a3fab)' }}>
+                    {initials(user.name ?? user.email)}
+                  </span>
+                )}
+              </button>
+            )}
+            <button onClick={activeId ? closeThread : onBack} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>
+              ← {activeId ? 'Berichten' : 'Terug'}
+            </button>
+          </div>
         </div>
       </header>
 
