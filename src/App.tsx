@@ -1574,7 +1574,7 @@ function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, 
 // are drawn by dragging rather than the live field's pointer-drag machinery,
 // since nothing here is tied to the actual on-field slots.
 
-function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, selectedMarker, onFieldClick, onMarkerClick, onArrowDrawn }: {
+function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, selectedMarker, onFieldClick, onMarkerClick, onMarkerMove, onArrowDrawn }: {
   isDual: boolean
   slots: PositionSlot[]
   squad: Player[]
@@ -1584,23 +1584,40 @@ function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, sel
   selectedMarker: string | null
   onFieldClick: (x: number, y: number) => void
   onMarkerClick: (id: string) => void
+  onMarkerMove: (id: string, x: number, y: number) => void
   onArrowDrawn: (x1: number, y1: number, x2: number, y2: number) => void
 }) {
   const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
   const [dragArrow, setDragArrow] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null)
   const draggingRef = useRef(false)
+  const fieldRef = useRef<HTMLDivElement>(null)
 
-  const toPct = (e: React.PointerEvent<HTMLDivElement> | React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect()
-    const x = Math.min(100, Math.max(0, ((e.clientX - rect.left) / rect.width) * 100))
-    const y = Math.min(100, Math.max(0, ((e.clientY - rect.top) / rect.height) * 100))
+  // Percent-of-field coordinates from a raw client point, always measured
+  // against the field container itself — needed for marker dragging below,
+  // since pointer capture keeps delivering events with currentTarget set to
+  // whichever marker captured them, not the field.
+  const pointFromClient = (clientX: number, clientY: number) => {
+    const rect = fieldRef.current!.getBoundingClientRect()
+    const x = Math.min(100, Math.max(0, ((clientX - rect.left) / rect.width) * 100))
+    const y = Math.min(100, Math.max(0, ((clientY - rect.top) / rect.height) * 100))
     return { x, y }
   }
+  const toPct = (e: React.PointerEvent<HTMLDivElement> | React.MouseEvent<HTMLDivElement>) => pointFromClient(e.clientX, e.clientY)
+
+  // Dragging a marker directly, in addition to the original tap-then-tap
+  // flow (select a marker, then tap elsewhere on the field to move it there
+  // — still handled by onFieldClick/handleTacticsFieldClick, and still the
+  // only option with 'marker'/'arrow' tools active or on the corner board).
+  // A plain tap with no real movement falls through to that flow instead of
+  // firing onMarkerMove — see the marker's onClick below.
+  const [draggingMarker, setDraggingMarker] = useState<{ id: string; x: number; y: number } | null>(null)
+  const markerMovedRef = useRef(false)
+  const markerStartRef = useRef<{ x: number; y: number } | null>(null)
 
   const isCorner = !!board.corner
 
   return (
-    <div
+    <div ref={fieldRef}
       className="relative w-full"
       style={{ aspectRatio: isCorner ? '62/48.5' : isDual ? '140/97' : '62/97', maxHeight: '100%', cursor: tool !== 'select' ? 'crosshair' : 'default', touchAction: tool === 'arrow' ? 'none' : undefined }}
       onClick={e => {
@@ -1694,11 +1711,37 @@ function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, sel
 
       {board.markers.map(m => {
         const player = getPlayer(m.playerId)
+        const pos = draggingMarker?.id === m.id ? draggingMarker : m
         return (
           <div key={m.id}
             className="absolute transform -translate-x-1/2 -translate-y-1/2 select-none touch-none"
-            style={{ left: `${m.x}%`, top: `${m.y}%`, zIndex: 10, cursor: tool === 'select' ? 'pointer' : 'default' }}
-            onClick={e => { e.stopPropagation(); onMarkerClick(m.id) }}>
+            style={{ left: `${pos.x}%`, top: `${pos.y}%`, zIndex: 10, cursor: tool === 'select' ? 'grab' : 'default' }}
+            onPointerDown={e => {
+              if (tool !== 'select') return
+              e.stopPropagation()
+              markerMovedRef.current = false
+              markerStartRef.current = { x: e.clientX, y: e.clientY }
+              setDraggingMarker({ id: m.id, x: m.x, y: m.y })
+              e.currentTarget.setPointerCapture(e.pointerId)
+            }}
+            onPointerMove={e => {
+              if (tool !== 'select' || draggingMarker?.id !== m.id) return
+              e.stopPropagation()
+              const start = markerStartRef.current
+              if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 4) markerMovedRef.current = true
+              const { x, y } = pointFromClient(e.clientX, e.clientY)
+              setDraggingMarker(d => d ? { ...d, x, y } : d)
+            }}
+            onPointerUp={e => {
+              if (tool !== 'select' || draggingMarker?.id !== m.id) return
+              e.stopPropagation()
+              const moved = markerMovedRef.current
+              const finalPos = draggingMarker
+              setDraggingMarker(null)
+              if (moved && finalPos) onMarkerMove(m.id, finalPos.x, finalPos.y)
+            }}
+            onPointerCancel={() => setDraggingMarker(null)}
+            onClick={e => { e.stopPropagation(); if (!markerMovedRef.current) onMarkerClick(m.id) }}>
             <div style={{
               width: '40px', height: '40px', borderRadius: '50%',
               background: '#fff',
@@ -1926,9 +1969,8 @@ function SearchableSelect({ value, onChange, options, placeholder, inputStyle }:
 
 // ── Setup View ───────────────────────────────────────────────────────────────
 
-function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
+function SetupView({ onStart, onProfile, user, authLoading }: {
   onStart: (p: GameParams) => void
-  onHistory: () => void
   onProfile: () => void
   user: AuthUser | null
   authLoading: boolean
@@ -2085,13 +2127,6 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
             {user && <H1Logo height={26} />}
           </div>
           <div className="flex items-center gap-2 justify-end">
-            {user && (
-              <button onClick={onHistory}
-                className="text-sm px-3 py-1.5 rounded-lg font-semibold"
-                style={{ color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
-                Wedstrijden
-              </button>
-            )}
             <button onClick={onProfile}
               className={user ? 'rounded-full' : 'text-sm px-3 py-1.5 rounded-lg font-semibold'}
               style={user
@@ -2532,6 +2567,11 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   const handleTacticsMarkerClick = (id: string) => {
     if (readOnly || tacticsTool !== 'select') return
     setSelectedTacticsMarker(sel => (sel === id ? null : id))
+  }
+
+  const handleTacticsMarkerMove = (id: string, x: number, y: number) => {
+    if (readOnly) return
+    updateActiveBoard(b => ({ ...b, markers: b.markers.map(m => m.id === id ? { ...m, x, y } : m) }))
   }
 
   const removeTacticsMarker = (id: string) => {
@@ -2978,6 +3018,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                 selectedMarker={selectedTacticsMarker}
                 onFieldClick={handleTacticsFieldClick}
                 onMarkerClick={handleTacticsMarkerClick}
+                onMarkerMove={handleTacticsMarkerMove}
                 onArrowDrawn={handleTacticsArrowDrawn}
               />
             ) : (
@@ -3613,10 +3654,12 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
                 <button className="w-full text-left px-5 py-4 flex items-center justify-between"
                   onClick={() => setExpanded(expanded === g.id ? null : g.id)}>
                   <div className="min-w-0">
-                    <div className="font-display text-lg font-bold leading-tight" style={{ color: 'var(--brand-0d2b7a)' }}>
-                      {g.club} {g.team}&nbsp;
-                      <span style={{ color: 'var(--brand-7b90c8)', fontWeight: 400 }}>{g.homeAway === 'Thuis' ? 'vs' : '@'}</span>
-                      &nbsp;{g.opponent}
+                    <div className="font-display text-lg font-bold leading-tight flex items-center flex-wrap gap-x-1.5" style={{ color: 'var(--brand-0d2b7a)' }}>
+                      <ClubLogo club={g.club} size={20} />
+                      <span>{g.club} {g.team}</span>
+                      <span style={{ color: 'var(--brand-7b90c8)', fontWeight: 400 }}>{g.homeAway === 'Thuis' ? 'Thuis' : 'Uit'}</span>
+                      <ClubLogo club={g.opponent} size={20} />
+                      <span>{g.opponent}</span>
                     </div>
                     <div className="flex flex-wrap gap-3 mt-0.5">
                       <span className="text-xs font-medium" style={{ color: 'var(--brand-7b90c8)' }}>{g.date}</span>
@@ -5158,10 +5201,14 @@ function BottomBar({ unreadMessages, unreadNotifications, notifications, onMessa
         </div>
       )}
       <div className="fixed bottom-0 left-0 right-0 z-30 shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
-        <div className="max-w-2xl mx-auto grid grid-cols-2">
+        <div className="max-w-2xl mx-auto grid grid-cols-3">
           <button onClick={() => setOpen(o => !o)} className="flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-white">
             <span className="relative text-base">🔔{badge(unreadNotifications)}</span>
             Meldingen
+          </button>
+          <button onClick={onOpenHistory} className="flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-white" style={{ borderLeft: '1px solid rgba(255,255,255,0.12)' }}>
+            <span className="relative text-base">🏑</span>
+            Wedstrijden
           </button>
           <button onClick={onMessages} className="flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-white" style={{ borderLeft: '1px solid rgba(255,255,255,0.12)' }}>
             <span className="relative text-base">✉️{badge(unreadMessages)}</span>
@@ -5503,7 +5550,6 @@ export default function App() {
     <>
       <SetupView
         onStart={p => { setEditingGame(null); setGameParams(p); setView('game') }}
-        onHistory={() => setView('history')}
         onProfile={() => setView('profile')}
         user={user}
         authLoading={authLoading}
