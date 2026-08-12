@@ -461,6 +461,43 @@ const uid = () => Math.random().toString(36).slice(2, 11)
 // reads media through this proxy instead (see api/blob/[action].ts's 'view').
 const mediaSrc = (url: string) => `/api/blob/view?url=${encodeURIComponent(url)}`
 
+// Mirrors the Python slugify used when the club crests were uploaded to Blob
+// storage (club-logos/{slug}.png) — NFKD-normalize, drop combining marks,
+// lowercase, collapse non-alphanumeric runs to a single hyphen.
+function slugifyClubName(name: string): string {
+  return name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+// Club logos are fetched from the live Blob store (api/blob/[action].ts's
+// 'club-logos' listing) instead of a hardcoded per-environment URL map, so
+// preview and production — genuinely separate stores — never drift out of
+// sync. Memoized at module scope: every ClubLogo instance and the theme
+// effect below share one fetch/one cache for the app's lifetime.
+let clubLogosState: Record<string, string> | null = null
+let clubLogosPromise: Promise<Record<string, string>> | null = null
+function fetchClubLogos(): Promise<Record<string, string>> {
+  clubLogosPromise ??= fetch('/api/blob/club-logos')
+    .then(r => r.ok ? r.json() : { logos: {} })
+    .then(data => (clubLogosState = data.logos ?? {}))
+    .catch(() => (clubLogosState = {}))
+  return clubLogosPromise
+}
+function useClubLogos(): Record<string, string> {
+  const [state, setState] = useState(clubLogosState)
+  useEffect(() => {
+    if (clubLogosState) return
+    let mounted = true
+    fetchClubLogos().then(logos => { if (mounted) setState(logos) })
+    return () => { mounted = false }
+  }, [])
+  return state ?? {}
+}
+
 // ── Club theme (derived from the selected club's logo) ──────────────────────
 // The CSS variables below (defined in index.css, one per "brand blue" hex
 // used across the app) default to the app's original palette. With no club
@@ -842,366 +879,15 @@ function H1Logo({ height = 28 }: { height?: number }) {
   return <img src="/h1-logo.png" alt="Hockey One" style={{ height, width: 'auto' }} />
 }
 
-// Per-club crest, downloaded from the KNHB club-finder (knhb.nl/club-finder)
-// and keyed by the exact name in KNHB_CLUBS. A club with no logo on file there
-// (or not in this map for any other reason) falls back to the generic H1 mark
-// rather than showing a broken image or someone else's logo guessed wrong.
-// Re-saved as PNG with the background keyed out to transparent (flood-filled
-// from the border by color distance, so an enclosed white shape inside the
-// crest itself is left alone) — the source images are a mix of formats, some
-// with a plain white/solid backing that otherwise shows as a visible square.
-// Stored as private Blob URLs — like every other image in this app, they're
-// only ever rendered once logged in (this map only gets consulted for a
-// signed-in user's own defaultClub), so the mediaSrc() view-proxy is a
-// non-issue here, not a workaround.
-const CLUB_LOGOS: Record<string, string> = {
-  'Hockey Vereniging Abcoude': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-vereniging-abcoude.png',
-  'L.S.C. ALECTO': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/l-s-c-alecto.png',
-  'Alkmaarsche M.H.C.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/alkmaarsche-m-h-c.png',
-  'MHC Alliance': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-alliance.png',
-  'MHC Almelo': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-almelo.png',
-  'Almeerse HC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/almeerse-hc.png',
-  'HC Alphen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-alphen.png',
-  'Hockeyclub Amersfoort': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-amersfoort.png',
-  'MHC Amstelveen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-amstelveen.png',
-  'AH & BC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/ah-bc.png',
-  'Hockeyclub AMVJ': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-amvj.png',
-  'Arnhemse Antilope Vereniging': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/arnhemse-antilope-vereniging.png',
-  'Apeldoornsche (M.H.C.)': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/apeldoornsche-m-h-c.png',
-  'N.S.H.C. Apeliotes': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/n-s-h-c-apeliotes.png',
-  'HC Ares': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-ares.png',
-  'Arnhemsche H.C.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/arnhemsche-h-c.png',
-  'HC Athena': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-athena.png',
-  'W.M.H.C. Avanti': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/w-m-h-c-avanti.png',
-  'HC Baarle Nassau': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-baarle-nassau.png',
-  'Baarnse Mixed Hockey Vereniging': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/baarnse-mixed-hockey-vereniging.png',
-  'HOB Bakel': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hob-bakel.png',
-  'Hockeyclub Barendrecht': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-barendrecht.png',
-  'M.H.C. Barneveld': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-barneveld.png',
-  'V.M.H.C. Basko': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/v-m-h-c-basko.png',
-  'H.C. Bedum': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/h-c-bedum.png',
-  'MHC Bemmel 800': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-bemmel-800.png',
-  'MHC Bennebroek': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-bennebroek.png',
-  'Berkel-Enschot': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/berkel-enschot.png',
-  'Berkel en Rodenrijs': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/berkel-en-rodenrijs.png',
-  'Hockeyclub Berlicum': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-berlicum.png',
-  'MHC Best': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-best.png',
-  'MHCBeuningen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhcbeuningen.png',
-  'The Black Scorpions': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/the-black-scorpions.png',
-  'HV Bleiswijk': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hv-bleiswijk.png',
-  'HC Bloemendaal': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-bloemendaal.png',
-  'HC Boekel': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-boekel.png',
-  'MHC Bommelerwaard': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-bommelerwaard.png',
-  'M.H.C. Boxmeer': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-boxmeer.png',
-  'BH&BC Breda': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/bh-bc-breda.png',
-  'Bredius Rollers': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/bredius-rollers.png',
-  'Buitenhout MHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/buitenhout-mhc.png',
-  'O.H.C. Bully': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/o-h-c-bully.png',
-  'HC Capelle': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-capelle.png',
-  'V.M.H.C. CARTOUCHE': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/v-m-h-c-cartouche.png',
-  'MHC Castricum': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-castricum.png',
-  'HCC Catwyck': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hcc-catwyck.png',
-  'Charlotte-Oort Hockey Team (CHT)': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/charlotte-oort-hockey-team-cht.png',
-  'C.M.H.C. CIVICUM': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/c-m-h-c-civicum.png',
-  'MHC Coevorden': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-coevorden.png',
-  'R.H.C. Concordia': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/r-h-c-concordia.png',
-  'Craeyenhout': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/craeyenhout.png',
-  'HC Cranendonck': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-cranendonck.png',
-  'CMHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/cmhc.png',
-  'MHC Dalfsen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-dalfsen.png',
-  'MHC Daring-Veendam': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-daring-veendam.png',
-  'M.H.C. Dash': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-dash.png',
-  'DDHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/ddhc.png',
-  'HC Delta Venlo': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-delta-venlo.png',
-  'Hockeyclub \'s-Hertogenbosch': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-s-hertogenbosch.png',
-  'HC Den Haag': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-den-haag.png',
-  'De Peperbus': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/de-peperbus.png',
-  'H.C. Derby': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/h-c-derby.png',
-  'MHC DES': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-des.png',
-  'M.H.C. Deurne': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-deurne.png',
-  'DHV': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/dhv.png',
-  'HC Diemen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-diemen.png',
-  'MHC Dieren': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-dieren.png',
-  'Doing': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/doing.png',
-  'Hockeyclub Dokkum': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-dokkum.png',
-  'MHC de Dommel': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-de-dommel.png',
-  'Don Quishoot': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/don-quishoot.png',
-  'Doornse Hockey Club': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/doornse-hockey-club.png',
-  'Dopie': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/dopie.png',
-  'Dordrechtse Mixed Hockey Club': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/dordrechtse-mixed-hockey-club.png',
-  'Dorsteti': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/dorsteti.png',
-  'DHC Drienerlo': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/dhc-drienerlo.png',
-  'MHCD': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhcd.png',
-  'Hockey Club Druten': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-club-druten.png',
-  'DSHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/dshc.png',
-  'DVS': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/dvs.png',
-  'MHC EDE': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-ede.png',
-  'HC Eelde': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-eelde.png',
-  'Eemsmond': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/eemsmond.png',
-  'H.C. Eemvallei': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/h-c-eemvallei.png',
-  'HC Eersel': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-eersel.png',
-  'EHV Enschede': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/ehv-enschede.png',
-  'HC Eindhoven': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-eindhoven.png',
-  'Eendracht Maakt Macht 2021': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/eendracht-maakt-macht-2021.png',
-  'Hockeyclub Emmen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-emmen.png',
-  'MHC Epe': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-epe.png',
-  'E-team Emmen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/e-team-emmen.png',
-  'HC Etten-Leur': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-etten-leur.png',
-  'MHV Evergreen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhv-evergreen.png',
-  'HC Feijenoord': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-feijenoord.png',
-  'A.M.H.C. F.I.T.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/a-m-h-c-f-i-t.png',
-  'MHC Fletiomare': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-fletiomare.png',
-  'Flevoland Dronten (M.H.C.)': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/flevoland-dronten-m-h-c.png',
-  'MHV Forcial': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhv-forcial.png',
-  'MHC Forescate': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-forescate.png',
-  'G.C.H.C.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/g-c-h-c.png',
-  'V.M.H.C. Geel-Zwart': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/v-m-h-c-geel-zwart.png',
-  'HC Geldermalsen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-geldermalsen.png',
-  'Hockey Geldrop': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-geldrop.png',
-  'HC Gemert': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-gemert.png',
-  'GHBS': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/ghbs.png',
-  'Gidos Wheels on Fire (BE)': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/gidos-wheels-on-fire-be.png',
-  'Gilze Rijen (H.C.)': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/gilze-rijen-h-c.png',
-  'HCGO': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hcgo.png',
-  'GMHC Goes': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/gmhc-goes.png',
-  'M.H.C. Goirle': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-goirle.png',
-  'Gooische Hockey Club': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/gooische-hockey-club.png',
-  'GoorseMHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/goorsemhc.png',
-  'HC Gorssel/Epse': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-gorssel-epse.png',
-  'Goudse MHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/goudse-mhc.png',
-  'GP Bulls': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/gp-bulls.png',
-  'de Graspiepers': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/de-graspiepers.png',
-  'HC Grave': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-grave.png',
-  'Haagsche Countryclub Groen-Geel': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/haagsche-countryclub-groen-geel.png',
-  'Hockeyclub Groningen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-groningen.png',
-  'Groninger Studenten Hockey Club \'Forward\'': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/groninger-studenten-hockey-club-forward.png',
-  'HHC Haackey': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hhc-haackey.png',
-  'Haag 88': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/haag-88.png',
-  'H.C. Haarlem': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/h-c-haarlem.png',
-  'Hockeyclub De Haaskamp': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-de-haaskamp.png',
-  'GZG Hardenberg': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/gzg-hardenberg.png',
-  'Harlinger Mixed Hockey Club': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/harlinger-mixed-hockey-club.png',
-  'Hattemse M.H.C.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hattemse-m-h-c.png',
-  'MHCHBS': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhchbs.png',
-  'HCAS': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hcas.png',
-  'HCHN': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hchn.png',
-  'HCM Arnhem': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hcm-arnhem.png',
-  'HCRB': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hcrb.png',
-  'HCSO': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hcso.png',
-  'Winschoten': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/winschoten.png',
-  'mixed hockeyclub HDL': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mixed-hockeyclub-hdl.png',
-  'Haagsche Delftsche Mixed': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/haagsche-delftsche-mixed.png',
-  'HDS': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hds.png',
-  'MHC Heerhugowaard': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-heerhugowaard.png',
-  'Mixed Hockey Club Heesch': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mixed-hockey-club-heesch.png',
-  'Hockey Heeze': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-heeze.png',
-  'HC Helmond': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-helmond.png',
-  'HSC Hermes': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hsc-hermes.png',
-  'HGC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hgc.png',
-  'HIC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hic.png',
-  'Hockeyclub Hilvarenbeek': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-hilvarenbeek.png',
-  'HMHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hmhc.png',
-  'H.C. HISALIS': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/h-c-hisalis.png',
-  'MHC HOCO': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-hoco.png',
-  'Hockeyvereniging H.O.D.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyvereniging-h-o-d.png',
-  'HC De Hoeksche Waard': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-de-hoeksche-waard.png',
-  'M.H.C. Hoevelaken': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-hoevelaken.png',
-  'Hockeyclub Holten Rijssen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-holten-rijssen.png',
-  'Hockeyclub De Hondsrug': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-de-hondsrug.png',
-  'Hoogeveen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hoogeveen.png',
-  'WFHC Hoorn': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/wfhc-hoorn.png',
-  'SMHC De Hopbel': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/smhc-de-hopbel.png',
-  'HC Horst': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-horst.png',
-  'Hockey Club Houten': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-club-houten.png',
-  'Hockeyclub Schouwen Duiveland': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-schouwen-duiveland.png',
-  'D.H.C. Hudito': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/d-h-c-hudito.png',
-  'Huizer HC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/huizer-hc.png',
-  'THC Hurley': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/thc-hurley.png',
-  'H.V.A.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/h-v-a.png',
-  'AHC IJburg': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/ahc-ijburg.png',
-  'NHC De IJssel': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/nhc-de-ijssel.png',
-  'HC IJsseloever': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-ijsseloever.png',
-  'HC Kampen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-kampen.png',
-  'SV Kampong Hockey': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/sv-kampong-hockey.png',
-  'Kampong Wheelys': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/kampong-wheelys.png',
-  'Kennemer Keien': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/kennemer-keien.png',
-  'De Kieviten': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/de-kieviten.png',
-  'MHC de Kikkers': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-de-kikkers.png',
-  'Klein Zwitserland, H.C.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/klein-zwitserland-h-c.png',
-  'Z.H.C. de Kraaien': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/z-h-c-de-kraaien.png',
-  'M.H.C. Krimpen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-krimpen.png',
-  'THCC De Kromhouters': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/thcc-de-kromhouters.png',
-  'HC Kromme Rijn': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-kromme-rijn.png',
-  'Larensche Mixed Hockey Club': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/larensche-mixed-hockey-club.png',
-  'HC Leerdam': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-leerdam.png',
-  'Mixed Hockey Club Leeuwarden': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mixed-hockey-club-leeuwarden.png',
-  'Leidsche en Oegstgeester Hockeyclub (LOHC)': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/leidsche-en-oegstgeester-hockeyclub-lohc.png',
-  'M.H.C. LELYSTAD': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-lelystad.png',
-  'R.H.V. Leonidas': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/r-h-v-leonidas.png',
-  'MHC Leusden': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-leusden.png',
-  'MHC Liberty': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-liberty.png',
-  'Hockeyclub Liempde': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-liempde.png',
-  'Lochemse Hockey Club': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/lochemse-hockey-club.png',
-  'Loenense MHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/loenense-mhc.png',
-  'Hockeyclub Losser': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-losser.png',
-  'MHC Maarn': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-maarn.png',
-  'MHV Maarssen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhv-maarssen.png',
-  'Maastrichtse Hockey Club MHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/maastrichtse-hockey-club-mhc.png',
-  'MADESE H.C.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/madese-h-c.png',
-  'S.M.H.C. Magnus': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/s-m-h-c-magnus.png',
-  'HC Martinus': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-martinus.png',
-  'HV Meerssen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hv-meerssen.png',
-  'De Meeuwen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/de-meeuwen.png',
-  'M.H.C. M.E.P. (Mea Est Pila)': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-m-e-p-mea-est-pila.png',
-  'Meppeler HV': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/meppeler-hv.png',
-  'MHC De Mezen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-de-mezen.png',
-  'HC Mierlo': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-mierlo.png',
-  'Hockey Vereniging Mijdrecht': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-vereniging-mijdrecht.png',
-  'HC Mill': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-mill.png',
-  'HC Mistral': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-mistral.png',
-  'Hockeyclub Montfoort': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-montfoort.png',
-  'V.M.H.& C.C. M.O.P.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/v-m-h-c-c-m-o-p.png',
-  'Maestrichtse Studenten Hockey Club': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/maestrichtse-studenten-hockey-club.png',
-  'SC Muiden': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/sc-muiden.png',
-  'MHC Muiderberg': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-muiderberg.png',
-  'HV Myra': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hv-myra.png',
-  'Hockey Club Naarden': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-club-naarden.png',
-  'Never Less': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/never-less.png',
-  'MHCN': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhcn.png',
-  'HC Nieuwkoop': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-nieuwkoop.png',
-  'Nijkerk (H.C.)': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/nijkerk-h-c.png',
-  'NMHC Nijmegen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/nmhc-nijmegen.png',
-  'AHC Noorderlicht': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/ahc-noorderlicht.png',
-  'Noordwijkse (H.C)': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/noordwijkse-h-c.png',
-  'HC Nova': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-nova.png',
-  'Hockey Club Nuenen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-club-nuenen.png',
-  'MHC Nunspeet': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-nunspeet.png',
-  'HC Nuth': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-nuth.png',
-  'Sint Oedenrode': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/sint-oedenrode.png',
-  'HC Oirschot': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-oirschot.png',
-  'MHC Olympia': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-olympia.png',
-  'Mixed Hockey Club Ommen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mixed-hockey-club-ommen.png',
-  'OMHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/omhc.png',
-  'Only Friends': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/only-friends.png',
-  'M.H.C. Oosterbeek': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-oosterbeek.png',
-  'HC Oranje Rood': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-oranje-rood.png',
-  'Oss (M.H.C.)': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/oss-m-h-c.png',
-  'HCOIJ': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hcoij.png',
-  'M.H.C. Oudenbosch': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-oudenbosch.png',
-  'HCOB - Hockeyclub Overbetuwe': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hcob-hockeyclub-overbetuwe.png',
-  'BHC Overbos': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/bhc-overbos.png',
-  'Hockeyclub Peel & Maas': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-peel-maas.png',
-  'RMHC de Pelikaan': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/rmhc-de-pelikaan.png',
-  'SV Phoenix': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/sv-phoenix.png',
-  'Hockey Phoenix Belgie': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-phoenix-belgie.png',
-  'HC Pijnacker': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-pijnacker.png',
-  'Pinoké': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/pinoke.png',
-  'VMHC Pollux': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/vmhc-pollux.png',
-  'De Pont': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/de-pont.png',
-  'Hockeyclub Prinsenbeek': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-prinsenbeek.png',
-  'M.H.C. Purmerend': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-purmerend.png',
-  'B.H.V. Push': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/b-h-v-push.png',
-  'Enschedese hockeyclub Prinses Wilhelmina': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/enschedese-hockeyclub-prinses-wilhelmina.png',
-  'HHC Quick Stick': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hhc-quick-stick.png',
-  'U.H.C.QUI VIVE': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/u-h-c-qui-vive.png',
-  'HCQZ': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hcqz.png',
-  'G.H.C. RAPID': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/g-h-c-rapid.png',
-  'Rapid Rollers': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/rapid-rollers.png',
-  'MHC De Reigers': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-de-reigers.png',
-  'Hockeyclub Ridderkerk': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-ridderkerk.png',
-  'HC Rijnvliet': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-rijnvliet.png',
-  'Rijswijksche Hockey Club': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/rijswijksche-hockey-club.png',
-  'Ring Pass Delft': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/ring-pass-delft.png',
-  'MHC Roden': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-roden.png',
-  'De Keistadrollers': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/de-keistadrollers.png',
-  'A.M.H.C. Rood-Wit': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/a-m-h-c-rood-wit.png',
-  'Leidse Hockey Club Roomburg': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/leidse-hockey-club-roomburg.png',
-  'Rosmalen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/rosmalen.png',
-  'Hockey Club Rotterdam': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-club-rotterdam.png',
-  'HMHC Saxenburg': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hmhc-saxenburg.png',
-  'Schaerweijde': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/schaerweijde.png',
-  'Stichtsche Cricket & Hockey Club': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/stichtsche-cricket-hockey-club.png',
-  'HC Scherpenzeel': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-scherpenzeel.png',
-  'HC Schiedam': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-schiedam.png',
-  'Schoonhovense MHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/schoonhovense-mhc.png',
-  'HC Scoop': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-scoop.png',
-  'Scoop Delft': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/scoop-delft.png',
-  'SG Beverland': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/sg-beverland.png',
-  'DMHC Shinty': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/dmhc-shinty.png',
-  'SHOT': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/shot.png',
-  'Sjinborn': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/sjinborn.png',
-  'Sneeker Mixed Hockey Club': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/sneeker-mixed-hockey-club.png',
-  'MHC Soest': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-soest.png',
-  'HTCSON Hockey': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/htcson-hockey.png',
-  'HC Spaarndam': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-spaarndam.png',
-  '\'t Spandersbosch': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/t-spandersbosch.png',
-  'HV Spijkenisse': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hv-spijkenisse.png',
-  'HC Spire': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-spire.png',
-  'VMHC Spitsbergen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/vmhc-spitsbergen.png',
-  'MHC Steenwijk': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-steenwijk.png',
-  'Stick Flyers': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/stick-flyers.png',
-  'JHC-Stix': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/jhc-stix.png',
-  'K.H.C. Strawberries': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/k-h-c-strawberries.png',
-  'MH&LC Tempo': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mh-lc-tempo.png',
-  'R.G.H.C. Tempo \'34': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/r-g-h-c-tempo-34.png',
-  'H.V. de Terriërs': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/h-v-de-terriers.png',
-  'MHCT': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhct.png',
-  'Thor': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/thor.png',
-  'HC Tilburg': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-tilburg.png',
-  'SVG De Tubanten': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/svg-de-tubanten.png',
-  'Tukkers United': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/tukkers-united.png',
-  'Voorster Hockeyclub Twello': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/voorster-hockeyclub-twello.png',
-  'Hockey Club Twente': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-club-twente.png',
-  'Hockey Club Uden': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-club-uden.png',
-  'MHC Udenhout': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-udenhout.png',
-  'MHC Uitgeest': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-uitgeest.png',
-  'R.K.H.V. Union': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/r-k-h-v-union.png',
-  'Hockeyclub UNO': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-uno.png',
-  'Arnhemse Mixed Hockey Club Upward': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/arnhemse-mixed-hockey-club-upward.png',
-  'U.S.H.C.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/u-s-h-c.png',
-  'M.H.C. Venray': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-venray.png',
-  'MHC Vianen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-vianen.png',
-  'HV Victoria': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hv-victoria.png',
-  'VIOS \'82': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/vios-82.png',
-  'VMHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/vmhc.png',
-  'MMHC Voordaan': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mmhc-voordaan.png',
-  'MHC Voorhout': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-voorhout.png',
-  'HC Voorne': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-voorne.png',
-  'Hockeyclub VVV': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-vvv.png',
-  'HC Waalwijk': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-waalwijk.png',
-  'HC Waddinxveen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-waddinxveen.png',
-  'WMHC': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/wmhc.png',
-  'HC Walcheren': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-walcheren.png',
-  'MHC De Warande': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-de-warande.png',
-  'Hockey Club Wateringse Veld': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-club-wateringse-veld.png',
-  'Waterlandse Hockey Club': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/waterlandse-hockey-club.png',
-  'HV Weert': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hv-weert.png',
-  'M.H.C. Weesp': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/m-h-c-weesp.png',
-  'Were Di Tilburg': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/were-di-tilburg.png',
-  'Westerduiven': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/westerduiven.png',
-  'MHC Westerkwartier': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-westerkwartier.png',
-  'AMHC Westerpark': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/amhc-westerpark.png',
-  'HV Westland': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hv-westland.png',
-  'MHC Wijchen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-wijchen.png',
-  'H.C. Winsum': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/h-c-winsum.png',
-  'MHC Woerden': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhc-woerden.png',
-  'Xenios': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/xenios.png',
-  'HC Ypenburg': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-ypenburg.png',
-  'Zandvoortsche H.C.': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/zandvoortsche-h-c.png',
-  'Hockey Club Zeewolde': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-club-zeewolde.png',
-  'Hockey Vereniging Zevenaar': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockey-vereniging-zevenaar.png',
-  'Hockeyclub Zevenbergen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hockeyclub-zevenbergen.png',
-  'Mixed Hockeyclub Zoetermeer': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mixed-hockeyclub-zoetermeer.png',
-  'Zundertse Hockeyclub': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/zundertse-hockeyclub.png',
-  'MHCZutphen': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/mhczutphen.png',
-  'Zwaluwen Utrecht': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/zwaluwen-utrecht.png',
-  'B.N.M.H.C. Zwart-Wit': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/b-n-m-h-c-zwart-wit.png',
-  'HC Zwolle': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/hc-zwolle.png',
-  'Zwollywood Sticks': 'https://wxxfjjuo3vyyiohi.private.blob.vercel-storage.com/club-logos/zwollywood-sticks.png',
-}
-
+// Per-club crest, fetched dynamically from the Blob store's club-logos/
+// prefix (see api/blob/[action].ts's 'club-logos' action) rather than a
+// hardcoded per-environment URL map — keeps preview and production (genuinely
+// separate stores) from drifting, and picks up newly-uploaded crests without
+// a redeploy. A club with no matching slug in the store falls back to the
+// generic H1 mark rather than showing a broken image.
 function ClubLogo({ club, size = 46 }: { club: string; size?: number }) {
-  const src = CLUB_LOGOS[club]
+  const logos = useClubLogos()
+  const src = logos[slugifyClubName(club)]
   if (!src) return <H1Logo height={size} />
   return <img src={mediaSrc(src)} alt={club} width={size} height={size} style={{ width: size, height: size, objectFit: 'contain' }} />
 }
@@ -2383,8 +2069,15 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   // tracked separately, so undoing a mis-given card (the × next to it)
   // immediately lifts the restriction again.
   const redCardedIds = new Set(cards.filter(c => c.color === 'red').map(c => c.playerId))
+  // A brand-new board starts seeded with whoever's currently on the field
+  // (their live slot positions) instead of blank — without this, the tactics
+  // board looked empty and un-interactive on first open (the live squad shown
+  // there is a non-interactive reference only), which read as "I can't move
+  // players around" even though dragging markers works fine once any exist.
+  const seedMarkersFromSlots = (): TacticsMarker[] =>
+    slots.filter(s => s.playerId).map(s => ({ id: uid(), x: s.x, y: s.y, playerId: s.playerId! }))
   const [tacticsBoards, setTacticsBoards] = useState<TacticsBoard[]>(() =>
-    initial?.tacticsBoards?.length ? initial.tacticsBoards : [{ id: uid(), name: 'Opstelling 1', markers: [], arrows: [] }]
+    initial?.tacticsBoards?.length ? initial.tacticsBoards : [{ id: uid(), name: 'Opstelling 1', markers: seedMarkersFromSlots(), arrows: [] }]
   )
   const [activeBoardId, setActiveBoardId] = useState(() => tacticsBoards[0].id)
   const [tacticsTool, setTacticsTool] = useState<'select' | 'marker' | 'arrow'>('select')
@@ -2526,7 +2219,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     const board: TacticsBoard = {
       id: uid(),
       name: corner ? `Strafcorner ${sameType}` : `Opstelling ${sameType}`,
-      markers: [], arrows: [], corner,
+      markers: corner ? [] : seedMarkersFromSlots(), arrows: [], corner,
     }
     setTacticsBoards(bs => [...bs, board])
     setActiveBoardId(board.id)
@@ -5484,13 +5177,17 @@ export default function App() {
   // still fires on the very first render a club is known, not just after.
   useEffect(() => {
     const club = user?.defaultClub
-    const src = club ? CLUB_LOGOS[club] : null
-    if (!src) { clearClubTheme(); return }
+    if (!club) { clearClubTheme(); return }
     let cancelled = false
-    extractDominantHue(mediaSrc(src)).then(hue => {
+    fetchClubLogos().then(logos => {
       if (cancelled) return
-      if (hue == null) clearClubTheme()
-      else applyClubTheme(hue)
+      const src = logos[slugifyClubName(club)]
+      if (!src) { clearClubTheme(); return }
+      extractDominantHue(mediaSrc(src)).then(hue => {
+        if (cancelled) return
+        if (hue == null) clearClubTheme()
+        else applyClubTheme(hue)
+      })
     })
     return () => { cancelled = true }
   }, [user?.defaultClub])
