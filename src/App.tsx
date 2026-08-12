@@ -1741,13 +1741,101 @@ function SearchableSelect({ value, onChange, options, placeholder, inputStyle }:
   )
 }
 
+// ── Notification bell ───────────────────────────────────────────────────────
+// Icon-only trigger + dropdown panel, lives in the main page's topbar (moved
+// out of the bottom bar, which only has room for Thuis/Wedstrijden/Berichten
+// now) — clicking a notification with a linked game still jumps to Wedstrijden.
+
+function NotificationBell({ unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDelete, onOpenHistory }: {
+  unreadNotifications: number
+  notifications: AppNotification[]
+  onMarkRead: (id: string) => void
+  onMarkAllRead: () => void
+  onMarkUnread: (id: string) => void
+  onDelete: (id: string) => void
+  onOpenHistory: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    return () => document.removeEventListener('mousedown', onPointerDown)
+  }, [open])
+
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(o => !o)} className="relative w-8 h-8 flex items-center justify-center text-lg" aria-label="Meldingen">
+        🔔
+        {unreadNotifications > 0 && (
+          <span className="absolute -top-1 -right-1 text-[10px] font-bold rounded-full px-1.5 py-0.5 text-white leading-tight" style={{ background: '#DC2626' }}>
+            {unreadNotifications > 9 ? '9+' : unreadNotifications}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div ref={panelRef} className="absolute right-0 top-full mt-2 w-80 max-w-[90vw] z-40">
+          <div className="rounded-2xl shadow-2xl overflow-hidden bg-white" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--brand-e8effd)' }}>
+              <span className="font-display font-bold uppercase text-sm tracking-wide" style={{ color: 'var(--brand-0d2b7a)' }}>Meldingen</span>
+              {notifications.some(n => !n.read) && (
+                <button onClick={onMarkAllRead} className="text-xs font-semibold" style={{ color: 'var(--brand-1a3fab)' }}>Alles gelezen</button>
+              )}
+            </div>
+            <div className="max-h-80 overflow-y-auto">
+              {notifications.length === 0 ? (
+                <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Geen meldingen</p>
+              ) : (
+                notifications.map(n => (
+                  <div key={n.id} className="flex items-start gap-2 px-4 py-3 text-sm"
+                    style={{ borderBottom: '1px solid var(--brand-f0f5ff)', background: n.read ? 'transparent' : 'var(--brand-f0f5ff)' }}>
+                    {!n.read && <span className="w-2 h-2 rounded-full shrink-0 mt-1.5" style={{ background: 'var(--brand-1a3fab)' }} />}
+                    <button onClick={() => { onMarkRead(n.id); if (n.gameId) { setOpen(false); onOpenHistory() } }}
+                      className="flex-1 min-w-0 text-left">
+                      <div style={{ color: 'var(--brand-1a2f6b)' }}>{renderFormattedText(n.body)}</div>
+                      <div className="text-xs mt-0.5" style={{ color: 'var(--brand-a8bef0)' }}>{formatRelativeTime(n.createdAt)}</div>
+                    </button>
+                    <div className="flex flex-col items-center gap-1.5 shrink-0 pt-0.5">
+                      <button onClick={() => n.read ? onMarkUnread(n.id) : onMarkRead(n.id)}
+                        className="text-xs leading-none" style={{ color: 'var(--brand-a8bef0)' }}
+                        title={n.read ? 'Markeer als ongelezen' : 'Markeer als gelezen'}>
+                        {n.read ? '○' : '●'}
+                      </button>
+                      <button onClick={() => onDelete(n.id)}
+                        className="text-xs leading-none" style={{ color: '#DC2626' }}
+                        title="Verwijderen">
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Setup View ───────────────────────────────────────────────────────────────
 
-function SetupView({ onStart, onProfile, user, authLoading }: {
+function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification, onOpenHistory }: {
   onStart: (p: GameParams) => void
   onProfile: () => void
   user: AuthUser | null
   authLoading: boolean
+  unreadNotifications: number
+  notifications: AppNotification[]
+  onMarkRead: (id: string) => void
+  onMarkAllRead: () => void
+  onMarkUnread: (id: string) => void
+  onDeleteNotification: (id: string) => void
+  onOpenHistory: () => void
 }) {
   const [club, setClub] = useLS('fh_club', '')
   const [team, setTeam] = useLS('fh_team', '')
@@ -1901,6 +1989,17 @@ function SetupView({ onStart, onProfile, user, authLoading }: {
             {user && <H1Logo height={26} />}
           </div>
           <div className="flex items-center gap-2 justify-end">
+            {user && (
+              <NotificationBell
+                unreadNotifications={unreadNotifications}
+                notifications={notifications}
+                onMarkRead={onMarkRead}
+                onMarkAllRead={onMarkAllRead}
+                onMarkUnread={onMarkUnread}
+                onDelete={onDeleteNotification}
+                onOpenHistory={onOpenHistory}
+              />
+            )}
             <button onClick={onProfile}
               className={user ? 'rounded-full' : 'text-sm px-3 py-1.5 rounded-lg font-semibold'}
               style={user
@@ -3366,11 +3465,10 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
 
 // ── History View ─────────────────────────────────────────────────────────────
 
-function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onProfile }: {
+function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile }: {
   games: SavedGame[]
   user: AuthUser | null
   authLoading: boolean
-  onBack: () => void
   onDelete: (id: string) => void
   onEdit: (game: SavedGame) => void
   onProfile: () => void
@@ -3408,8 +3506,7 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
             <SCMuidenLogo size={32} />
           </div>
           <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">WEDSTRIJDEN</h1>
-          <div className="flex items-center gap-3 justify-self-end">
-            <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>← Terug</button>
+          <div className="flex items-center justify-self-end">
             <button onClick={onProfile}
               className={user ? 'rounded-full' : 'text-sm px-3 py-1.5 rounded-lg font-semibold'}
               style={user
@@ -4943,32 +5040,16 @@ function SplashScreen({ onContinue }: { onContinue: () => void }) {
 
 // ── Bottom bar ───────────────────────────────────────────────────────────────
 // Persistent across every logged-in view except the live match (GameView
-// wants the full screen). Notifications open an inline popover here;
-// Messages navigates to its own full view since threads need real space.
+// wants the full screen). Messages navigates to its own full view since
+// threads need real space; Meldingen lives in the main page's topbar instead
+// (see NotificationBell) since there's only room for three destinations here.
 
-function BottomBar({ unreadMessages, unreadNotifications, notifications, onMessages, onMarkRead, onMarkAllRead, onMarkUnread, onDelete, onOpenHistory }: {
+function BottomBar({ unreadMessages, onMessages, onOpenHistory, onHome }: {
   unreadMessages: number
-  unreadNotifications: number
-  notifications: AppNotification[]
   onMessages: () => void
-  onMarkRead: (id: string) => void
-  onMarkAllRead: () => void
-  onMarkUnread: (id: string) => void
-  onDelete: (id: string) => void
   onOpenHistory: () => void
+  onHome: () => void
 }) {
-  const [open, setOpen] = useState(false)
-  const panelRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onPointerDown = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onPointerDown)
-    return () => document.removeEventListener('mousedown', onPointerDown)
-  }, [open])
-
   const badge = (n: number) => n > 0 && (
     <span className="absolute -top-1.5 -right-2.5 text-[10px] font-bold rounded-full px-1.5 py-0.5 text-white leading-tight" style={{ background: '#DC2626' }}>
       {n > 9 ? '9+' : n}
@@ -4976,65 +5057,22 @@ function BottomBar({ unreadMessages, unreadNotifications, notifications, onMessa
   )
 
   return (
-    <>
-      {open && (
-        <div ref={panelRef} className="fixed z-40 left-1/2 -translate-x-1/2 w-full max-w-md px-4" style={{ bottom: 76 }}>
-          <div className="rounded-2xl shadow-2xl overflow-hidden bg-white" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
-            <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--brand-e8effd)' }}>
-              <span className="font-display font-bold uppercase text-sm tracking-wide" style={{ color: 'var(--brand-0d2b7a)' }}>Meldingen</span>
-              {notifications.some(n => !n.read) && (
-                <button onClick={onMarkAllRead} className="text-xs font-semibold" style={{ color: 'var(--brand-1a3fab)' }}>Alles gelezen</button>
-              )}
-            </div>
-            <div className="max-h-80 overflow-y-auto">
-              {notifications.length === 0 ? (
-                <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Geen meldingen</p>
-              ) : (
-                notifications.map(n => (
-                  <div key={n.id} className="flex items-start gap-2 px-4 py-3 text-sm"
-                    style={{ borderBottom: '1px solid var(--brand-f0f5ff)', background: n.read ? 'transparent' : 'var(--brand-f0f5ff)' }}>
-                    {!n.read && <span className="w-2 h-2 rounded-full shrink-0 mt-1.5" style={{ background: 'var(--brand-1a3fab)' }} />}
-                    <button onClick={() => { onMarkRead(n.id); if (n.gameId) { setOpen(false); onOpenHistory() } }}
-                      className="flex-1 min-w-0 text-left">
-                      <div style={{ color: 'var(--brand-1a2f6b)' }}>{renderFormattedText(n.body)}</div>
-                      <div className="text-xs mt-0.5" style={{ color: 'var(--brand-a8bef0)' }}>{formatRelativeTime(n.createdAt)}</div>
-                    </button>
-                    <div className="flex flex-col items-center gap-1.5 shrink-0 pt-0.5">
-                      <button onClick={() => n.read ? onMarkUnread(n.id) : onMarkRead(n.id)}
-                        className="text-xs leading-none" style={{ color: 'var(--brand-a8bef0)' }}
-                        title={n.read ? 'Markeer als ongelezen' : 'Markeer als gelezen'}>
-                        {n.read ? '○' : '●'}
-                      </button>
-                      <button onClick={() => onDelete(n.id)}
-                        className="text-xs leading-none" style={{ color: '#DC2626' }}
-                        title="Verwijderen">
-                        ✕
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-      <div className="fixed bottom-0 left-0 right-0 z-30 shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
-        <div className="max-w-2xl mx-auto grid grid-cols-3">
-          <button onClick={() => setOpen(o => !o)} className="flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-white">
-            <span className="relative text-base">🔔{badge(unreadNotifications)}</span>
-            Meldingen
-          </button>
-          <button onClick={onOpenHistory} className="flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-white" style={{ borderLeft: '1px solid rgba(255,255,255,0.12)' }}>
-            <span className="relative text-base">🏑</span>
-            Wedstrijden
-          </button>
-          <button onClick={onMessages} className="flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-white" style={{ borderLeft: '1px solid rgba(255,255,255,0.12)' }}>
-            <span className="relative text-base">✉️{badge(unreadMessages)}</span>
-            Berichten
-          </button>
-        </div>
+    <div className="fixed bottom-0 left-0 right-0 z-30 shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
+      <div className="max-w-2xl mx-auto grid grid-cols-3">
+        <button onClick={onHome} className="flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-white">
+          <span className="relative text-base">🏠</span>
+          Thuis
+        </button>
+        <button onClick={onOpenHistory} className="flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-white" style={{ borderLeft: '1px solid rgba(255,255,255,0.12)' }}>
+          <span className="relative text-base">🏑</span>
+          Wedstrijden
+        </button>
+        <button onClick={onMessages} className="flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-white" style={{ borderLeft: '1px solid rgba(255,255,255,0.12)' }}>
+          <span className="relative text-base">✉️{badge(unreadMessages)}</span>
+          Berichten
+        </button>
       </div>
-    </>
+    </div>
   )
 }
 
@@ -5045,9 +5083,8 @@ function BottomBar({ unreadMessages, unreadNotifications, notifications, onMessa
 // the server — see api/messages/[action].ts — this just renders what it's
 // given.
 
-function MessagesView({ user, onBack, onProfile, onRefreshUnread }: {
+function MessagesView({ user, onProfile, onRefreshUnread }: {
   user: AuthUser | null
-  onBack: () => void
   onProfile: () => void
   onRefreshUnread: () => void
 }) {
@@ -5126,15 +5163,17 @@ function MessagesView({ user, onBack, onProfile, onRefreshUnread }: {
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
           <div className="shrink-0 justify-self-start">
-            <ClubLogo club={user.defaultClub ?? ''} size={28} />
+            <ClubLogo club={user.defaultClub ?? ''} size={32} />
           </div>
           <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">
             {activeId ? activeName : 'Berichten'}
           </h1>
-          <div className="flex items-center gap-2 justify-self-end">
-            <button onClick={activeId ? closeThread : onBack} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>
-              ← {activeId ? 'Berichten' : 'Terug'}
-            </button>
+          <div className="flex items-center gap-3 justify-self-end">
+            {activeId && (
+              <button onClick={closeThread} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>
+                ← Berichten
+              </button>
+            )}
             {!activeId && (
               <button onClick={onProfile} className="rounded-full shrink-0">
                 {user.picture ? (
@@ -5297,14 +5336,9 @@ export default function App() {
           <div style={{ height: 64 }} />
           <BottomBar
             unreadMessages={notif.unreadMessages}
-            unreadNotifications={notif.unreadNotifications}
-            notifications={notif.notifications}
             onMessages={() => setView('messages')}
-            onMarkRead={notif.markRead}
-            onMarkAllRead={notif.markAllRead}
-            onMarkUnread={notif.markUnread}
-            onDelete={notif.remove}
             onOpenHistory={() => setView('history')}
+            onHome={() => setView('setup')}
           />
         </>
       )}
@@ -5362,7 +5396,6 @@ export default function App() {
         games={games}
         user={user}
         authLoading={authLoading}
-        onBack={() => setView('setup')}
         onDelete={deleteGame}
         onEdit={startEdit}
         onProfile={() => setView('profile')}
@@ -5370,7 +5403,7 @@ export default function App() {
     )
   if (view === 'messages')
     return withBottomBar(
-      <MessagesView user={user} onBack={() => setView('setup')} onProfile={() => setView('profile')} onRefreshUnread={notif.refresh} />
+      <MessagesView user={user} onProfile={() => setView('profile')} onRefreshUnread={notif.refresh} />
     )
   if (view === 'game' && gameParams)
     return (
@@ -5389,6 +5422,13 @@ export default function App() {
         onProfile={() => setView('profile')}
         user={user}
         authLoading={authLoading}
+        unreadNotifications={notif.unreadNotifications}
+        notifications={notif.notifications}
+        onMarkRead={notif.markRead}
+        onMarkAllRead={notif.markAllRead}
+        onMarkUnread={notif.markUnread}
+        onDeleteNotification={notif.remove}
+        onOpenHistory={() => setView('history')}
       />
       {gamesError && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 text-xs font-semibold px-4 py-2 rounded-xl shadow-lg"
