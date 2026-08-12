@@ -3404,14 +3404,11 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
-          <div className="flex items-center gap-4">
+          <div className="shrink-0 justify-self-start">
             <SCMuidenLogo size={32} />
-            <h1 className="font-display text-2xl font-bold uppercase tracking-widest">WEDSTRIJDEN</h1>
           </div>
-          <div className="flex justify-center">
-            <H1Logo height={24} />
-          </div>
-          <div className="flex items-center gap-3 justify-end">
+          <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">WEDSTRIJDEN</h1>
+          <div className="flex items-center gap-3 justify-self-end">
             <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>← Terug</button>
             <button onClick={onProfile}
               className={user ? 'rounded-full' : 'text-sm px-3 py-1.5 rounded-lg font-semibold'}
