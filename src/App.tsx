@@ -1975,7 +1975,7 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
           <div className="flex items-center gap-3">
-            {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={46} /> : <H1Logo height={46} />}
+            {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
             <div>
               <h1 className="font-display font-bold uppercase leading-none" style={{ fontSize: '22px', letterSpacing: '0.08em' }}>
                 {user?.defaultClub ?? 'Hockey One'}
@@ -3465,13 +3465,19 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
 
 // ── History View ─────────────────────────────────────────────────────────────
 
-function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile }: {
+function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
   games: SavedGame[]
   user: AuthUser | null
   authLoading: boolean
   onDelete: (id: string) => void
   onEdit: (game: SavedGame) => void
   onProfile: () => void
+  unreadNotifications: number
+  notifications: AppNotification[]
+  onMarkRead: (id: string) => void
+  onMarkAllRead: () => void
+  onMarkUnread: (id: string) => void
+  onDeleteNotification: (id: string) => void
 }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const getPlayer = (g: SavedGame, id: string) => g.squad.find(p => p.id === id)
@@ -3506,7 +3512,18 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile }: 
             <SCMuidenLogo size={32} />
           </div>
           <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">WEDSTRIJDEN</h1>
-          <div className="flex items-center justify-self-end">
+          <div className="flex items-center gap-2 justify-self-end">
+            {user && (
+              <NotificationBell
+                unreadNotifications={unreadNotifications}
+                notifications={notifications}
+                onMarkRead={onMarkRead}
+                onMarkAllRead={onMarkAllRead}
+                onMarkUnread={onMarkUnread}
+                onDelete={onDeleteNotification}
+                onOpenHistory={() => {}}
+              />
+            )}
             <button onClick={onProfile}
               className={user ? 'rounded-full' : 'text-sm px-3 py-1.5 rounded-lg font-semibold'}
               style={user
@@ -5083,10 +5100,17 @@ function BottomBar({ unreadMessages, onMessages, onOpenHistory, onHome }: {
 // the server — see api/messages/[action].ts — this just renders what it's
 // given.
 
-function MessagesView({ user, onProfile, onRefreshUnread }: {
+function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification, onOpenHistory }: {
   user: AuthUser | null
   onProfile: () => void
   onRefreshUnread: () => void
+  unreadNotifications: number
+  notifications: AppNotification[]
+  onMarkRead: (id: string) => void
+  onMarkAllRead: () => void
+  onMarkUnread: (id: string) => void
+  onDeleteNotification: (id: string) => void
+  onOpenHistory: () => void
 }) {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loadingConversations, setLoadingConversations] = useState(true)
@@ -5173,6 +5197,17 @@ function MessagesView({ user, onProfile, onRefreshUnread }: {
               <button onClick={closeThread} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>
                 ← Berichten
               </button>
+            )}
+            {!activeId && (
+              <NotificationBell
+                unreadNotifications={unreadNotifications}
+                notifications={notifications}
+                onMarkRead={onMarkRead}
+                onMarkAllRead={onMarkAllRead}
+                onMarkUnread={onMarkUnread}
+                onDelete={onDeleteNotification}
+                onOpenHistory={onOpenHistory}
+              />
             )}
             {!activeId && (
               <button onClick={onProfile} className="rounded-full shrink-0">
@@ -5399,11 +5434,28 @@ export default function App() {
         onDelete={deleteGame}
         onEdit={startEdit}
         onProfile={() => setView('profile')}
+        unreadNotifications={notif.unreadNotifications}
+        notifications={notif.notifications}
+        onMarkRead={notif.markRead}
+        onMarkAllRead={notif.markAllRead}
+        onMarkUnread={notif.markUnread}
+        onDeleteNotification={notif.remove}
       />
     )
   if (view === 'messages')
     return withBottomBar(
-      <MessagesView user={user} onProfile={() => setView('profile')} onRefreshUnread={notif.refresh} />
+      <MessagesView
+        user={user}
+        onProfile={() => setView('profile')}
+        onRefreshUnread={notif.refresh}
+        unreadNotifications={notif.unreadNotifications}
+        notifications={notif.notifications}
+        onMarkRead={notif.markRead}
+        onMarkAllRead={notif.markAllRead}
+        onMarkUnread={notif.markUnread}
+        onDeleteNotification={notif.remove}
+        onOpenHistory={() => setView('history')}
+      />
     )
   if (view === 'game' && gameParams)
     return (
