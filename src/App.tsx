@@ -1977,7 +1977,7 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
           <div className="flex items-center gap-3">
             {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
             <div>
-              <h1 className="font-display font-bold uppercase leading-none" style={{ fontSize: '22px', letterSpacing: '0.08em' }}>
+              <h1 className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
                 {user?.defaultClub ?? 'Hockey One'}
               </h1>
               <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
@@ -3511,7 +3511,7 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, un
           <div className="flex items-center gap-3 justify-self-start">
             {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
             <div>
-              <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '22px', letterSpacing: '0.08em' }}>
+              <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
                 {user?.defaultClub ?? 'Hockey One'}
               </p>
               <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
@@ -3979,7 +3979,7 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
   )
 }
 
-function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword, onResendVerification, onLogout, onBack, onHistory, onMessages, gameCount, onUpdateProfile }: {
+function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword, onResendVerification, onLogout, onHistory, onMessages, gameCount, onUpdateProfile, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
   user: AuthUser | null
   loading: boolean
   onCredential: (credential: string) => void
@@ -3987,11 +3987,16 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   onLoginPassword: (email: string, password: string) => Promise<{ ok: true } | { ok: false; error: string; code?: string }>
   onResendVerification: (email: string) => Promise<void>
   onLogout: () => void
-  onBack: () => void
   onHistory: () => void
   onMessages: () => void
   gameCount: number
   onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => void
+  unreadNotifications: number
+  notifications: AppNotification[]
+  onMarkRead: (id: string) => void
+  onMarkAllRead: () => void
+  onMarkUnread: (id: string) => void
+  onDeleteNotification: (id: string) => void
 }) {
   const inputStyle = { border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }
   const [firstName, setFirstName] = useState(user?.firstName ?? '')
@@ -4100,14 +4105,43 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
-          <div className="flex items-center gap-4">
-            <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>← Terug</button>
-            <h1 className="font-display text-2xl font-bold uppercase tracking-widest">Profiel</h1>
+          <div className="flex items-center gap-3 justify-self-start">
+            {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
+            <div>
+              <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
+                {user?.defaultClub ?? 'Hockey One'}
+              </p>
+              <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
+                {user?.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
+              </p>
+            </div>
           </div>
-          <div className="flex justify-center">
-            <H1Logo height={24} />
+          <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">PROFIEL</h1>
+          <div className="flex items-center gap-2 justify-self-end">
+            {user && (
+              <NotificationBell
+                unreadNotifications={unreadNotifications}
+                notifications={notifications}
+                onMarkRead={onMarkRead}
+                onMarkAllRead={onMarkAllRead}
+                onMarkUnread={onMarkUnread}
+                onDelete={onDeleteNotification}
+                onOpenHistory={onHistory}
+              />
+            )}
+            {user && (
+              <span className="rounded-full shrink-0">
+                {user.picture ? (
+                  <img src={user.picture} alt="Profiel" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
+                ) : (
+                  <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                    style={{ background: 'var(--brand-1a3fab)' }}>
+                    {initials(user.name ?? user.email)}
+                  </span>
+                )}
+              </span>
+            )}
           </div>
-          <div />
         </div>
       </header>
 
@@ -5197,7 +5231,7 @@ function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, n
           <div className="flex items-center gap-3 justify-self-start">
             {user.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
             <div>
-              <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '22px', letterSpacing: '0.08em' }}>
+              <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
                 {user.defaultClub ?? 'Hockey One'}
               </p>
               <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
@@ -5434,11 +5468,16 @@ export default function App() {
         onLoginPassword={loginWithPassword}
         onResendVerification={resendVerification}
         onLogout={logout}
-        onBack={() => setView('setup')}
         onHistory={() => setView('history')}
         onMessages={() => setView('messages')}
         gameCount={games.length}
         onUpdateProfile={updateProfile}
+        unreadNotifications={notif.unreadNotifications}
+        notifications={notif.notifications}
+        onMarkRead={notif.markRead}
+        onMarkAllRead={notif.markAllRead}
+        onMarkUnread={notif.markUnread}
+        onDeleteNotification={notif.remove}
       />
     )
   if (view === 'history')
