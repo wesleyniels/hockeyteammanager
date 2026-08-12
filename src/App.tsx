@@ -3508,8 +3508,16 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, un
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
-          <div className="shrink-0 justify-self-start">
-            <SCMuidenLogo size={32} />
+          <div className="flex items-center gap-3 justify-self-start">
+            {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
+            <div>
+              <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '22px', letterSpacing: '0.08em' }}>
+                {user?.defaultClub ?? 'Hockey One'}
+              </p>
+              <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
+                {user?.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
+              </p>
+            </div>
           </div>
           <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">WEDSTRIJDEN</h1>
           <div className="flex items-center gap-2 justify-self-end">
@@ -5186,8 +5194,16 @@ function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, n
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
-          <div className="shrink-0 justify-self-start">
-            <ClubLogo club={user.defaultClub ?? ''} size={32} />
+          <div className="flex items-center gap-3 justify-self-start">
+            {user.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
+            <div>
+              <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '22px', letterSpacing: '0.08em' }}>
+                {user.defaultClub ?? 'Hockey One'}
+              </p>
+              <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
+                {user.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
+              </p>
+            </div>
           </div>
           <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">
             {activeId ? activeName : 'Berichten'}
