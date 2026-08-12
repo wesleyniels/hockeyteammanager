@@ -5242,7 +5242,7 @@ function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, n
           <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">
             {activeId ? activeName : 'Berichten'}
           </h1>
-          <div className="flex items-center gap-3 justify-self-end">
+          <div className="flex items-center gap-2 justify-self-end">
             {activeId && (
               <button onClick={closeThread} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>
                 ← Berichten
