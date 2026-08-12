@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { Readable } from 'node:stream'
-import { del, get } from '@vercel/blob'
+import { del, get, list } from '@vercel/blob'
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client'
 import { getSessionFromCookies, type SessionUser } from '../_lib/session.js'
 import { ensureSchema } from '../_lib/db.js'
@@ -141,6 +141,27 @@ async function handleViewAction(req: VercelRequest, res: VercelResponse) {
   }
 }
 
+// Club crests live at club-logos/{slug}.png, uploaded out-of-band from the
+// KNHB club-finder — this lists whatever's actually in the connected Blob
+// store instead of a hardcoded per-environment URL map, so preview/production
+// (separate stores) and any future re-upload never drift out of sync.
+async function handleClubLogosAction(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'GET') { res.status(405).json({ error: 'Method not allowed' }); return }
+
+  try {
+    const { blobs } = await list({ prefix: 'club-logos/', token: blobToken() })
+    const logos: Record<string, string> = {}
+    for (const b of blobs) {
+      const slug = b.pathname.replace(/^club-logos\//, '').replace(/\.[^./]+$/, '')
+      if (slug) logos[slug] = b.url
+    }
+    res.setHeader('Cache-Control', 'private, max-age=300')
+    res.status(200).json({ logos })
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message })
+  }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   await ensureSchema()
   const user = getSessionFromCookies(req.headers.cookie)
@@ -150,6 +171,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     case 'upload': return handleUploadAction(req, res, user)
     case 'delete': return handleDeleteAction(req, res, user)
     case 'view': return handleViewAction(req, res)
+    case 'club-logos': return handleClubLogosAction(req, res)
     default: res.status(404).json({ error: 'Not found' })
   }
 }

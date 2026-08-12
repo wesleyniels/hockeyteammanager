@@ -218,6 +218,32 @@ const KNHB_CLUBS = [
   "Zwaluwen Utrecht", "Zwollywood Sticks",
 ]
 
+// Seeded fixture data (team-fixtures.ts) sometimes names an opponent by the
+// short/colloquial name coaches actually use rather than KNHB's formal one —
+// resolved here so ClubLogo can still find the right crest either way.
+const CLUB_NAME_ALIASES: Record<string, string> = {
+  'Hilversum': 'HMHC',
+  'Amsterdam': 'AH & BC',
+  'Hurley': 'THC Hurley',
+  'Soest': 'MHC Soest',
+  'SCHC': 'Stichtsche Cricket & Hockey Club',
+}
+
+// A game's `opponent` field is a free-text "club + team" string (e.g.
+// "Gooische Hockey Club MO8-Lila") — there's no separate opponent-club field
+// to look a logo up by. This recovers the club name by finding the longest
+// KNHB_CLUBS entry the string starts with, so ClubLogo can still resolve it.
+function matchKnhbClub(s: string): string {
+  for (const [alias, official] of Object.entries(CLUB_NAME_ALIASES)) {
+    if (s === alias || s.startsWith(alias + ' ')) { s = official + s.slice(alias.length); break }
+  }
+  let best = ''
+  for (const c of KNHB_CLUBS) {
+    if ((s === c || s.startsWith(c + ' ')) && c.length > best.length) best = c
+  }
+  return best || s
+}
+
 // ── Age group config ─────────────────────────────────────────────────────────
 
 const AGE_CONFIG: Record<AgeGroup, { total: number; field: number; label: string; dual?: boolean }> = {
@@ -460,6 +486,43 @@ const uid = () => Math.random().toString(36).slice(2, 11)
 // The Blob store is private, so raw blob URLs 404 without auth — everything
 // reads media through this proxy instead (see api/blob/[action].ts's 'view').
 const mediaSrc = (url: string) => `/api/blob/view?url=${encodeURIComponent(url)}`
+
+// Mirrors the Python slugify used when the club crests were uploaded to Blob
+// storage (club-logos/{slug}.png) — NFKD-normalize, drop combining marks,
+// lowercase, collapse non-alphanumeric runs to a single hyphen.
+function slugifyClubName(name: string): string {
+  return name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+// Club logos are fetched from the live Blob store (api/blob/[action].ts's
+// 'club-logos' listing) instead of a hardcoded per-environment URL map, so
+// preview and production — genuinely separate stores — never drift out of
+// sync. Memoized at module scope: every ClubLogo instance and the theme
+// effect below share one fetch/one cache for the app's lifetime.
+let clubLogosState: Record<string, string> | null = null
+let clubLogosPromise: Promise<Record<string, string>> | null = null
+function fetchClubLogos(): Promise<Record<string, string>> {
+  clubLogosPromise ??= fetch('/api/blob/club-logos')
+    .then(r => r.ok ? r.json() : { logos: {} })
+    .then(data => (clubLogosState = data.logos ?? {}))
+    .catch(() => (clubLogosState = {}))
+  return clubLogosPromise
+}
+function useClubLogos(): Record<string, string> {
+  const [state, setState] = useState(clubLogosState)
+  useEffect(() => {
+    if (clubLogosState) return
+    let mounted = true
+    fetchClubLogos().then(logos => { if (mounted) setState(logos) })
+    return () => { mounted = false }
+  }, [])
+  return state ?? {}
+}
 
 // ── Club theme (derived from the selected club's logo) ──────────────────────
 // The CSS variables below (defined in index.css, one per "brand blue" hex
@@ -842,366 +905,15 @@ function H1Logo({ height = 28 }: { height?: number }) {
   return <img src="/h1-logo.png" alt="Hockey One" style={{ height, width: 'auto' }} />
 }
 
-// Per-club crest, downloaded from the KNHB club-finder (knhb.nl/club-finder)
-// and keyed by the exact name in KNHB_CLUBS. A club with no logo on file there
-// (or not in this map for any other reason) falls back to the generic H1 mark
-// rather than showing a broken image or someone else's logo guessed wrong.
-// Re-saved as PNG with the background keyed out to transparent (flood-filled
-// from the border by color distance, so an enclosed white shape inside the
-// crest itself is left alone) — the source images are a mix of formats, some
-// with a plain white/solid backing that otherwise shows as a visible square.
-// Stored as private Blob URLs — like every other image in this app, they're
-// only ever rendered once logged in (this map only gets consulted for a
-// signed-in user's own defaultClub), so the mediaSrc() view-proxy is a
-// non-issue here, not a workaround.
-const CLUB_LOGOS: Record<string, string> = {
-  'Hockey Vereniging Abcoude': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockey-vereniging-abcoude.png',
-  'L.S.C. ALECTO': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/l-s-c-alecto.png',
-  'Alkmaarsche M.H.C.': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/alkmaarsche-m-h-c.png',
-  'MHC Alliance': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-alliance.png',
-  'MHC Almelo': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-almelo.png',
-  'Almeerse HC': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/almeerse-hc.png',
-  'HC Alphen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-alphen.png',
-  'Hockeyclub Amersfoort': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyclub-amersfoort.png',
-  'MHC Amstelveen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-amstelveen.png',
-  'AH & BC': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/ah-bc.png',
-  'Hockeyclub AMVJ': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyclub-amvj.png',
-  'Arnhemse Antilope Vereniging': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/arnhemse-antilope-vereniging.png',
-  'Apeldoornsche (M.H.C.)': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/apeldoornsche-m-h-c.png',
-  'N.S.H.C. Apeliotes': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/n-s-h-c-apeliotes.png',
-  'HC Ares': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-ares.png',
-  'Arnhemsche H.C.': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/arnhemsche-h-c.png',
-  'HC Athena': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-athena.png',
-  'W.M.H.C. Avanti': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/w-m-h-c-avanti.png',
-  'HC Baarle Nassau': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-baarle-nassau.png',
-  'Baarnse Mixed Hockey Vereniging': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/baarnse-mixed-hockey-vereniging.png',
-  'HOB Bakel': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hob-bakel.png',
-  'Hockeyclub Barendrecht': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyclub-barendrecht.png',
-  'M.H.C. Barneveld': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/m-h-c-barneveld.png',
-  'V.M.H.C. Basko': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/v-m-h-c-basko.png',
-  'H.C. Bedum': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/h-c-bedum.png',
-  'MHC Bemmel 800': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-bemmel-800.png',
-  'MHC Bennebroek': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-bennebroek.png',
-  'Berkel-Enschot': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/berkel-enschot.png',
-  'Berkel en Rodenrijs': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/berkel-en-rodenrijs.png',
-  'Hockeyclub Berlicum': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyclub-berlicum.png',
-  'MHC Best': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-best.png',
-  'MHCBeuningen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhcbeuningen.png',
-  'The Black Scorpions': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/the-black-scorpions.png',
-  'HV Bleiswijk': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hv-bleiswijk.png',
-  'HC Bloemendaal': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-bloemendaal.png',
-  'HC Boekel': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-boekel.png',
-  'MHC Bommelerwaard': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-bommelerwaard.png',
-  'M.H.C. Boxmeer': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/m-h-c-boxmeer.png',
-  'BH&BC Breda': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/bh-bc-breda.png',
-  'Bredius Rollers': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/bredius-rollers.png',
-  'Buitenhout MHC': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/buitenhout-mhc.png',
-  'O.H.C. Bully': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/o-h-c-bully.png',
-  'HC Capelle': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-capelle.png',
-  'V.M.H.C. CARTOUCHE': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/v-m-h-c-cartouche.png',
-  'MHC Castricum': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-castricum.png',
-  'HCC Catwyck': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hcc-catwyck.png',
-  'Charlotte-Oort Hockey Team (CHT)': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/charlotte-oort-hockey-team-cht.png',
-  'C.M.H.C. CIVICUM': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/c-m-h-c-civicum.png',
-  'MHC Coevorden': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-coevorden.png',
-  'R.H.C. Concordia': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/r-h-c-concordia.png',
-  'Craeyenhout': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/craeyenhout.png',
-  'HC Cranendonck': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-cranendonck.png',
-  'CMHC': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/cmhc.png',
-  'MHC Dalfsen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-dalfsen.png',
-  'MHC Daring-Veendam': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-daring-veendam.png',
-  'M.H.C. Dash': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/m-h-c-dash.png',
-  'DDHC': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/ddhc.png',
-  'HC Delta Venlo': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-delta-venlo.png',
-  'Hockeyclub \'s-Hertogenbosch': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyclub-s-hertogenbosch.png',
-  'HC Den Haag': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-den-haag.png',
-  'De Peperbus': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/de-peperbus.png',
-  'H.C. Derby': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/h-c-derby.png',
-  'MHC DES': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-des.png',
-  'M.H.C. Deurne': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/m-h-c-deurne.png',
-  'DHV': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/dhv.png',
-  'HC Diemen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-diemen.png',
-  'MHC Dieren': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-dieren.png',
-  'Doing': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/doing.png',
-  'Hockeyclub Dokkum': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyclub-dokkum.png',
-  'MHC de Dommel': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-de-dommel.png',
-  'Don Quishoot': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/don-quishoot.png',
-  'Doornse Hockey Club': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/doornse-hockey-club.png',
-  'Dopie': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/dopie.png',
-  'Dordrechtse Mixed Hockey Club': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/dordrechtse-mixed-hockey-club.png',
-  'Dorsteti': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/dorsteti.png',
-  'DHC Drienerlo': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/dhc-drienerlo.png',
-  'MHCD': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhcd.png',
-  'Hockey Club Druten': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockey-club-druten.png',
-  'DSHC': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/dshc.png',
-  'DVS': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/dvs.png',
-  'MHC EDE': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-ede.png',
-  'HC Eelde': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-eelde.png',
-  'Eemsmond': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/eemsmond.png',
-  'H.C. Eemvallei': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/h-c-eemvallei.png',
-  'HC Eersel': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-eersel.png',
-  'EHV Enschede': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/ehv-enschede.png',
-  'HC Eindhoven': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-eindhoven.png',
-  'Eendracht Maakt Macht 2021': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/eendracht-maakt-macht-2021.png',
-  'Hockeyclub Emmen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyclub-emmen.png',
-  'MHC Epe': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-epe.png',
-  'E-team Emmen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/e-team-emmen.png',
-  'HC Etten-Leur': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-etten-leur.png',
-  'MHV Evergreen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhv-evergreen.png',
-  'HC Feijenoord': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-feijenoord.png',
-  'A.M.H.C. F.I.T.': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/a-m-h-c-f-i-t.png',
-  'MHC Fletiomare': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-fletiomare.png',
-  'Flevoland Dronten (M.H.C.)': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/flevoland-dronten-m-h-c.png',
-  'MHV Forcial': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhv-forcial.png',
-  'MHC Forescate': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-forescate.png',
-  'G.C.H.C.': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/g-c-h-c.png',
-  'V.M.H.C. Geel-Zwart': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/v-m-h-c-geel-zwart.png',
-  'HC Geldermalsen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-geldermalsen.png',
-  'Hockey Geldrop': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockey-geldrop.png',
-  'HC Gemert': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-gemert.png',
-  'GHBS': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/ghbs.png',
-  'Gidos Wheels on Fire (BE)': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/gidos-wheels-on-fire-be.png',
-  'Gilze Rijen (H.C.)': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/gilze-rijen-h-c.png',
-  'HCGO': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hcgo.png',
-  'GMHC Goes': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/gmhc-goes.png',
-  'M.H.C. Goirle': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/m-h-c-goirle.png',
-  'Gooische Hockey Club': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/gooische-hockey-club.png',
-  'GoorseMHC': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/goorsemhc.png',
-  'HC Gorssel/Epse': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-gorssel-epse.png',
-  'Goudse MHC': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/goudse-mhc.png',
-  'GP Bulls': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/gp-bulls.png',
-  'de Graspiepers': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/de-graspiepers.png',
-  'HC Grave': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-grave.png',
-  'Haagsche Countryclub Groen-Geel': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/haagsche-countryclub-groen-geel.png',
-  'Hockeyclub Groningen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyclub-groningen.png',
-  'Groninger Studenten Hockey Club \'Forward\'': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/groninger-studenten-hockey-club-forward.png',
-  'HHC Haackey': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hhc-haackey.png',
-  'Haag 88': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/haag-88.png',
-  'H.C. Haarlem': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/h-c-haarlem.png',
-  'Hockeyclub De Haaskamp': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyclub-de-haaskamp.png',
-  'GZG Hardenberg': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/gzg-hardenberg.png',
-  'Harlinger Mixed Hockey Club': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/harlinger-mixed-hockey-club.png',
-  'Hattemse M.H.C.': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hattemse-m-h-c.png',
-  'MHCHBS': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhchbs.png',
-  'HCAS': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hcas.png',
-  'HCHN': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hchn.png',
-  'HCM Arnhem': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hcm-arnhem.png',
-  'HCRB': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hcrb.png',
-  'HCSO': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hcso.png',
-  'Winschoten': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/winschoten.png',
-  'mixed hockeyclub HDL': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mixed-hockeyclub-hdl.png',
-  'Haagsche Delftsche Mixed': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/haagsche-delftsche-mixed.png',
-  'HDS': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hds.png',
-  'MHC Heerhugowaard': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-heerhugowaard.png',
-  'Mixed Hockey Club Heesch': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mixed-hockey-club-heesch.png',
-  'Hockey Heeze': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockey-heeze.png',
-  'HC Helmond': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-helmond.png',
-  'HSC Hermes': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hsc-hermes.png',
-  'HGC': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hgc.png',
-  'HIC': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hic.png',
-  'Hockeyclub Hilvarenbeek': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyclub-hilvarenbeek.png',
-  'HMHC': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hmhc.png',
-  'H.C. HISALIS': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/h-c-hisalis.png',
-  'MHC HOCO': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-hoco.png',
-  'Hockeyvereniging H.O.D.': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyvereniging-h-o-d.png',
-  'HC De Hoeksche Waard': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-de-hoeksche-waard.png',
-  'M.H.C. Hoevelaken': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/m-h-c-hoevelaken.png',
-  'Hockeyclub Holten Rijssen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyclub-holten-rijssen.png',
-  'Hockeyclub De Hondsrug': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyclub-de-hondsrug.png',
-  'Hoogeveen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hoogeveen.png',
-  'WFHC Hoorn': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/wfhc-hoorn.png',
-  'SMHC De Hopbel': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/smhc-de-hopbel.png',
-  'HC Horst': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-horst.png',
-  'Hockey Club Houten': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockey-club-houten.png',
-  'Hockeyclub Schouwen Duiveland': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyclub-schouwen-duiveland.png',
-  'D.H.C. Hudito': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/d-h-c-hudito.png',
-  'Huizer HC': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/huizer-hc.png',
-  'THC Hurley': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/thc-hurley.png',
-  'H.V.A.': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/h-v-a.png',
-  'AHC IJburg': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/ahc-ijburg.png',
-  'NHC De IJssel': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/nhc-de-ijssel.png',
-  'HC IJsseloever': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-ijsseloever.png',
-  'HC Kampen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-kampen.png',
-  'SV Kampong Hockey': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/sv-kampong-hockey.png',
-  'Kampong Wheelys': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/kampong-wheelys.png',
-  'Kennemer Keien': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/kennemer-keien.png',
-  'De Kieviten': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/de-kieviten.png',
-  'MHC de Kikkers': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-de-kikkers.png',
-  'Klein Zwitserland, H.C.': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/klein-zwitserland-h-c.png',
-  'Z.H.C. de Kraaien': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/z-h-c-de-kraaien.png',
-  'M.H.C. Krimpen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/m-h-c-krimpen.png',
-  'THCC De Kromhouters': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/thcc-de-kromhouters.png',
-  'HC Kromme Rijn': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-kromme-rijn.png',
-  'Larensche Mixed Hockey Club': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/larensche-mixed-hockey-club.png',
-  'HC Leerdam': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-leerdam.png',
-  'Mixed Hockey Club Leeuwarden': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mixed-hockey-club-leeuwarden.png',
-  'Leidsche en Oegstgeester Hockeyclub (LOHC)': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/leidsche-en-oegstgeester-hockeyclub-lohc.png',
-  'M.H.C. LELYSTAD': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/m-h-c-lelystad.png',
-  'R.H.V. Leonidas': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/r-h-v-leonidas.png',
-  'MHC Leusden': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-leusden.png',
-  'MHC Liberty': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-liberty.png',
-  'Hockeyclub Liempde': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyclub-liempde.png',
-  'Lochemse Hockey Club': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/lochemse-hockey-club.png',
-  'Loenense MHC': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/loenense-mhc.png',
-  'Hockeyclub Losser': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyclub-losser.png',
-  'MHC Maarn': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-maarn.png',
-  'MHV Maarssen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhv-maarssen.png',
-  'Maastrichtse Hockey Club MHC': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/maastrichtse-hockey-club-mhc.png',
-  'MADESE H.C.': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/madese-h-c.png',
-  'S.M.H.C. Magnus': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/s-m-h-c-magnus.png',
-  'HC Martinus': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-martinus.png',
-  'HV Meerssen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hv-meerssen.png',
-  'De Meeuwen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/de-meeuwen.png',
-  'M.H.C. M.E.P. (Mea Est Pila)': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/m-h-c-m-e-p-mea-est-pila.png',
-  'Meppeler HV': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/meppeler-hv.png',
-  'MHC De Mezen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-de-mezen.png',
-  'HC Mierlo': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-mierlo.png',
-  'Hockey Vereniging Mijdrecht': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockey-vereniging-mijdrecht.png',
-  'HC Mill': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-mill.png',
-  'HC Mistral': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-mistral.png',
-  'Hockeyclub Montfoort': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyclub-montfoort.png',
-  'V.M.H.& C.C. M.O.P.': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/v-m-h-c-c-m-o-p.png',
-  'Maestrichtse Studenten Hockey Club': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/maestrichtse-studenten-hockey-club.png',
-  'SC Muiden': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/sc-muiden.png',
-  'MHC Muiderberg': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-muiderberg.png',
-  'HV Myra': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hv-myra.png',
-  'Hockey Club Naarden': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockey-club-naarden.png',
-  'Never Less': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/never-less.png',
-  'MHCN': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhcn.png',
-  'HC Nieuwkoop': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-nieuwkoop.png',
-  'Nijkerk (H.C.)': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/nijkerk-h-c.png',
-  'NMHC Nijmegen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/nmhc-nijmegen.png',
-  'AHC Noorderlicht': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/ahc-noorderlicht.png',
-  'Noordwijkse (H.C)': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/noordwijkse-h-c.png',
-  'HC Nova': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-nova.png',
-  'Hockey Club Nuenen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockey-club-nuenen.png',
-  'MHC Nunspeet': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-nunspeet.png',
-  'HC Nuth': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-nuth.png',
-  'Sint Oedenrode': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/sint-oedenrode.png',
-  'HC Oirschot': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-oirschot.png',
-  'MHC Olympia': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-olympia.png',
-  'Mixed Hockey Club Ommen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mixed-hockey-club-ommen.png',
-  'OMHC': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/omhc.png',
-  'Only Friends': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/only-friends.png',
-  'M.H.C. Oosterbeek': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/m-h-c-oosterbeek.png',
-  'HC Oranje Rood': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-oranje-rood.png',
-  'Oss (M.H.C.)': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/oss-m-h-c.png',
-  'HCOIJ': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hcoij.png',
-  'M.H.C. Oudenbosch': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/m-h-c-oudenbosch.png',
-  'HCOB - Hockeyclub Overbetuwe': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hcob-hockeyclub-overbetuwe.png',
-  'BHC Overbos': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/bhc-overbos.png',
-  'Hockeyclub Peel & Maas': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyclub-peel-maas.png',
-  'RMHC de Pelikaan': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/rmhc-de-pelikaan.png',
-  'SV Phoenix': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/sv-phoenix.png',
-  'Hockey Phoenix Belgie': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockey-phoenix-belgie.png',
-  'HC Pijnacker': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-pijnacker.png',
-  'Pinoké': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/pinoke.png',
-  'VMHC Pollux': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/vmhc-pollux.png',
-  'De Pont': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/de-pont.png',
-  'Hockeyclub Prinsenbeek': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyclub-prinsenbeek.png',
-  'M.H.C. Purmerend': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/m-h-c-purmerend.png',
-  'B.H.V. Push': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/b-h-v-push.png',
-  'Enschedese hockeyclub Prinses Wilhelmina': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/enschedese-hockeyclub-prinses-wilhelmina.png',
-  'HHC Quick Stick': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hhc-quick-stick.png',
-  'U.H.C.QUI VIVE': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/u-h-c-qui-vive.png',
-  'HCQZ': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hcqz.png',
-  'G.H.C. RAPID': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/g-h-c-rapid.png',
-  'Rapid Rollers': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/rapid-rollers.png',
-  'MHC De Reigers': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-de-reigers.png',
-  'Hockeyclub Ridderkerk': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyclub-ridderkerk.png',
-  'HC Rijnvliet': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-rijnvliet.png',
-  'Rijswijksche Hockey Club': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/rijswijksche-hockey-club.png',
-  'Ring Pass Delft': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/ring-pass-delft.png',
-  'MHC Roden': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-roden.png',
-  'De Keistadrollers': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/de-keistadrollers.png',
-  'A.M.H.C. Rood-Wit': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/a-m-h-c-rood-wit.png',
-  'Leidse Hockey Club Roomburg': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/leidse-hockey-club-roomburg.png',
-  'Rosmalen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/rosmalen.png',
-  'Hockey Club Rotterdam': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockey-club-rotterdam.png',
-  'HMHC Saxenburg': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hmhc-saxenburg.png',
-  'Schaerweijde': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/schaerweijde.png',
-  'Stichtsche Cricket & Hockey Club': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/stichtsche-cricket-hockey-club.png',
-  'HC Scherpenzeel': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-scherpenzeel.png',
-  'HC Schiedam': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-schiedam.png',
-  'Schoonhovense MHC': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/schoonhovense-mhc.png',
-  'HC Scoop': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-scoop.png',
-  'Scoop Delft': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/scoop-delft.png',
-  'SG Beverland': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/sg-beverland.png',
-  'DMHC Shinty': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/dmhc-shinty.png',
-  'SHOT': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/shot.png',
-  'Sjinborn': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/sjinborn.png',
-  'Sneeker Mixed Hockey Club': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/sneeker-mixed-hockey-club.png',
-  'MHC Soest': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-soest.png',
-  'HTCSON Hockey': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/htcson-hockey.png',
-  'HC Spaarndam': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-spaarndam.png',
-  '\'t Spandersbosch': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/t-spandersbosch.png',
-  'HV Spijkenisse': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hv-spijkenisse.png',
-  'HC Spire': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-spire.png',
-  'VMHC Spitsbergen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/vmhc-spitsbergen.png',
-  'MHC Steenwijk': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-steenwijk.png',
-  'Stick Flyers': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/stick-flyers.png',
-  'JHC-Stix': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/jhc-stix.png',
-  'K.H.C. Strawberries': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/k-h-c-strawberries.png',
-  'MH&LC Tempo': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mh-lc-tempo.png',
-  'R.G.H.C. Tempo \'34': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/r-g-h-c-tempo-34.png',
-  'H.V. de Terriërs': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/h-v-de-terriers.png',
-  'MHCT': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhct.png',
-  'Thor': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/thor.png',
-  'HC Tilburg': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-tilburg.png',
-  'SVG De Tubanten': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/svg-de-tubanten.png',
-  'Tukkers United': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/tukkers-united.png',
-  'Voorster Hockeyclub Twello': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/voorster-hockeyclub-twello.png',
-  'Hockey Club Twente': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockey-club-twente.png',
-  'Hockey Club Uden': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockey-club-uden.png',
-  'MHC Udenhout': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-udenhout.png',
-  'MHC Uitgeest': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-uitgeest.png',
-  'R.K.H.V. Union': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/r-k-h-v-union.png',
-  'Hockeyclub UNO': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyclub-uno.png',
-  'Arnhemse Mixed Hockey Club Upward': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/arnhemse-mixed-hockey-club-upward.png',
-  'U.S.H.C.': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/u-s-h-c.png',
-  'M.H.C. Venray': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/m-h-c-venray.png',
-  'MHC Vianen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-vianen.png',
-  'HV Victoria': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hv-victoria.png',
-  'VIOS \'82': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/vios-82.png',
-  'VMHC': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/vmhc.png',
-  'MMHC Voordaan': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mmhc-voordaan.png',
-  'MHC Voorhout': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-voorhout.png',
-  'HC Voorne': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-voorne.png',
-  'Hockeyclub VVV': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyclub-vvv.png',
-  'HC Waalwijk': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-waalwijk.png',
-  'HC Waddinxveen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-waddinxveen.png',
-  'WMHC': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/wmhc.png',
-  'HC Walcheren': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-walcheren.png',
-  'MHC De Warande': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-de-warande.png',
-  'Hockey Club Wateringse Veld': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockey-club-wateringse-veld.png',
-  'Waterlandse Hockey Club': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/waterlandse-hockey-club.png',
-  'HV Weert': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hv-weert.png',
-  'M.H.C. Weesp': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/m-h-c-weesp.png',
-  'Were Di Tilburg': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/were-di-tilburg.png',
-  'Westerduiven': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/westerduiven.png',
-  'MHC Westerkwartier': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-westerkwartier.png',
-  'AMHC Westerpark': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/amhc-westerpark.png',
-  'HV Westland': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hv-westland.png',
-  'MHC Wijchen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-wijchen.png',
-  'H.C. Winsum': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/h-c-winsum.png',
-  'MHC Woerden': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhc-woerden.png',
-  'Xenios': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/xenios.png',
-  'HC Ypenburg': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-ypenburg.png',
-  'Zandvoortsche H.C.': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/zandvoortsche-h-c.png',
-  'Hockey Club Zeewolde': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockey-club-zeewolde.png',
-  'Hockey Vereniging Zevenaar': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockey-vereniging-zevenaar.png',
-  'Hockeyclub Zevenbergen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hockeyclub-zevenbergen.png',
-  'Mixed Hockeyclub Zoetermeer': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mixed-hockeyclub-zoetermeer.png',
-  'Zundertse Hockeyclub': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/zundertse-hockeyclub.png',
-  'MHCZutphen': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/mhczutphen.png',
-  'Zwaluwen Utrecht': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/zwaluwen-utrecht.png',
-  'B.N.M.H.C. Zwart-Wit': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/b-n-m-h-c-zwart-wit.png',
-  'HC Zwolle': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/hc-zwolle.png',
-  'Zwollywood Sticks': 'https://acmpjrbh559eyzct.private.blob.vercel-storage.com/club-logos/zwollywood-sticks.png',
-}
-
+// Per-club crest, fetched dynamically from the Blob store's club-logos/
+// prefix (see api/blob/[action].ts's 'club-logos' action) rather than a
+// hardcoded per-environment URL map — keeps preview and production (genuinely
+// separate stores) from drifting, and picks up newly-uploaded crests without
+// a redeploy. A club with no matching slug in the store falls back to the
+// generic H1 mark rather than showing a broken image.
 function ClubLogo({ club, size = 46 }: { club: string; size?: number }) {
-  const src = CLUB_LOGOS[club]
+  const logos = useClubLogos()
+  const src = logos[slugifyClubName(club)]
   if (!src) return <H1Logo height={size} />
   return <img src={mediaSrc(src)} alt={club} width={size} height={size} style={{ width: size, height: size, objectFit: 'contain' }} />
 }
@@ -1574,7 +1286,12 @@ function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, 
 // are drawn by dragging rather than the live field's pointer-drag machinery,
 // since nothing here is tied to the actual on-field slots.
 
-function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, selectedMarker, onFieldClick, onMarkerClick, onArrowDrawn }: {
+function TacticsFieldEditor({
+  isDual, slots, squad, oppMarkers, board, tool, selectedMarker, fieldRef,
+  selected, dragOverPos, dragPreview,
+  onFieldClick, onMarkerClick, onMarkerMove, onArrowDrawn,
+  onSquadSlotClick, onSquadMarkerPointerDown, onOppMarkerPointerDown, onOppMarkerClick,
+}: {
   isDual: boolean
   slots: PositionSlot[]
   squad: Player[]
@@ -1582,25 +1299,49 @@ function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, sel
   board: TacticsBoard
   tool: 'select' | 'marker' | 'arrow'
   selectedMarker: string | null
+  fieldRef: React.RefObject<HTMLDivElement | null>
+  selected: Selected
+  dragOverPos: string | null
+  dragPreview: { type: DragKind; id: string; x: number; y: number } | null
   onFieldClick: (x: number, y: number) => void
   onMarkerClick: (id: string) => void
+  onMarkerMove: (id: string, x: number, y: number) => void
   onArrowDrawn: (x1: number, y1: number, x2: number, y2: number) => void
+  onSquadSlotClick: (posId: string) => void
+  onSquadMarkerPointerDown: (posId: string, e: React.PointerEvent) => void
+  onOppMarkerPointerDown: (id: string, e: React.PointerEvent) => void
+  onOppMarkerClick: (id: string) => void
 }) {
   const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
   const [dragArrow, setDragArrow] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null)
   const draggingRef = useRef(false)
 
-  const toPct = (e: React.PointerEvent<HTMLDivElement> | React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect()
-    const x = Math.min(100, Math.max(0, ((e.clientX - rect.left) / rect.width) * 100))
-    const y = Math.min(100, Math.max(0, ((e.clientY - rect.top) / rect.height) * 100))
+  // Percent-of-field coordinates from a raw client point, always measured
+  // against the field container itself — needed for marker dragging below,
+  // since pointer capture keeps delivering events with currentTarget set to
+  // whichever marker captured them, not the field.
+  const pointFromClient = (clientX: number, clientY: number) => {
+    const rect = fieldRef.current!.getBoundingClientRect()
+    const x = Math.min(100, Math.max(0, ((clientX - rect.left) / rect.width) * 100))
+    const y = Math.min(100, Math.max(0, ((clientY - rect.top) / rect.height) * 100))
     return { x, y }
   }
+  const toPct = (e: React.PointerEvent<HTMLDivElement> | React.MouseEvent<HTMLDivElement>) => pointFromClient(e.clientX, e.clientY)
+
+  // Dragging a marker directly, in addition to the original tap-then-tap
+  // flow (select a marker, then tap elsewhere on the field to move it there
+  // — still handled by onFieldClick/handleTacticsFieldClick, and still the
+  // only option with 'marker'/'arrow' tools active or on the corner board).
+  // A plain tap with no real movement falls through to that flow instead of
+  // firing onMarkerMove — see the marker's onClick below.
+  const [draggingMarker, setDraggingMarker] = useState<{ id: string; x: number; y: number } | null>(null)
+  const markerMovedRef = useRef(false)
+  const markerStartRef = useRef<{ x: number; y: number } | null>(null)
 
   const isCorner = !!board.corner
 
   return (
-    <div
+    <div ref={fieldRef}
       className="relative w-full"
       style={{ aspectRatio: isCorner ? '62/48.5' : isDual ? '140/97' : '62/97', maxHeight: '100%', cursor: tool !== 'select' ? 'crosshair' : 'default', touchAction: tool === 'arrow' ? 'none' : undefined }}
       onClick={e => {
@@ -1630,23 +1371,53 @@ function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, sel
       onPointerCancel={() => { draggingRef.current = false; setDragArrow(null) }}>
       {isCorner ? <FieldSVG half="bottom" /> : isDual ? <DualFieldSVG /> : <FieldSVG />}
 
-      {/* Live squad positions — visual reference only, not interactive here.
-          Skipped for a Strafcorner board: its coordinates are calibrated for
-          the full pitch and would land in the wrong spot once cropped. */}
+      {/* Live squad positions — kept fully interactive (same handlers as the
+          normal veld view) so substitutions/swaps still work while sketching
+          a formation. Skipped for a Strafcorner board: its coordinates are
+          calibrated for the full pitch and would land in the wrong spot once
+          cropped. */}
       {!isCorner && slots.map(slot => {
+        const isBeingDragged = dragPreview?.type === 'field' && dragPreview.id === slot.posId
         const player = getPlayer(slot.playerId)
+        const isFieldSel = selected?.type === 'field' && selected.posId === slot.posId
+        const isBenchSel = selected?.type === 'bench'
+        const isDragTarget = dragOverPos === slot.posId
         const isGK = slot.posId === 'gk'
+        const x = isBeingDragged ? dragPreview.x : slot.x
+        const y = isBeingDragged ? dragPreview.y : slot.y
         return (
-          <div key={slot.posId} className="absolute transform -translate-x-1/2 -translate-y-1/2 pointer-events-none"
-            style={{ left: `${slot.x}%`, top: `${slot.y}%`, zIndex: 5 }}>
+          <div key={slot.posId}
+            className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab select-none touch-none"
+            style={{ left: `${x}%`, top: `${y}%`, zIndex: isBeingDragged ? 30 : 5 }}
+            onPointerDown={e => { e.stopPropagation(); onSquadMarkerPointerDown(slot.posId, e) }}
+            onClick={e => { e.stopPropagation(); onSquadSlotClick(slot.posId) }}>
             <div style={{
               width: player ? '46px' : '36px',
               height: player ? '46px' : '36px',
               background: isGK ? '#FBBF24' : player ? '#fff' : 'rgba(255,255,255,0.18)',
-              border: player ? '2px solid rgba(255,255,255,0.85)' : '1.5px dashed rgba(255,255,255,0.45)',
+              border: isDragTarget
+                ? '2.5px solid #86EFAC'
+                : isFieldSel
+                  ? '2.5px solid #fff'
+                  : isBenchSel && !player
+                    ? '2px dashed #86EFAC'
+                    : player
+                      ? '2px solid rgba(255,255,255,0.85)'
+                      : '1.5px dashed rgba(255,255,255,0.45)',
               borderRadius: '50%',
               display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-              boxShadow: player ? '0 2px 8px rgba(0,0,0,0.3)' : 'none',
+              boxShadow: isBeingDragged
+                ? '0 6px 20px rgba(0,0,0,0.45)'
+                : isFieldSel
+                  ? '0 0 0 3px rgba(26,63,171,0.7), 0 3px 12px rgba(0,0,0,0.4)'
+                  : isDragTarget
+                    ? '0 0 0 3px rgba(134,239,172,0.6), 0 3px 12px rgba(0,0,0,0.3)'
+                    : player
+                      ? '0 2px 8px rgba(0,0,0,0.3)'
+                      : 'none',
+              transform: isBeingDragged ? 'scale(1.18)' : isFieldSel ? 'scale(1.12)' : isDragTarget ? 'scale(1.08)' : 'scale(1)',
+              opacity: isBeingDragged ? 0.95 : 1,
+              transition: isBeingDragged ? 'none' : 'transform 0.1s, box-shadow 0.1s',
             }}>
               {player ? (
                 player.photoUrl ? (
@@ -1669,12 +1440,32 @@ function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, sel
         )
       })}
 
-      {!isCorner && oppMarkers.map(o => (
-        <div key={o.id} className="absolute transform -translate-x-1/2 -translate-y-1/2 pointer-events-none"
-          style={{ left: `${o.x}%`, top: `${o.y}%`, zIndex: 4 }}>
-          <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#DC2626', border: '2px solid rgba(255,255,255,0.85)', boxShadow: '0 2px 8px rgba(0,0,0,0.3)' }} />
-        </div>
-      ))}
+      {!isCorner && oppMarkers.map(o => {
+        const isBeingDragged = dragPreview?.type === 'opp-marker' && dragPreview.id === o.id
+        const isSel = selected?.type === 'opp-marker' && selected.id === o.id
+        const x = isBeingDragged ? dragPreview.x : o.x
+        const y = isBeingDragged ? dragPreview.y : o.y
+        return (
+          <div key={o.id}
+            className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab select-none touch-none"
+            style={{ left: `${x}%`, top: `${y}%`, zIndex: isBeingDragged ? 30 : 4 }}
+            onPointerDown={e => { e.stopPropagation(); onOppMarkerPointerDown(o.id, e) }}
+            onClick={e => { e.stopPropagation(); onOppMarkerClick(o.id) }}>
+            <div style={{
+              width: '32px', height: '32px', borderRadius: '50%',
+              background: '#DC2626', border: isSel ? '2.5px solid #fff' : '2px solid rgba(255,255,255,0.85)',
+              boxShadow: isBeingDragged
+                ? '0 6px 20px rgba(0,0,0,0.45)'
+                : isSel
+                  ? '0 0 0 3px rgba(26,63,171,0.7), 0 3px 12px rgba(0,0,0,0.4)'
+                  : '0 2px 8px rgba(0,0,0,0.3)',
+              transform: isBeingDragged ? 'scale(1.18)' : isSel ? 'scale(1.12)' : 'scale(1)',
+              opacity: isBeingDragged ? 0.95 : 1,
+              transition: isBeingDragged ? 'none' : 'transform 0.1s, box-shadow 0.1s',
+            }} />
+          </div>
+        )
+      })}
 
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none', zIndex: 8 }}>
         <defs>
@@ -1694,11 +1485,37 @@ function TacticsFieldEditor({ isDual, slots, squad, oppMarkers, board, tool, sel
 
       {board.markers.map(m => {
         const player = getPlayer(m.playerId)
+        const pos = draggingMarker?.id === m.id ? draggingMarker : m
         return (
           <div key={m.id}
             className="absolute transform -translate-x-1/2 -translate-y-1/2 select-none touch-none"
-            style={{ left: `${m.x}%`, top: `${m.y}%`, zIndex: 10, cursor: tool === 'select' ? 'pointer' : 'default' }}
-            onClick={e => { e.stopPropagation(); onMarkerClick(m.id) }}>
+            style={{ left: `${pos.x}%`, top: `${pos.y}%`, zIndex: 10, cursor: tool === 'select' ? 'grab' : 'default' }}
+            onPointerDown={e => {
+              if (tool !== 'select') return
+              e.stopPropagation()
+              markerMovedRef.current = false
+              markerStartRef.current = { x: e.clientX, y: e.clientY }
+              setDraggingMarker({ id: m.id, x: m.x, y: m.y })
+              e.currentTarget.setPointerCapture(e.pointerId)
+            }}
+            onPointerMove={e => {
+              if (tool !== 'select' || draggingMarker?.id !== m.id) return
+              e.stopPropagation()
+              const start = markerStartRef.current
+              if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 4) markerMovedRef.current = true
+              const { x, y } = pointFromClient(e.clientX, e.clientY)
+              setDraggingMarker(d => d ? { ...d, x, y } : d)
+            }}
+            onPointerUp={e => {
+              if (tool !== 'select' || draggingMarker?.id !== m.id) return
+              e.stopPropagation()
+              const moved = markerMovedRef.current
+              const finalPos = draggingMarker
+              setDraggingMarker(null)
+              if (moved && finalPos) onMarkerMove(m.id, finalPos.x, finalPos.y)
+            }}
+            onPointerCancel={() => setDraggingMarker(null)}
+            onClick={e => { e.stopPropagation(); if (!markerMovedRef.current) onMarkerClick(m.id) }}>
             <div style={{
               width: '40px', height: '40px', borderRadius: '50%',
               background: '#fff',
@@ -1924,14 +1741,101 @@ function SearchableSelect({ value, onChange, options, placeholder, inputStyle }:
   )
 }
 
+// ── Notification bell ───────────────────────────────────────────────────────
+// Icon-only trigger + dropdown panel, lives in the main page's topbar (moved
+// out of the bottom bar, which only has room for Thuis/Wedstrijden/Berichten
+// now) — clicking a notification with a linked game still jumps to Wedstrijden.
+
+function NotificationBell({ unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDelete, onOpenHistory }: {
+  unreadNotifications: number
+  notifications: AppNotification[]
+  onMarkRead: (id: string) => void
+  onMarkAllRead: () => void
+  onMarkUnread: (id: string) => void
+  onDelete: (id: string) => void
+  onOpenHistory: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    return () => document.removeEventListener('mousedown', onPointerDown)
+  }, [open])
+
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(o => !o)} className="relative w-8 h-8 flex items-center justify-center text-lg" aria-label="Meldingen">
+        🔔
+        {unreadNotifications > 0 && (
+          <span className="absolute -top-1 -right-1 text-[10px] font-bold rounded-full px-1.5 py-0.5 text-white leading-tight" style={{ background: '#DC2626' }}>
+            {unreadNotifications > 9 ? '9+' : unreadNotifications}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div ref={panelRef} className="absolute right-0 top-full mt-2 w-80 max-w-[90vw] z-40">
+          <div className="rounded-2xl shadow-2xl overflow-hidden bg-white" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--brand-e8effd)' }}>
+              <span className="font-display font-bold uppercase text-sm tracking-wide" style={{ color: 'var(--brand-0d2b7a)' }}>Meldingen</span>
+              {notifications.some(n => !n.read) && (
+                <button onClick={onMarkAllRead} className="text-xs font-semibold" style={{ color: 'var(--brand-1a3fab)' }}>Alles gelezen</button>
+              )}
+            </div>
+            <div className="max-h-80 overflow-y-auto">
+              {notifications.length === 0 ? (
+                <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Geen meldingen</p>
+              ) : (
+                notifications.map(n => (
+                  <div key={n.id} className="flex items-start gap-2 px-4 py-3 text-sm"
+                    style={{ borderBottom: '1px solid var(--brand-f0f5ff)', background: n.read ? 'transparent' : 'var(--brand-f0f5ff)' }}>
+                    {!n.read && <span className="w-2 h-2 rounded-full shrink-0 mt-1.5" style={{ background: 'var(--brand-1a3fab)' }} />}
+                    <button onClick={() => { onMarkRead(n.id); if (n.gameId) { setOpen(false); onOpenHistory() } }}
+                      className="flex-1 min-w-0 text-left">
+                      <div style={{ color: 'var(--brand-1a2f6b)' }}>{renderFormattedText(n.body)}</div>
+                      <div className="text-xs mt-0.5" style={{ color: 'var(--brand-a8bef0)' }}>{formatRelativeTime(n.createdAt)}</div>
+                    </button>
+                    <div className="flex flex-col items-center gap-1.5 shrink-0 pt-0.5">
+                      <button onClick={() => n.read ? onMarkUnread(n.id) : onMarkRead(n.id)}
+                        className="text-xs leading-none" style={{ color: 'var(--brand-a8bef0)' }}
+                        title={n.read ? 'Markeer als ongelezen' : 'Markeer als gelezen'}>
+                        {n.read ? '○' : '●'}
+                      </button>
+                      <button onClick={() => onDelete(n.id)}
+                        className="text-xs leading-none" style={{ color: '#DC2626' }}
+                        title="Verwijderen">
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Setup View ───────────────────────────────────────────────────────────────
 
-function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
+function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification, onOpenHistory }: {
   onStart: (p: GameParams) => void
-  onHistory: () => void
   onProfile: () => void
   user: AuthUser | null
   authLoading: boolean
+  unreadNotifications: number
+  notifications: AppNotification[]
+  onMarkRead: (id: string) => void
+  onMarkAllRead: () => void
+  onMarkUnread: (id: string) => void
+  onDeleteNotification: (id: string) => void
+  onOpenHistory: () => void
 }) {
   const [club, setClub] = useLS('fh_club', '')
   const [team, setTeam] = useLS('fh_team', '')
@@ -2071,13 +1975,13 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
           <div className="flex items-center gap-3">
-            {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={46} /> : <H1Logo height={46} />}
+            {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
             <div>
-              <h1 className="font-display font-bold uppercase leading-none" style={{ fontSize: '22px', letterSpacing: '0.08em' }}>
+              <h1 className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
                 {user?.defaultClub ?? 'Hockey One'}
               </h1>
               <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
-                {user?.defaultClub ? 'HOCKEY ONE' : 'Hockey Team Manager'}
+                {user?.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
               </p>
             </div>
           </div>
@@ -2086,11 +1990,15 @@ function SetupView({ onStart, onHistory, onProfile, user, authLoading }: {
           </div>
           <div className="flex items-center gap-2 justify-end">
             {user && (
-              <button onClick={onHistory}
-                className="text-sm px-3 py-1.5 rounded-lg font-semibold"
-                style={{ color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
-                Wedstrijden
-              </button>
+              <NotificationBell
+                unreadNotifications={unreadNotifications}
+                notifications={notifications}
+                onMarkRead={onMarkRead}
+                onMarkAllRead={onMarkAllRead}
+                onMarkUnread={onMarkUnread}
+                onDelete={onDeleteNotification}
+                onOpenHistory={onOpenHistory}
+              />
             )}
             <button onClick={onProfile}
               className={user ? 'rounded-full' : 'text-sm px-3 py-1.5 rounded-lg font-semibold'}
@@ -2348,8 +2256,15 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   // tracked separately, so undoing a mis-given card (the × next to it)
   // immediately lifts the restriction again.
   const redCardedIds = new Set(cards.filter(c => c.color === 'red').map(c => c.playerId))
+  // A brand-new board starts seeded with whoever's currently on the field
+  // (their live slot positions) instead of blank — without this, the tactics
+  // board looked empty and un-interactive on first open (the live squad shown
+  // there is a non-interactive reference only), which read as "I can't move
+  // players around" even though dragging markers works fine once any exist.
+  const seedMarkersFromSlots = (): TacticsMarker[] =>
+    slots.filter(s => s.playerId).map(s => ({ id: uid(), x: s.x, y: s.y, playerId: s.playerId! }))
   const [tacticsBoards, setTacticsBoards] = useState<TacticsBoard[]>(() =>
-    initial?.tacticsBoards?.length ? initial.tacticsBoards : [{ id: uid(), name: 'Opstelling 1', markers: [], arrows: [] }]
+    initial?.tacticsBoards?.length ? initial.tacticsBoards : [{ id: uid(), name: 'Opstelling 1', markers: seedMarkersFromSlots(), arrows: [] }]
   )
   const [activeBoardId, setActiveBoardId] = useState(() => tacticsBoards[0].id)
   const [tacticsTool, setTacticsTool] = useState<'select' | 'marker' | 'arrow'>('select')
@@ -2491,7 +2406,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     const board: TacticsBoard = {
       id: uid(),
       name: corner ? `Strafcorner ${sameType}` : `Opstelling ${sameType}`,
-      markers: [], arrows: [], corner,
+      markers: corner ? [] : seedMarkersFromSlots(), arrows: [], corner,
     }
     setTacticsBoards(bs => [...bs, board])
     setActiveBoardId(board.id)
@@ -2524,6 +2439,19 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     }
   }
 
+  // Background taps on the tactics board serve two independent purposes —
+  // placing/relocating a tactics marker, or completing a pending squad
+  // action (a bench player or field slot selected before switching to this
+  // tab) — so route to whichever is actually pending. Placing a tactics
+  // marker (tool + a chosen player) or relocating a selected one takes
+  // priority since those are explicit in-progress actions; otherwise fall
+  // through to the same background-click handling FieldView uses.
+  const handleTacticsBoardBackgroundClick = (x: number, y: number) => {
+    if (tacticsTool === 'marker' && tacticsPlayerId) { handleTacticsFieldClick(x, y); return }
+    if (tacticsTool === 'select' && selectedTacticsMarker) { handleTacticsFieldClick(x, y); return }
+    if (selected) { handleBackgroundClick(x, y); return }
+  }
+
   const handleTacticsArrowDrawn = (x1: number, y1: number, x2: number, y2: number) => {
     if (readOnly) return
     updateActiveBoard(b => ({ ...b, arrows: [...b.arrows, { id: uid(), x1, y1, x2, y2 }] }))
@@ -2532,6 +2460,11 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   const handleTacticsMarkerClick = (id: string) => {
     if (readOnly || tacticsTool !== 'select') return
     setSelectedTacticsMarker(sel => (sel === id ? null : id))
+  }
+
+  const handleTacticsMarkerMove = (id: string, x: number, y: number) => {
+    if (readOnly) return
+    updateActiveBoard(b => ({ ...b, markers: b.markers.map(m => m.id === id ? { ...m, x, y } : m) }))
   }
 
   const removeTacticsMarker = (id: string) => {
@@ -2976,9 +2909,18 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                 board={activeBoard}
                 tool={tacticsTool}
                 selectedMarker={selectedTacticsMarker}
-                onFieldClick={handleTacticsFieldClick}
+                fieldRef={fieldRef}
+                selected={selected}
+                dragOverPos={dragOverPos}
+                dragPreview={dragPreview}
+                onFieldClick={handleTacticsBoardBackgroundClick}
                 onMarkerClick={handleTacticsMarkerClick}
+                onMarkerMove={handleTacticsMarkerMove}
                 onArrowDrawn={handleTacticsArrowDrawn}
+                onSquadSlotClick={handleFieldClick}
+                onSquadMarkerPointerDown={(posId, e) => beginDrag('field', posId, e)}
+                onOppMarkerPointerDown={(id, e) => beginDrag('opp-marker', id, e)}
+                onOppMarkerClick={handleOppMarkerClick}
               />
             ) : (
               <FieldView
@@ -3523,14 +3465,19 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
 
 // ── History View ─────────────────────────────────────────────────────────────
 
-function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onProfile }: {
+function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
   games: SavedGame[]
   user: AuthUser | null
   authLoading: boolean
-  onBack: () => void
   onDelete: (id: string) => void
   onEdit: (game: SavedGame) => void
   onProfile: () => void
+  unreadNotifications: number
+  notifications: AppNotification[]
+  onMarkRead: (id: string) => void
+  onMarkAllRead: () => void
+  onMarkUnread: (id: string) => void
+  onDeleteNotification: (id: string) => void
 }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const getPlayer = (g: SavedGame, id: string) => g.squad.find(p => p.id === id)
@@ -3561,15 +3508,49 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
-          <div className="flex items-center gap-4">
-            <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>← Terug</button>
-            <SCMuidenLogo size={32} />
-            <h1 className="font-display text-2xl font-bold uppercase tracking-widest">Wedstrijd Geschiedenis</h1>
+          <div className="flex items-center gap-3 justify-self-start">
+            {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
+            <div>
+              <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
+                {user?.defaultClub ?? 'Hockey One'}
+              </p>
+              <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
+                {user?.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
+              </p>
+            </div>
           </div>
-          <div className="flex justify-center">
-            <H1Logo height={24} />
+          <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">WEDSTRIJDEN</h1>
+          <div className="flex items-center gap-2 justify-self-end">
+            {user && (
+              <NotificationBell
+                unreadNotifications={unreadNotifications}
+                notifications={notifications}
+                onMarkRead={onMarkRead}
+                onMarkAllRead={onMarkAllRead}
+                onMarkUnread={onMarkUnread}
+                onDelete={onDeleteNotification}
+                onOpenHistory={() => {}}
+              />
+            )}
+            <button onClick={onProfile}
+              className={user ? 'rounded-full' : 'text-sm px-3 py-1.5 rounded-lg font-semibold'}
+              style={user
+                ? {}
+                : { color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
+              {user ? (
+                user.picture ? (
+                  <img src={user.picture} alt="Profiel" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
+                ) : (
+                  <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                    style={{ background: 'var(--brand-1a3fab)' }}>
+                    {initials(user.name ?? user.email)}
+                  </span>
+                )
+              ) : (
+                'Inloggen'
+              )}
+            </button>
           </div>
-          <div />
         </div>
       </header>
 
@@ -3613,10 +3594,12 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
                 <button className="w-full text-left px-5 py-4 flex items-center justify-between"
                   onClick={() => setExpanded(expanded === g.id ? null : g.id)}>
                   <div className="min-w-0">
-                    <div className="font-display text-lg font-bold leading-tight" style={{ color: 'var(--brand-0d2b7a)' }}>
-                      {g.club} {g.team}&nbsp;
-                      <span style={{ color: 'var(--brand-7b90c8)', fontWeight: 400 }}>{g.homeAway === 'Thuis' ? 'vs' : '@'}</span>
-                      &nbsp;{g.opponent}
+                    <div className="font-display text-lg font-bold leading-tight flex items-center flex-wrap gap-x-1.5" style={{ color: 'var(--brand-0d2b7a)' }}>
+                      <ClubLogo club={g.club} size={20} />
+                      <span>{g.club} {g.team}</span>
+                      <span style={{ color: 'var(--brand-7b90c8)', fontWeight: 400 }}>{g.homeAway === 'Thuis' ? 'Thuis' : 'Uit'}</span>
+                      <ClubLogo club={matchKnhbClub(g.opponent)} size={20} />
+                      <span>{g.opponent}</span>
                     </div>
                     <div className="flex flex-wrap gap-3 mt-0.5">
                       <span className="text-xs font-medium" style={{ color: 'var(--brand-7b90c8)' }}>{g.date}</span>
@@ -3996,7 +3979,7 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
   )
 }
 
-function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword, onResendVerification, onLogout, onBack, onHistory, onMessages, gameCount, onUpdateProfile }: {
+function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword, onResendVerification, onLogout, onHistory, onMessages, gameCount, onUpdateProfile, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
   user: AuthUser | null
   loading: boolean
   onCredential: (credential: string) => void
@@ -4004,11 +3987,16 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   onLoginPassword: (email: string, password: string) => Promise<{ ok: true } | { ok: false; error: string; code?: string }>
   onResendVerification: (email: string) => Promise<void>
   onLogout: () => void
-  onBack: () => void
   onHistory: () => void
   onMessages: () => void
   gameCount: number
   onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => void
+  unreadNotifications: number
+  notifications: AppNotification[]
+  onMarkRead: (id: string) => void
+  onMarkAllRead: () => void
+  onMarkUnread: (id: string) => void
+  onDeleteNotification: (id: string) => void
 }) {
   const inputStyle = { border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }
   const [firstName, setFirstName] = useState(user?.firstName ?? '')
@@ -4117,14 +4105,43 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
-          <div className="flex items-center gap-4">
-            <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>← Terug</button>
-            <h1 className="font-display text-2xl font-bold uppercase tracking-widest">Profiel</h1>
+          <div className="flex items-center gap-3 justify-self-start">
+            {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
+            <div>
+              <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
+                {user?.defaultClub ?? 'Hockey One'}
+              </p>
+              <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
+                {user?.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
+              </p>
+            </div>
           </div>
-          <div className="flex justify-center">
-            <H1Logo height={24} />
+          <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">PROFIEL</h1>
+          <div className="flex items-center gap-2 justify-self-end">
+            {user && (
+              <NotificationBell
+                unreadNotifications={unreadNotifications}
+                notifications={notifications}
+                onMarkRead={onMarkRead}
+                onMarkAllRead={onMarkAllRead}
+                onMarkUnread={onMarkUnread}
+                onDelete={onDeleteNotification}
+                onOpenHistory={onHistory}
+              />
+            )}
+            {user && (
+              <span className="rounded-full shrink-0">
+                {user.picture ? (
+                  <img src={user.picture} alt="Profiel" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
+                ) : (
+                  <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                    style={{ background: 'var(--brand-1a3fab)' }}>
+                    {initials(user.name ?? user.email)}
+                  </span>
+                )}
+              </span>
+            )}
           </div>
-          <div />
         </div>
       </header>
 
@@ -5082,32 +5099,16 @@ function SplashScreen({ onContinue }: { onContinue: () => void }) {
 
 // ── Bottom bar ───────────────────────────────────────────────────────────────
 // Persistent across every logged-in view except the live match (GameView
-// wants the full screen). Notifications open an inline popover here;
-// Messages navigates to its own full view since threads need real space.
+// wants the full screen). Messages navigates to its own full view since
+// threads need real space; Meldingen lives in the main page's topbar instead
+// (see NotificationBell) since there's only room for three destinations here.
 
-function BottomBar({ unreadMessages, unreadNotifications, notifications, onMessages, onMarkRead, onMarkAllRead, onMarkUnread, onDelete, onOpenHistory }: {
+function BottomBar({ unreadMessages, onMessages, onOpenHistory, onHome }: {
   unreadMessages: number
-  unreadNotifications: number
-  notifications: AppNotification[]
   onMessages: () => void
-  onMarkRead: (id: string) => void
-  onMarkAllRead: () => void
-  onMarkUnread: (id: string) => void
-  onDelete: (id: string) => void
   onOpenHistory: () => void
+  onHome: () => void
 }) {
-  const [open, setOpen] = useState(false)
-  const panelRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onPointerDown = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onPointerDown)
-    return () => document.removeEventListener('mousedown', onPointerDown)
-  }, [open])
-
   const badge = (n: number) => n > 0 && (
     <span className="absolute -top-1.5 -right-2.5 text-[10px] font-bold rounded-full px-1.5 py-0.5 text-white leading-tight" style={{ background: '#DC2626' }}>
       {n > 9 ? '9+' : n}
@@ -5115,61 +5116,22 @@ function BottomBar({ unreadMessages, unreadNotifications, notifications, onMessa
   )
 
   return (
-    <>
-      {open && (
-        <div ref={panelRef} className="fixed z-40 left-1/2 -translate-x-1/2 w-full max-w-md px-4" style={{ bottom: 76 }}>
-          <div className="rounded-2xl shadow-2xl overflow-hidden bg-white" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
-            <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--brand-e8effd)' }}>
-              <span className="font-display font-bold uppercase text-sm tracking-wide" style={{ color: 'var(--brand-0d2b7a)' }}>Meldingen</span>
-              {notifications.some(n => !n.read) && (
-                <button onClick={onMarkAllRead} className="text-xs font-semibold" style={{ color: 'var(--brand-1a3fab)' }}>Alles gelezen</button>
-              )}
-            </div>
-            <div className="max-h-80 overflow-y-auto">
-              {notifications.length === 0 ? (
-                <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Geen meldingen</p>
-              ) : (
-                notifications.map(n => (
-                  <div key={n.id} className="flex items-start gap-2 px-4 py-3 text-sm"
-                    style={{ borderBottom: '1px solid var(--brand-f0f5ff)', background: n.read ? 'transparent' : 'var(--brand-f0f5ff)' }}>
-                    {!n.read && <span className="w-2 h-2 rounded-full shrink-0 mt-1.5" style={{ background: 'var(--brand-1a3fab)' }} />}
-                    <button onClick={() => { onMarkRead(n.id); if (n.gameId) { setOpen(false); onOpenHistory() } }}
-                      className="flex-1 min-w-0 text-left">
-                      <div style={{ color: 'var(--brand-1a2f6b)' }}>{renderFormattedText(n.body)}</div>
-                      <div className="text-xs mt-0.5" style={{ color: 'var(--brand-a8bef0)' }}>{formatRelativeTime(n.createdAt)}</div>
-                    </button>
-                    <div className="flex flex-col items-center gap-1.5 shrink-0 pt-0.5">
-                      <button onClick={() => n.read ? onMarkUnread(n.id) : onMarkRead(n.id)}
-                        className="text-xs leading-none" style={{ color: 'var(--brand-a8bef0)' }}
-                        title={n.read ? 'Markeer als ongelezen' : 'Markeer als gelezen'}>
-                        {n.read ? '○' : '●'}
-                      </button>
-                      <button onClick={() => onDelete(n.id)}
-                        className="text-xs leading-none" style={{ color: '#DC2626' }}
-                        title="Verwijderen">
-                        ✕
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-      <div className="fixed bottom-0 left-0 right-0 z-30 shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
-        <div className="max-w-2xl mx-auto grid grid-cols-2">
-          <button onClick={() => setOpen(o => !o)} className="flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-white">
-            <span className="relative text-base">🔔{badge(unreadNotifications)}</span>
-            Meldingen
-          </button>
-          <button onClick={onMessages} className="flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-white" style={{ borderLeft: '1px solid rgba(255,255,255,0.12)' }}>
-            <span className="relative text-base">✉️{badge(unreadMessages)}</span>
-            Berichten
-          </button>
-        </div>
+    <div className="fixed bottom-0 left-0 right-0 z-30 shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
+      <div className="max-w-2xl mx-auto grid grid-cols-3">
+        <button onClick={onHome} className="flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-white">
+          <span className="relative text-base">🏠</span>
+          Thuis
+        </button>
+        <button onClick={onOpenHistory} className="flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-white" style={{ borderLeft: '1px solid rgba(255,255,255,0.12)' }}>
+          <span className="relative text-base">🏑</span>
+          Wedstrijden
+        </button>
+        <button onClick={onMessages} className="flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-white" style={{ borderLeft: '1px solid rgba(255,255,255,0.12)' }}>
+          <span className="relative text-base">✉️{badge(unreadMessages)}</span>
+          Berichten
+        </button>
       </div>
-    </>
+    </div>
   )
 }
 
@@ -5180,11 +5142,17 @@ function BottomBar({ unreadMessages, unreadNotifications, notifications, onMessa
 // the server — see api/messages/[action].ts — this just renders what it's
 // given.
 
-function MessagesView({ user, onBack, onProfile, onRefreshUnread }: {
+function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification, onOpenHistory }: {
   user: AuthUser | null
-  onBack: () => void
   onProfile: () => void
   onRefreshUnread: () => void
+  unreadNotifications: number
+  notifications: AppNotification[]
+  onMarkRead: (id: string) => void
+  onMarkAllRead: () => void
+  onMarkUnread: (id: string) => void
+  onDeleteNotification: (id: string) => void
+  onOpenHistory: () => void
 }) {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loadingConversations, setLoadingConversations] = useState(true)
@@ -5260,15 +5228,50 @@ function MessagesView({ user, onBack, onProfile, onRefreshUnread }: {
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
-          <div className="shrink-0 justify-self-start">
-            <ClubLogo club={user.defaultClub ?? ''} size={28} />
+          <div className="flex items-center gap-3 justify-self-start">
+            {user.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
+            <div>
+              <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
+                {user.defaultClub ?? 'Hockey One'}
+              </p>
+              <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
+                {user.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
+              </p>
+            </div>
           </div>
           <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">
             {activeId ? activeName : 'Berichten'}
           </h1>
-          <button onClick={activeId ? closeThread : onBack} className="text-sm font-semibold shrink-0 justify-self-end" style={{ color: 'var(--brand-7b9de0)' }}>
-            ← {activeId ? 'Berichten' : 'Terug'}
-          </button>
+          <div className="flex items-center gap-2 justify-self-end">
+            {activeId && (
+              <button onClick={closeThread} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>
+                ← Berichten
+              </button>
+            )}
+            {!activeId && (
+              <NotificationBell
+                unreadNotifications={unreadNotifications}
+                notifications={notifications}
+                onMarkRead={onMarkRead}
+                onMarkAllRead={onMarkAllRead}
+                onMarkUnread={onMarkUnread}
+                onDelete={onDeleteNotification}
+                onOpenHistory={onOpenHistory}
+              />
+            )}
+            {!activeId && (
+              <button onClick={onProfile} className="rounded-full shrink-0">
+                {user.picture ? (
+                  <img src={user.picture} alt="Profiel" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
+                ) : (
+                  <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                    style={{ background: 'var(--brand-1a3fab)' }}>
+                    {initials(user.name ?? user.email)}
+                  </span>
+                )}
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
@@ -5418,14 +5421,9 @@ export default function App() {
           <div style={{ height: 64 }} />
           <BottomBar
             unreadMessages={notif.unreadMessages}
-            unreadNotifications={notif.unreadNotifications}
-            notifications={notif.notifications}
             onMessages={() => setView('messages')}
-            onMarkRead={notif.markRead}
-            onMarkAllRead={notif.markAllRead}
-            onMarkUnread={notif.markUnread}
-            onDelete={notif.remove}
             onOpenHistory={() => setView('history')}
+            onHome={() => setView('setup')}
           />
         </>
       )}
@@ -5437,13 +5435,17 @@ export default function App() {
   // still fires on the very first render a club is known, not just after.
   useEffect(() => {
     const club = user?.defaultClub
-    const src = club ? CLUB_LOGOS[club] : null
-    if (!src) { clearClubTheme(); return }
+    if (!club) { clearClubTheme(); return }
     let cancelled = false
-    extractDominantHue(mediaSrc(src)).then(hue => {
+    fetchClubLogos().then(logos => {
       if (cancelled) return
-      if (hue == null) clearClubTheme()
-      else applyClubTheme(hue)
+      const src = logos[slugifyClubName(club)]
+      if (!src) { clearClubTheme(); return }
+      extractDominantHue(mediaSrc(src)).then(hue => {
+        if (cancelled) return
+        if (hue == null) clearClubTheme()
+        else applyClubTheme(hue)
+      })
     })
     return () => { cancelled = true }
   }, [user?.defaultClub])
@@ -5466,11 +5468,16 @@ export default function App() {
         onLoginPassword={loginWithPassword}
         onResendVerification={resendVerification}
         onLogout={logout}
-        onBack={() => setView('setup')}
         onHistory={() => setView('history')}
         onMessages={() => setView('messages')}
         gameCount={games.length}
         onUpdateProfile={updateProfile}
+        unreadNotifications={notif.unreadNotifications}
+        notifications={notif.notifications}
+        onMarkRead={notif.markRead}
+        onMarkAllRead={notif.markAllRead}
+        onMarkUnread={notif.markUnread}
+        onDeleteNotification={notif.remove}
       />
     )
   if (view === 'history')
@@ -5479,15 +5486,31 @@ export default function App() {
         games={games}
         user={user}
         authLoading={authLoading}
-        onBack={() => setView('setup')}
         onDelete={deleteGame}
         onEdit={startEdit}
         onProfile={() => setView('profile')}
+        unreadNotifications={notif.unreadNotifications}
+        notifications={notif.notifications}
+        onMarkRead={notif.markRead}
+        onMarkAllRead={notif.markAllRead}
+        onMarkUnread={notif.markUnread}
+        onDeleteNotification={notif.remove}
       />
     )
   if (view === 'messages')
     return withBottomBar(
-      <MessagesView user={user} onBack={() => setView('setup')} onProfile={() => setView('profile')} onRefreshUnread={notif.refresh} />
+      <MessagesView
+        user={user}
+        onProfile={() => setView('profile')}
+        onRefreshUnread={notif.refresh}
+        unreadNotifications={notif.unreadNotifications}
+        notifications={notif.notifications}
+        onMarkRead={notif.markRead}
+        onMarkAllRead={notif.markAllRead}
+        onMarkUnread={notif.markUnread}
+        onDeleteNotification={notif.remove}
+        onOpenHistory={() => setView('history')}
+      />
     )
   if (view === 'game' && gameParams)
     return (
@@ -5503,10 +5526,16 @@ export default function App() {
     <>
       <SetupView
         onStart={p => { setEditingGame(null); setGameParams(p); setView('game') }}
-        onHistory={() => setView('history')}
         onProfile={() => setView('profile')}
         user={user}
         authLoading={authLoading}
+        unreadNotifications={notif.unreadNotifications}
+        notifications={notif.notifications}
+        onMarkRead={notif.markRead}
+        onMarkAllRead={notif.markAllRead}
+        onMarkUnread={notif.markUnread}
+        onDeleteNotification={notif.remove}
+        onOpenHistory={() => setView('history')}
       />
       {gamesError && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 text-xs font-semibold px-4 py-2 rounded-xl shadow-lg"
