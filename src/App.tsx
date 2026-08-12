@@ -1893,7 +1893,7 @@ function SetupView({ onStart, onProfile, user, authLoading }: {
                 {user?.defaultClub ?? 'Hockey One'}
               </h1>
               <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
-                {user?.defaultClub ? 'HOCKEY ONE' : 'Hockey Team Manager'}
+                {user?.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
               </p>
             </div>
           </div>
@@ -3405,14 +3405,14 @@ function HistoryView({ games, user, authLoading, onBack, onDelete, onEdit, onPro
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
           <div className="flex items-center gap-4">
-            <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>← Terug</button>
             <SCMuidenLogo size={32} />
-            <h1 className="font-display text-2xl font-bold uppercase tracking-widest">Wedstrijd Geschiedenis</h1>
+            <h1 className="font-display text-2xl font-bold uppercase tracking-widest">WEDSTRIJDEN</h1>
           </div>
           <div className="flex justify-center">
             <H1Logo height={24} />
           </div>
-          <div className="flex justify-end">
+          <div className="flex items-center gap-3 justify-end">
+            <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>← Terug</button>
             <button onClick={onProfile}
               className={user ? 'rounded-full' : 'text-sm px-3 py-1.5 rounded-lg font-semibold'}
               style={user
@@ -5135,6 +5135,9 @@ function MessagesView({ user, onBack, onProfile, onRefreshUnread }: {
             {activeId ? activeName : 'Berichten'}
           </h1>
           <div className="flex items-center gap-2 justify-self-end">
+            <button onClick={activeId ? closeThread : onBack} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>
+              ← {activeId ? 'Berichten' : 'Terug'}
+            </button>
             {!activeId && (
               <button onClick={onProfile} className="rounded-full shrink-0">
                 {user.picture ? (
@@ -5147,9 +5150,6 @@ function MessagesView({ user, onBack, onProfile, onRefreshUnread }: {
                 )}
               </button>
             )}
-            <button onClick={activeId ? closeThread : onBack} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>
-              ← {activeId ? 'Berichten' : 'Terug'}
-            </button>
           </div>
         </div>
       </header>
