@@ -3,7 +3,7 @@ import { OAuth2Client } from 'google-auth-library'
 import { sql, ensureSchema } from '../_lib/db.js'
 import { hashPassword, verifyPassword, newToken, randomUUID } from '../_lib/crypto.js'
 import { signSession, sessionCookieHeader, clearSessionCookieHeader, getSessionFromCookies } from '../_lib/session.js'
-import { sendVerificationEmail, sendNewRegistrationEmail } from '../_lib/email.js'
+import { sendVerificationEmail, sendNewRegistrationEmail, sendPasswordResetEmail } from '../_lib/email.js'
 import { toUser } from '../_lib/users.js'
 import { getAdminEmails } from '../_lib/admin.js'
 import { createNotification } from '../_lib/notifications.js'
@@ -17,6 +17,9 @@ import { createNotification } from '../_lib/notifications.js'
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID)
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000
+// Shorter than email-verification's TTL — a password-reset link is more
+// sensitive (it lets someone straight into the account), so it expires fast.
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000
 const MAX_PICTURE_LENGTH = 2_000_000 // ~1.5MB decoded — the client resizes photos well below this
 
 // A regex here is the wrong tool, not just a matter of getting one right —
@@ -313,6 +316,71 @@ async function handleResendVerification(req: VercelRequest, res: VercelResponse)
   res.status(200).json({ ok: true })
 }
 
+// Unlike verify-email, the link here points straight at the SPA (?reset=
+// token) rather than an API route — resetting needs the user to type a new
+// password first, which a GET redirect can't collect, so the token is only
+// actually consumed by handleResetPassword below once they submit the form.
+async function handleForgotPassword(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return }
+
+  const email = String(req.body?.email ?? '').trim().toLowerCase()
+  const rows = await sql`SELECT id, name, password_hash FROM users WHERE lower(email) = ${email}`
+  const row = rows[0]
+
+  // Always respond the same way regardless of whether the account exists —
+  // this endpoint can't be used to probe which emails are registered. Only
+  // password accounts get a reset link; a Google-only account has no
+  // password to reset.
+  if (row?.password_hash) {
+    const token = newToken()
+    const expires = new Date(Date.now() + RESET_TOKEN_TTL_MS).toISOString()
+    await sql`UPDATE users SET reset_token = ${token}, reset_expires = ${expires} WHERE id = ${row.id}`
+    const origin = originOf(req)
+    const resetUrl = `${origin}/?reset=${token}`
+    try {
+      await sendPasswordResetEmail(email, row.name, resetUrl, origin)
+    } catch (err) {
+      console.error('Failed to send password reset email', err)
+    }
+  }
+
+  res.status(200).json({ ok: true })
+}
+
+async function handleResetPassword(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return }
+
+  const token = String(req.body?.token ?? '')
+  const password = String(req.body?.password ?? '')
+  if (!token) { res.status(400).json({ error: 'Ontbrekende token' }); return }
+  if (!isStrongPassword(password)) { res.status(400).json({ error: PASSWORD_POLICY_ERROR }); return }
+
+  const rows = await sql`SELECT id, email, name, picture, reset_expires FROM users WHERE reset_token = ${token}`
+  const row = rows[0]
+  if (!row || new Date(row.reset_expires) < new Date()) {
+    res.status(400).json({ error: 'Deze link is ongeldig of verlopen. Vraag een nieuwe aan.' })
+    return
+  }
+
+  // Clicking the link proves mailbox ownership, same reasoning as
+  // verify-email — also clears any brute-force lockout, since a successful
+  // reset is a stronger signal than the failed attempts that caused it.
+  const updated = await sql`
+    UPDATE users SET
+      password_hash = ${hashPassword(password)},
+      reset_token = NULL,
+      reset_expires = NULL,
+      email_verified = true,
+      failed_logins = 0,
+      login_locked_until = NULL
+    WHERE id = ${row.id}
+    RETURNING id, email, name, picture, default_team, default_club, first_name, last_name, role
+  `
+
+  res.setHeader('Set-Cookie', sessionCookieHeader(signSession({ id: row.id, email: row.email, name: row.name, picture: row.picture })))
+  res.status(200).json({ user: toUser(updated[0]) })
+}
+
 async function handleVerifyEmail(req: VercelRequest, res: VercelResponse) {
   const appUrl = originOf(req)
   const token = typeof req.query.token === 'string' ? req.query.token : ''
@@ -345,6 +413,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     case 'register': return handleRegister(req, res)
     case 'resend-verification': return handleResendVerification(req, res)
     case 'verify-email': return handleVerifyEmail(req, res)
+    case 'forgot-password': return handleForgotPassword(req, res)
+    case 'reset-password': return handleResetPassword(req, res)
     default: res.status(404).json({ error: 'Not found' })
   }
 }
