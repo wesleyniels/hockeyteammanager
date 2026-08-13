@@ -3979,13 +3979,14 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
   )
 }
 
-function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword, onResendVerification, onLogout, onHistory, onMessages, gameCount, onUpdateProfile, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
+function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword, onResendVerification, onForgotPassword, onLogout, onHistory, onMessages, gameCount, onUpdateProfile, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
   user: AuthUser | null
   loading: boolean
   onCredential: (credential: string) => void
   onRegister: (email: string, password: string, name: string) => Promise<{ ok: true } | { ok: false; error: string }>
   onLoginPassword: (email: string, password: string) => Promise<{ ok: true } | { ok: false; error: string; code?: string }>
   onResendVerification: (email: string) => Promise<void>
+  onForgotPassword: (email: string) => Promise<void>
   onLogout: () => void
   onHistory: () => void
   onMessages: () => void
@@ -4260,7 +4261,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                 <span className="text-xs font-semibold uppercase" style={{ color: 'var(--brand-a8bef0)' }}>of</span>
                 <div className="flex-1 h-px" style={{ background: 'var(--brand-e4ecfe)' }} />
               </div>
-              <EmailAuthForm onLogin={onLoginPassword} onRegister={onRegister} onResend={onResendVerification} />
+              <EmailAuthForm onLogin={onLoginPassword} onRegister={onRegister} onResend={onResendVerification} onForgotPassword={onForgotPassword} />
             </div>
           )}
         </section>
@@ -4546,6 +4547,25 @@ function useAuth() {
     })
   }, [])
 
+  const forgotPassword = useCallback(async (email: string) => {
+    await fetch('/api/auth/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    })
+  }, [])
+
+  const resetPassword = useCallback(async (token: string, password: string) => {
+    const res = await fetch('/api/auth/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, password }),
+    })
+    if (res.ok) { setUser((await res.json()).user); return { ok: true as const } }
+    const body = await res.json().catch(() => ({}))
+    return { ok: false as const, error: body.error ?? 'Wachtwoord opnieuw instellen mislukt' }
+  }, [])
+
   const logout = useCallback(async () => {
     await fetch('/api/auth/logout', { method: 'POST' })
     setUser(null)
@@ -4563,7 +4583,7 @@ function useAuth() {
     if (res.ok) setUser((await res.json()).user)
   }, [])
 
-  return { user, loading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, logout, updateProfile }
+  return { user, loading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, forgotPassword, resetPassword, logout, updateProfile }
 }
 
 // Renders Google's own "Sign in with Google" button into a div once the GSI
@@ -4612,13 +4632,14 @@ function GoogleSignInButton({ onCredential }: { onCredential: (credential: strin
 // Registering never logs the user in directly — they must click the
 // verification link emailed to them first (see api/auth/register.ts).
 
-function EmailAuthForm({ onLogin, onRegister, onResend }: {
+function EmailAuthForm({ onLogin, onRegister, onResend, onForgotPassword }: {
   onLogin: (email: string, password: string) => Promise<{ ok: true } | { ok: false; error: string; code?: string }>
   onRegister: (email: string, password: string, name: string) => Promise<{ ok: true } | { ok: false; error: string }>
   onResend: (email: string) => Promise<void>
+  onForgotPassword: (email: string) => Promise<void>
 }) {
   const inputStyle = { border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }
-  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
@@ -4627,7 +4648,7 @@ function EmailAuthForm({ onLogin, onRegister, onResend }: {
   const [info, setInfo] = useState<string | null>(null)
   const [showResend, setShowResend] = useState(false)
 
-  const switchMode = (m: 'login' | 'register') => {
+  const switchMode = (m: 'login' | 'register' | 'forgot') => {
     setMode(m)
     setError(null)
     setInfo(null)
@@ -4647,6 +4668,9 @@ function EmailAuthForm({ onLogin, onRegister, onResend }: {
       } else {
         setError(res.error)
       }
+    } else if (mode === 'forgot') {
+      await onForgotPassword(email.trim())
+      setInfo('Als dit account bestaat, hebben we een e-mail gestuurd met een link om je wachtwoord opnieuw in te stellen.')
     } else {
       const res = await onLogin(email.trim(), password)
       if (!res.ok) {
@@ -4662,6 +4686,29 @@ function EmailAuthForm({ onLogin, onRegister, onResend }: {
     await onResend(email.trim())
     setInfo('Als dit account bestaat, is er een nieuwe verificatie-e-mail verstuurd.')
     setBusy(false)
+  }
+
+  if (mode === 'forgot') {
+    return (
+      <div className="space-y-3 text-left">
+        <p className="text-sm" style={{ color: 'var(--brand-6b82b8)' }}>
+          Vul je e-mailadres in en we sturen je een link om een nieuw wachtwoord in te stellen.
+        </p>
+        <input className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle} type="email"
+          value={email} onChange={e => setEmail(e.target.value)} placeholder="E-mailadres" />
+
+        {info && <p className="text-xs font-semibold" style={{ color: '#16A34A' }}>{info}</p>}
+
+        <button onClick={submit} disabled={busy || !email}
+          className="w-full px-4 py-2.5 rounded-xl font-bold text-sm text-white disabled:opacity-50"
+          style={{ background: 'var(--brand-1a3fab)' }}>
+          Reset-link versturen
+        </button>
+        <button onClick={() => switchMode('login')} className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>
+          ← Terug naar inloggen
+        </button>
+      </div>
+    )
   }
 
   return (
@@ -4692,6 +4739,11 @@ function EmailAuthForm({ onLogin, onRegister, onResend }: {
           Minimaal 8 tekens, met een hoofdletter, kleine letter, cijfer en speciaal teken.
         </p>
       )}
+      {mode === 'login' && (
+        <button onClick={() => switchMode('forgot')} className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>
+          Wachtwoord vergeten?
+        </button>
+      )}
 
       {error && <p className="text-xs font-semibold" style={{ color: '#DC2626' }}>{error}</p>}
       {info && <p className="text-xs font-semibold" style={{ color: '#16A34A' }}>{info}</p>}
@@ -4706,6 +4758,70 @@ function EmailAuthForm({ onLogin, onRegister, onResend }: {
         style={{ background: 'var(--brand-1a3fab)' }}>
         {mode === 'register' ? 'Account aanmaken' : 'Inloggen'}
       </button>
+    </div>
+  )
+}
+
+// The link in the password-reset email points at the app's own origin
+// (?reset=<token>) rather than an API route — see handleForgotPassword's
+// comment in api/auth/[action].ts for why — so this renders full-screen
+// ahead of everything else once that param is present.
+function ResetPasswordView({ token, onSubmit, onDone }: {
+  token: string
+  onSubmit: (token: string, password: string) => Promise<{ ok: true } | { ok: false; error: string }>
+  onDone: () => void
+}) {
+  const inputStyle = { border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
+
+  const submit = async () => {
+    if (password !== confirm) { setError('Wachtwoorden komen niet overeen'); return }
+    setBusy(true)
+    setError(null)
+    const res = await onSubmit(token, password)
+    setBusy(false)
+    if (res.ok) setDone(true)
+    else setError(res.error)
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center px-4" style={{ background: 'var(--brand-eef3ff)' }}>
+      <div className="w-full max-w-sm bg-white rounded-2xl p-6 shadow-sm space-y-4" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+        <h1 className="font-display text-xl font-bold uppercase tracking-wide text-center" style={{ color: 'var(--brand-0d2b7a)' }}>
+          Nieuw wachtwoord
+        </h1>
+        {done ? (
+          <>
+            <p className="text-sm text-center" style={{ color: '#16A34A' }}>Je wachtwoord is bijgewerkt en je bent ingelogd.</p>
+            <button onClick={onDone} className="w-full px-4 py-2.5 rounded-xl font-bold text-sm text-white" style={{ background: 'var(--brand-1a3fab)' }}>
+              Naar Hockey One
+            </button>
+          </>
+        ) : (
+          <>
+            <input className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle} type="password"
+              value={password} onChange={e => setPassword(e.target.value)} placeholder="Nieuw wachtwoord" />
+            <input className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle} type="password"
+              value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="Bevestig wachtwoord" />
+            <p className="text-xs" style={{ color: 'var(--brand-a8bef0)' }}>
+              Minimaal 8 tekens, met een hoofdletter, kleine letter, cijfer en speciaal teken.
+            </p>
+            {error && <p className="text-xs font-semibold" style={{ color: '#DC2626' }}>{error}</p>}
+            <button onClick={submit} disabled={busy || !password || !confirm}
+              className="w-full px-4 py-2.5 rounded-xl font-bold text-sm text-white disabled:opacity-50"
+              style={{ background: 'var(--brand-1a3fab)' }}>
+              Wachtwoord instellen
+            </button>
+            <button onClick={onDone} className="w-full text-xs font-bold text-center" style={{ color: 'var(--brand-1a3fab)' }}>
+              Annuleren
+            </button>
+          </>
+        )}
+      </div>
     </div>
   )
 }
@@ -5402,10 +5518,21 @@ export default function App() {
     setShowSplash(false)
   }
 
+  // A password-reset email links straight back here with ?reset=<token> —
+  // handled ahead of the splash screen so following the link works in one tap.
+  const [resetToken, setResetToken] = useState(() => new URLSearchParams(window.location.search).get('reset'))
+  const clearResetToken = () => {
+    setResetToken(null)
+    const params = new URLSearchParams(window.location.search)
+    params.delete('reset')
+    const qs = params.toString()
+    window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''))
+  }
+
   const [view, setView] = useState<View>('setup')
   const [gameParams, setGameParams] = useState<GameParams | null>(null)
   const [editingGame, setEditingGame] = useState<SavedGame | null>(null)
-  const { user, loading: authLoading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, logout, updateProfile } = useAuth()
+  const { user, loading: authLoading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, forgotPassword, resetPassword, logout, updateProfile } = useAuth()
   const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user, user?.defaultTeam ?? null)
   const notif = useNotificationCenter(!!user)
 
@@ -5450,6 +5577,8 @@ export default function App() {
     return () => { cancelled = true }
   }, [user?.defaultClub])
 
+  if (resetToken) return <ResetPasswordView token={resetToken} onSubmit={resetPassword} onDone={clearResetToken} />
+
   if (showSplash) return <SplashScreen onContinue={dismissSplash} />
 
   const startEdit = (game: SavedGame) => {
@@ -5467,6 +5596,7 @@ export default function App() {
         onRegister={registerWithPassword}
         onLoginPassword={loginWithPassword}
         onResendVerification={resendVerification}
+        onForgotPassword={forgotPassword}
         onLogout={logout}
         onHistory={() => setView('history')}
         onMessages={() => setView('messages')}
