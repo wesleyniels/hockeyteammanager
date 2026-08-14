@@ -1,11 +1,39 @@
-// Talks to Resend's plain HTTP API directly instead of pulling in their SDK
-// — this project's deploy pipeline can't run `pnpm install` unattended, so
-// avoiding new dependencies avoids a lockfile-mismatch build failure.
-export async function sendVerificationEmail(to: string, name: string | null, verifyUrl: string, origin: string) {
-  const apiKey = process.env.RESEND_API_KEY
-  const from = process.env.EMAIL_FROM
-  if (!apiKey || !from) throw new Error('Resend is not configured (RESEND_API_KEY / EMAIL_FROM)')
+import nodemailer from 'nodemailer'
 
+// Switched from Resend's HTTP API to TransIP's own mailbox over SMTP —
+// Resend (via Amazon SES) couldn't reliably reach TransIP-hosted addresses,
+// most likely because TransIP blocks/rate-limits connections from SES's
+// shared IP range. Sending through the mailbox itself sidesteps that
+// entirely. Port 465 is implicit TLS (`secure: true`), not STARTTLS.
+const SMTP_HOST = 'smtp.transip.email'
+const SMTP_PORT = 465
+
+let transporter: ReturnType<typeof nodemailer.createTransport> | null = null
+
+// Memoized per warm serverless instance, same reasoning as ensureSchema() in
+// db.ts — env vars don't change during a running instance's lifetime, so
+// there's no reason to rebuild the transport (and reconnect) on every send.
+function getTransporter() {
+  if (transporter) return transporter
+  const user = process.env.SMTP_USER || process.env.EMAIL_FROM
+  const pass = process.env.SMTP_PASSWORD
+  if (!user || !pass) throw new Error('SMTP is not configured (SMTP_USER / SMTP_PASSWORD)')
+  transporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: true,
+    auth: { user, pass },
+  })
+  return transporter
+}
+
+async function sendMail(to: string | string[], subject: string, html: string) {
+  const from = process.env.EMAIL_FROM
+  if (!from) throw new Error('EMAIL_FROM is not configured')
+  await getTransporter().sendMail({ from, to, subject, html })
+}
+
+export async function sendVerificationEmail(to: string, name: string | null, verifyUrl: string, origin: string) {
   const greeting = name ? `Hoi ${name},` : 'Hoi,'
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px; color: #1A2F6B;">
@@ -24,23 +52,10 @@ export async function sendVerificationEmail(to: string, name: string | null, ver
       <p style="font-size: 12px; color: #A8BEF0; margin-top: 24px;">Deze link verloopt over 24 uur.</p>
     </div>
   `
-
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from, to, subject: 'Bevestig je e-mailadres — Hockey One', html }),
-  })
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(`Resend request failed (${res.status}): ${body}`)
-  }
+  await sendMail(to, 'Bevestig je e-mailadres — Hockey One', html)
 }
 
 export async function sendPasswordResetEmail(to: string, name: string | null, resetUrl: string, origin: string) {
-  const apiKey = process.env.RESEND_API_KEY
-  const from = process.env.EMAIL_FROM
-  if (!apiKey || !from) throw new Error('Resend is not configured (RESEND_API_KEY / EMAIL_FROM)')
-
   const greeting = name ? `Hoi ${name},` : 'Hoi,'
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px; color: #1A2F6B;">
@@ -59,16 +74,7 @@ export async function sendPasswordResetEmail(to: string, name: string | null, re
       <p style="font-size: 12px; color: #A8BEF0; margin-top: 24px;">Deze link verloopt over 1 uur. Niets aangevraagd? Dan kun je deze e-mail negeren.</p>
     </div>
   `
-
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from, to, subject: 'Wachtwoord opnieuw instellen — Hockey One', html }),
-  })
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(`Resend request failed (${res.status}): ${body}`)
-  }
+  await sendMail(to, 'Wachtwoord opnieuw instellen — Hockey One', html)
 }
 
 function escapeHtml(s: string): string {
@@ -81,10 +87,6 @@ function escapeHtml(s: string): string {
 export async function sendNewRegistrationEmail(adminEmails: string[], newUserEmail: string, newUserName: string | null) {
   if (adminEmails.length === 0) return
 
-  const apiKey = process.env.RESEND_API_KEY
-  const from = process.env.EMAIL_FROM
-  if (!apiKey || !from) throw new Error('Resend is not configured (RESEND_API_KEY / EMAIL_FROM)')
-
   const who = newUserName ? `${escapeHtml(newUserName)} (${escapeHtml(newUserEmail)})` : escapeHtml(newUserEmail)
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px; color: #1A2F6B;">
@@ -93,14 +95,5 @@ export async function sendNewRegistrationEmail(adminEmails: string[], newUserEma
       <p style="font-size: 14px; line-height: 1.6; font-weight: bold;">${who}</p>
     </div>
   `
-
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from, to: adminEmails, subject: 'Nieuwe registratie — Hockey One', html }),
-  })
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(`Resend request failed (${res.status}): ${body}`)
-  }
+  await sendMail(adminEmails, 'Nieuwe registratie — Hockey One', html)
 }

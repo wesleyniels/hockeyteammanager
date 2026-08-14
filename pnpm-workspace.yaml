@@ -1,0 +1,8 @@
+overrides:
+  tar: ^7.5.22
+  undici: ^6.28.0
+  js-yaml: ^4.3.1
+  minimatch: ^10.2.6
+
+allowBuilds:
+  esbuild: set this to true or false
