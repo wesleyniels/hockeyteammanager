@@ -3986,7 +3986,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   onRegister: (email: string, password: string, name: string) => Promise<{ ok: true } | { ok: false; error: string }>
   onLoginPassword: (email: string, password: string) => Promise<{ ok: true } | { ok: false; error: string; code?: string }>
   onResendVerification: (email: string) => Promise<void>
-  onForgotPassword: (email: string) => Promise<void>
+  onForgotPassword: (email: string) => Promise<{ ok: true } | { ok: false; error: string }>
   onLogout: () => void
   onHistory: () => void
   onMessages: () => void
@@ -4547,12 +4547,19 @@ function useAuth() {
     })
   }, [])
 
+  // The server always responds 200/{ok:true} here regardless of whether the
+  // account exists or the email actually sent (no enumeration) — but a
+  // non-2xx still means something genuinely broke (wrong route, 500, etc.),
+  // and that's worth surfacing rather than silently swallowing.
   const forgotPassword = useCallback(async (email: string) => {
-    await fetch('/api/auth/forgot-password', {
+    const res = await fetch('/api/auth/forgot-password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
     })
+    if (res.ok) return { ok: true as const }
+    const body = await res.json().catch(() => ({}))
+    return { ok: false as const, error: body.error ?? `Er ging iets mis (${res.status})` }
   }, [])
 
   const resetPassword = useCallback(async (token: string, password: string) => {
@@ -4636,7 +4643,7 @@ function EmailAuthForm({ onLogin, onRegister, onResend, onForgotPassword }: {
   onLogin: (email: string, password: string) => Promise<{ ok: true } | { ok: false; error: string; code?: string }>
   onRegister: (email: string, password: string, name: string) => Promise<{ ok: true } | { ok: false; error: string }>
   onResend: (email: string) => Promise<void>
-  onForgotPassword: (email: string) => Promise<void>
+  onForgotPassword: (email: string) => Promise<{ ok: true } | { ok: false; error: string }>
 }) {
   const inputStyle = { border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }
   const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login')
@@ -4669,8 +4676,12 @@ function EmailAuthForm({ onLogin, onRegister, onResend, onForgotPassword }: {
         setError(res.error)
       }
     } else if (mode === 'forgot') {
-      await onForgotPassword(email.trim())
-      setInfo('Als dit account bestaat, hebben we een e-mail gestuurd met een link om je wachtwoord opnieuw in te stellen.')
+      const res = await onForgotPassword(email.trim())
+      if (res.ok) {
+        setInfo('Als dit account bestaat, hebben we een e-mail gestuurd met een link om je wachtwoord opnieuw in te stellen.')
+      } else {
+        setError(res.error)
+      }
     } else {
       const res = await onLogin(email.trim(), password)
       if (!res.ok) {
