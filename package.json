@@ -17,6 +17,7 @@
     "@vercel/blob": "^2.6.1",
     "google-auth-library": "^11.0.0",
     "jsonwebtoken": "^9.0.3",
+    "nodemailer": "^9.0.5",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
@@ -24,6 +25,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.20.1",
+    "@types/nodemailer": "^8.0.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vercel/node": "^5.9.5",
@@ -33,13 +35,5 @@
     "typescript": "^5.9.3",
     "vercel": "^58.5.1",
     "vite": "^8.2.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "tar": "^7.5.22",
-      "undici": "^6.28.0",
-      "js-yaml": "^4.3.1",
-      "minimatch": "^10.2.6"
-    }
   }
 }
