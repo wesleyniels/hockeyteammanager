@@ -337,10 +337,19 @@ async function handleForgotPassword(req: VercelRequest, res: VercelResponse) {
     await sql`UPDATE users SET reset_token = ${token}, reset_expires = ${expires} WHERE id = ${row.id}`
     const origin = originOf(req)
     const resetUrl = `${origin}/?reset=${token}`
+    // TEMP DIAGNOSTIC — remove once the prod-only SMTP failure is found.
+    console.error('DEBUG smtp-user', JSON.stringify(process.env.SMTP_USER || process.env.EMAIL_FROM || null))
+    console.error('DEBUG smtp-pass-len', (process.env.SMTP_PASSWORD || '').length)
+    console.error('DEBUG email-from', JSON.stringify(process.env.EMAIL_FROM || null))
+    console.error('DEBUG vercel-region', JSON.stringify(process.env.VERCEL_REGION || null))
     try {
       await sendPasswordResetEmail(email, row.name, resetUrl, origin)
+      console.error('DEBUG send-result', 'OK')
     } catch (err) {
-      console.error('Failed to send password reset email', err)
+      const e = err as { message?: string; code?: string; command?: string; response?: string; responseCode?: number }
+      console.error('DEBUG send-result FAILED', JSON.stringify({
+        message: e?.message, code: e?.code, command: e?.command, response: e?.response, responseCode: e?.responseCode,
+      }))
     }
   }
 
