@@ -304,9 +304,10 @@ const GENERIC_TEAM_CATEGORIES = [
 
 // 'Manager' sits between the coaching roles and Speler/Supporter: it's
 // eligible for nothing ELIGIBLE_ROLES/canReset gate (messaging, match
-// squads, resetting a match), but — unlike Speler/Supporter — can edit
-// their own team's player photos (not rename/remove players); see
-// TeamPlayerPhotos' canEditPhotos vs canManageRoster split.
+// squads, resetting a match), but — like Coach/Trainer/Trainer & Coach —
+// can add a player to their own team and edit their photo. Renaming or
+// removing a player entirely is beheerder-only for every non-admin role;
+// see TeamPlayerPhotos' canEditPhotos/canAddPlayer vs canManageRoster split.
 const ROLE_OPTIONS = ['Trainer', 'Coach', 'Trainer & Coach', 'Manager', 'Speler', 'Supporter'] as const
 
 // ── Field positions ──────────────────────────────────────────────────────────
@@ -3914,7 +3915,7 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, un
 // whenever one is loaded, so changes made here show up in matches
 // automatically.
 
-function TeamPlayerPhotos({ team, canEditPhotos, canManageRoster }: { team: string; canEditPhotos: boolean; canManageRoster: boolean }) {
+function TeamPlayerPhotos({ team, canEditPhotos, canAddPlayer, canManageRoster }: { team: string; canEditPhotos: boolean; canAddPlayer: boolean; canManageRoster: boolean }) {
   const [players, setPlayers] = useState<RosterPlayer[]>([])
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -4036,7 +4037,7 @@ function TeamPlayerPhotos({ team, canEditPhotos, canManageRoster }: { team: stri
         <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
           onChange={e => { onFileChange(e.target.files?.[0]); e.target.value = '' }} />
       )}
-      {!canEditPhotos && !canManageRoster && (
+      {!canEditPhotos && !canAddPlayer && !canManageRoster && (
         <p className="text-xs mb-3" style={{ color: 'var(--brand-7b90c8)' }}>
           Alleen coaches kunnen spelers en foto's beheren.
         </p>
@@ -4092,7 +4093,7 @@ function TeamPlayerPhotos({ team, canEditPhotos, canManageRoster }: { team: stri
           })}
         </div>
       )}
-      {canManageRoster && (
+      {canAddPlayer && (
         <div className="flex gap-2 mt-3">
           <input className="flex-1 rounded-xl px-3 py-2 text-sm" style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }}
             value={newName} onChange={e => setNewName(e.target.value)}
@@ -4166,6 +4167,10 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   }
 
   const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL
+  // Coach/Trainer/Trainer & Coach/Manager can add a player to their own team
+  // and edit a player's photo — renaming or removing a player entirely is
+  // beheerder-only (see TeamPlayerPhotos' canManageRoster below).
+  const isRosterStaff = user?.role === 'Coach' || user?.role === 'Trainer' || user?.role === 'Trainer & Coach' || user?.role === 'Manager'
   const { users: adminUsers, loading: adminLoading, error: adminError, deleteUser, setAdmin } = useAdminUsers(isAdmin)
   const { teams: adminTeams, loading: adminTeamsLoading, error: adminTeamsError, createTeam, renameTeam, deleteTeam } = useAdminTeams(isAdmin)
   const [newTeamName, setNewTeamName] = useState('')
@@ -4401,8 +4406,9 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
               Foto's per speler verschijnen tijdens wedstrijden op het veld en de bank.
             </p>
             <TeamPlayerPhotos team={user.defaultTeam}
-              canEditPhotos={user.role === 'Coach' || user.role === 'Trainer & Coach' || user.role === 'Manager'}
-              canManageRoster={user.role === 'Coach' || user.role === 'Trainer & Coach'} />
+              canEditPhotos={isRosterStaff}
+              canAddPlayer={isRosterStaff}
+              canManageRoster={isAdmin} />
           </section>
         )}
 
@@ -4575,7 +4581,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                             defaultValue={t.name} key={`${t.id}-${t.name}`}
                             onBlur={e => { const name = e.target.value.trim(); if (name && name !== t.name) renameTeam(t.id, name) }} />
                         </div>
-                        <TeamPlayerPhotos team={t.name} canEditPhotos={true} canManageRoster={true} />
+                        <TeamPlayerPhotos team={t.name} canEditPhotos={true} canAddPlayer={true} canManageRoster={true} />
                       </div>
                     )}
                   </div>

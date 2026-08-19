@@ -5,7 +5,7 @@ import { getSessionFromCookies, type SessionUser } from '../_lib/session.js'
 import { isAdmin } from '../_lib/admin.js'
 import { randomUUID } from '../_lib/crypto.js'
 import { slugify } from '../_lib/slug.js'
-import { isCoachOfTeamName, canEditPlayer, isPhotoEditorForPlayer } from '../_lib/team-access.js'
+import { isRosterStaffOfTeamName, isPhotoEditorForPlayer } from '../_lib/team-access.js'
 
 // /api/teams/list, /api/teams/roster, etc. collapsed into one dynamic-segment
 // file — see the comment in api/auth/[action].ts for why (Hobby plan's
@@ -56,7 +56,7 @@ async function handleAddPlayer(req: VercelRequest, res: VercelResponse, user: Se
   const team = String(req.body?.team ?? '').trim()
   const name = String(req.body?.name ?? '').trim()
   if (!team || !name) { res.status(400).json({ error: 'Missing team or name' }); return }
-  if (!(await isCoachOfTeamName(user.id, team)) && !(await isAdmin(user))) { res.status(403).json({ error: 'Forbidden' }); return }
+  if (!(await isRosterStaffOfTeamName(user.id, team)) && !(await isAdmin(user))) { res.status(403).json({ error: 'Forbidden' }); return }
 
   const teamRows = await sql`SELECT id FROM teams WHERE lower(name) = lower(${team})`
   if (teamRows.length === 0) { res.status(404).json({ error: 'Team not found' }); return }
@@ -67,12 +67,15 @@ async function handleAddPlayer(req: VercelRequest, res: VercelResponse, user: Se
   res.status(201).json({ id, name, photoUrl: null })
 }
 
+// Renaming a player is beheerder-only, same as removing one below — Coach/
+// Trainer/Trainer & Coach/Manager can add a player and edit their photo,
+// but not touch their name or take them off the roster entirely.
 async function handleRenamePlayer(req: VercelRequest, res: VercelResponse, user: SessionUser) {
   if (req.method !== 'PATCH') { res.status(405).json({ error: 'Method not allowed' }); return }
   const id = String(req.body?.id ?? '')
   const name = String(req.body?.name ?? '').trim()
   if (!id || !name) { res.status(400).json({ error: 'Missing id or name' }); return }
-  if (!(await canEditPlayer(user, id)) && !(await isAdmin(user))) { res.status(403).json({ error: 'Forbidden' }); return }
+  if (!(await isAdmin(user))) { res.status(403).json({ error: 'Forbidden' }); return }
   await sql`UPDATE team_players SET name = ${name} WHERE id = ${id}`
   res.status(200).json({ ok: true })
 }
@@ -81,7 +84,7 @@ async function handleRemovePlayer(req: VercelRequest, res: VercelResponse, user:
   if (req.method !== 'DELETE') { res.status(405).json({ error: 'Method not allowed' }); return }
   const id = typeof req.query.id === 'string' ? req.query.id : req.body?.id
   if (!id) { res.status(400).json({ error: 'Missing id' }); return }
-  if (!(await canEditPlayer(user, id)) && !(await isAdmin(user))) { res.status(403).json({ error: 'Forbidden' }); return }
+  if (!(await isAdmin(user))) { res.status(403).json({ error: 'Forbidden' }); return }
 
   const rows = await sql`SELECT photo_url FROM team_players WHERE id = ${id}`
   await sql`DELETE FROM team_players WHERE id = ${id}`
