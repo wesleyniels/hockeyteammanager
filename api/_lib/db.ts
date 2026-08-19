@@ -123,6 +123,11 @@ async function seedTeamFixtures() {
 async function seedTeamStaff() {
   const entries = Object.entries(TEAM_STAFF)
   if (entries.length === 0) return
+  // A typo'd team name in TEAM_STAFF would otherwise violate team_id's FK
+  // and fail the whole batch, silently leaving every *other* team's staff
+  // unseeded too — checking against real team ids first means one bad key
+  // just gets skipped (and logged) instead of taking the rest down with it.
+  const knownTeamIds = new Set((await sql`SELECT id FROM teams`).map(r => r.id as string))
   await sql`DELETE FROM team_staff`
   const ids: string[] = []
   const teamIds: string[] = []
@@ -131,6 +136,10 @@ async function seedTeamStaff() {
   const lasts: string[] = []
   for (const [team, staff] of entries) {
     const teamId = slugify(team)
+    if (!knownTeamIds.has(teamId)) {
+      console.error(`Team staff seeding: skipping unknown team "${team}"`)
+      continue
+    }
     for (const s of staff) {
       ids.push(randomUUID())
       teamIds.push(teamId)
