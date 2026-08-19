@@ -2313,6 +2313,17 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     setPeriodStartSec(gameSec)
     setCurrentPeriod(p => p + 1)
   }
+  // Corrects an accidental or premature advance (e.g. tapped ⏭ too early) —
+  // steps back one period at a time rather than jumping straight to 1/4, so
+  // repeatedly pressing it lands wherever the coach needs. Like advancing,
+  // it restarts the countdown fresh from right now rather than trying to
+  // reconstruct exactly where the previous period's clock had been.
+  const regressPeriod = () => {
+    if (readOnly || currentPeriod <= 1) return
+    setRunning(false)
+    setPeriodStartSec(gameSec)
+    setCurrentPeriod(p => p - 1)
+  }
   const [running, setRunning] = useState(false)
   const [selected, setSelected] = useState<Selected>(null)
   const [activeTab, setActiveTab] = useState<'bench' | 'subs' | 'notes' | 'tactics' | 'media'>('bench')
@@ -2887,6 +2898,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                 className="px-3 py-1.5 rounded-lg text-xs font-bold"
                 style={{ background: running ? '#D97706' : '#16A34A', color: '#fff' }}>
                 {running ? '⏸' : '▶'}
+              </button>
+            )}
+            {!readOnly && currentPeriod > 1 && (
+              <button onClick={e => { e.stopPropagation(); regressPeriod() }}
+                title={`Vorige ${periodLabel.toLowerCase()}`}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-white"
+                style={{ background: 'var(--brand-1a3fab)' }}>
+                ⏮
               </button>
             )}
             {!readOnly && currentPeriod < totalPeriods && (
