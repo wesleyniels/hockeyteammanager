@@ -107,6 +107,16 @@ interface SavedGame {
   scoreOwn: number
   scoreOpp: number
   finalTime: number
+  // Which period the match clock is in, and the `finalTime`/`gameSec` value
+  // it was at when that period began — together these let the header clock
+  // count down the time left in the *current* period instead of counting up
+  // the whole match, without touching `gameSec` itself (still a plain
+  // cumulative elapsed-seconds counter, since bench timers, sub timestamps
+  // and per-player played time all depend on it staying that way). Optional
+  // because older saved games predate this field; missing means "match
+  // hasn't been advanced past period 1 yet".
+  currentPeriod?: number
+  periodStartSec?: number
   // Populated by the API from games/game_shares — absent on a game that
   // hasn't been saved/fetched yet. Missing means "treat as fully owned",
   // which is correct for anything created locally before its first save.
@@ -246,17 +256,24 @@ function matchKnhbClub(s: string): string {
 
 // ── Age group config ─────────────────────────────────────────────────────────
 
-const AGE_CONFIG: Record<AgeGroup, { total: number; field: number; label: string; dual?: boolean }> = {
-  U7:      { total: 6,  field: 6,  label: 'U7 — 3 tegen 3 (KNHB O7), 2 velden', dual: true },
-  U8:      { total: 6,  field: 6,  label: 'U8 — 3 tegen 3 (KNHB O8), 2 velden', dual: true },
-  U9:      { total: 6,  field: 5,  label: 'U9 — 6 spelers (5 veld + 1 keeper, KNHB O9 6-tegen-6)' },
-  U10:     { total: 8,  field: 7,  label: 'U10 — 8 spelers (7 veld + 1 keeper, KNHB O10 8-tegen-8, half veld)' },
-  U11:     { total: 9,  field: 8,  label: 'U11 — 9 spelers (8 veld + 1 keeper)' },
-  U12:     { total: 11, field: 10, label: 'U12 — 11 spelers (10 veld + 1 keeper)' },
-  U14:     { total: 11, field: 10, label: 'U14 — 11 spelers (10 veld + 1 keeper)' },
-  U16:     { total: 11, field: 10, label: 'U16 — 11 spelers (10 veld + 1 keeper)' },
-  U18:     { total: 11, field: 10, label: 'U18 — 11 spelers (10 veld + 1 keeper)' },
-  Senioren:{ total: 11, field: 10, label: 'Sr. — 11 spelers (10 veld + 1 keeper)' },
+// `periods` x `periodSec` is each age group's official KNHB match format —
+// drives the countdown clock in GameView (see `remainingInPeriod`). U9/U10
+// (2 helften) and U11 through Senioren (4 kwarten, 17:30 each) are per KNHB's
+// published competition formats; U7/U8's funkey/dual-field format isn't
+// centrally fixed by the KNHB (districts and clubs set their own timing), so
+// 2x15 min here is a reasonable placeholder — adjust if SC Muiden's actual
+// district uses something else.
+const AGE_CONFIG: Record<AgeGroup, { total: number; field: number; label: string; dual?: boolean; periods: number; periodSec: number }> = {
+  U7:      { total: 6,  field: 6,  label: 'U7 — 3 tegen 3 (KNHB O7), 2 velden', dual: true, periods: 2, periodSec: 15 * 60 },
+  U8:      { total: 6,  field: 6,  label: 'U8 — 3 tegen 3 (KNHB O8), 2 velden', dual: true, periods: 2, periodSec: 15 * 60 },
+  U9:      { total: 6,  field: 5,  label: 'U9 — 6 spelers (5 veld + 1 keeper, KNHB O9 6-tegen-6)', periods: 2, periodSec: 25 * 60 },
+  U10:     { total: 8,  field: 7,  label: 'U10 — 8 spelers (7 veld + 1 keeper, KNHB O10 8-tegen-8, half veld)', periods: 2, periodSec: 30 * 60 },
+  U11:     { total: 9,  field: 8,  label: 'U11 — 9 spelers (8 veld + 1 keeper)', periods: 4, periodSec: 17.5 * 60 },
+  U12:     { total: 11, field: 10, label: 'U12 — 11 spelers (10 veld + 1 keeper)', periods: 4, periodSec: 17.5 * 60 },
+  U14:     { total: 11, field: 10, label: 'U14 — 11 spelers (10 veld + 1 keeper)', periods: 4, periodSec: 17.5 * 60 },
+  U16:     { total: 11, field: 10, label: 'U16 — 11 spelers (10 veld + 1 keeper)', periods: 4, periodSec: 17.5 * 60 },
+  U18:     { total: 11, field: 10, label: 'U18 — 11 spelers (10 veld + 1 keeper)', periods: 4, periodSec: 17.5 * 60 },
+  Senioren:{ total: 11, field: 10, label: 'Sr. — 11 spelers (10 veld + 1 keeper)', periods: 4, periodSec: 17.5 * 60 },
 }
 
 // ── SC Muiden Teams ───────────────────────────────────────────────────────────
@@ -285,7 +302,20 @@ const GENERIC_TEAM_CATEGORIES = [
   'Senioren',
 ]
 
-const ROLE_OPTIONS = ['Trainer', 'Coach', 'Trainer & Coach', 'Player', 'Supporter'] as const
+// 'Manager' sits between the coaching roles and Speler/Supporter: it's
+// eligible for nothing ELIGIBLE_ROLES/canReset gate (messaging, match
+// squads, resetting a match), but — like Coach/Trainer/Trainer & Coach —
+// can add a player to their own team and edit their photo. Renaming or
+// removing a player entirely is beheerder-only for every non-admin role;
+// see TeamPlayerPhotos' canEditPhotos/canAddPlayer vs canManageRoster split.
+const ROLE_OPTIONS = ['Trainer', 'Coach', 'Trainer & Coach', 'Manager', 'Speler', 'Supporter'] as const
+
+// Mirrors ELEVATED_ROLES in api/_lib/team-staff.ts — self-selecting any of
+// these requires a name match in team_staff (see fetchStaffEligibility),
+// enforced server-side in PUT /api/auth/me. Kept as a plain array here
+// (not shared with the API) since frontend and backend code aren't part of
+// the same bundle.
+const ELEVATED_ROLES: string[] = ['Trainer', 'Coach', 'Trainer & Coach', 'Manager']
 
 // ── Field positions ──────────────────────────────────────────────────────────
 // x/y are % of the SVG container (0–100)
@@ -640,6 +670,22 @@ async function fetchTeamNames(): Promise<string[]> {
     return teams.map(t => t.name)
   } catch {
     return []
+  }
+}
+
+// Live preview of the same team_staff check PUT /api/auth/me enforces —
+// lets Profile's Rol dropdown hide Trainer/Coach/Trainer & Coach/Manager
+// before someone even tries to save, rather than only erroring afterward.
+async function fetchStaffEligibility(team: string, firstName: string, lastName: string): Promise<boolean> {
+  if (!team || !firstName.trim() || !lastName.trim()) return false
+  try {
+    const params = new URLSearchParams({ team, firstName, lastName })
+    const res = await fetch(`/api/team-staff?${params}`)
+    if (!res.ok) return false
+    const { eligible } = await res.json() as { eligible: boolean }
+    return eligible
+  } catch {
+    return false
   }
 }
 
@@ -2280,6 +2326,33 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   const [scoreOwn, setScoreOwn] = useState(initial?.scoreOwn ?? 0)
   const [scoreOpp, setScoreOpp] = useState(initial?.scoreOpp ?? 0)
   const [gameSec, setGameSec] = useState(initial?.finalTime ?? 0)
+  // `gameSec` itself stays a plain cumulative elapsed-seconds counter (bench
+  // timers, sub timestamps and per-player played time all key off it) —
+  // `periodStartSec` just marks the `gameSec` value the current period began
+  // at, so the header clock can show time remaining *in this period* without
+  // otherwise touching how `gameSec` behaves.
+  const { periods: totalPeriods, periodSec } = AGE_CONFIG[ageGroup]
+  const [currentPeriod, setCurrentPeriod] = useState(() => initial?.currentPeriod ?? 1)
+  const [periodStartSec, setPeriodStartSec] = useState(() => initial?.periodStartSec ?? 0)
+  const remainingInPeriod = Math.max(0, periodSec - (gameSec - periodStartSec))
+  const periodLabel = totalPeriods === 2 ? 'Helft' : 'Kwart'
+  const advancePeriod = () => {
+    if (readOnly || currentPeriod >= totalPeriods) return
+    setRunning(false)
+    setPeriodStartSec(gameSec)
+    setCurrentPeriod(p => p + 1)
+  }
+  // Corrects an accidental or premature advance (e.g. tapped ⏭ too early) —
+  // steps back one period at a time rather than jumping straight to 1/4, so
+  // repeatedly pressing it lands wherever the coach needs. Like advancing,
+  // it restarts the countdown fresh from right now rather than trying to
+  // reconstruct exactly where the previous period's clock had been.
+  const regressPeriod = () => {
+    if (readOnly || currentPeriod <= 1) return
+    setRunning(false)
+    setPeriodStartSec(gameSec)
+    setCurrentPeriod(p => p - 1)
+  }
   const [running, setRunning] = useState(false)
   const [selected, setSelected] = useState<Selected>(null)
   const [activeTab, setActiveTab] = useState<'bench' | 'subs' | 'notes' | 'tactics' | 'media'>('bench')
@@ -2293,7 +2366,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   // change pushes the state *before* that change onto a stack; Herstel pops
   // and restores it, one click per change, all the way back to the state
   // the match started in.
-  const tracked = { slots, bench, subs, oppMarkers, goals, cards, tacticsBoards, notes, scoreOwn, scoreOpp }
+  const tracked = { slots, bench, subs, oppMarkers, goals, cards, tacticsBoards, notes, scoreOwn, scoreOpp, currentPeriod, periodStartSec }
   const historyRef = useRef<(typeof tracked)[]>([])
   const lastTrackedRef = useRef(tracked)
   const isFirstTrackRef = useRef(true)
@@ -2322,7 +2395,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     lastTrackedRef.current = tracked
     scheduleSave()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slots, bench, subs, oppMarkers, goals, cards, tacticsBoards, notes, scoreOwn, scoreOpp])
+  }, [slots, bench, subs, oppMarkers, goals, cards, tacticsBoards, notes, scoreOwn, scoreOpp, currentPeriod, periodStartSec])
 
   const isFirstMediaRef = useRef(true)
   useEffect(() => {
@@ -2367,6 +2440,47 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     setNotes(prev.notes)
     setScoreOwn(prev.scoreOwn)
     setScoreOpp(prev.scoreOpp)
+    setCurrentPeriod(prev.currentPeriod)
+    setPeriodStartSec(prev.periodStartSec)
+  }
+
+  // Only a Coach/Trainer (solo or combined) may reset a match — Manager and
+  // below get no say over match state at all, only their own team's player
+  // photos (see TeamPlayerPhotos). Combined with `readOnly` so a coach who's
+  // merely viewing someone else's shared game (permission: 'view') can't
+  // reset it either.
+  const canReset = user?.role === 'Coach' || user?.role === 'Trainer' || user?.role === 'Trainer & Coach'
+  // Puts everything that happens *during* a match back to a blank slate —
+  // score, field/bench assignments, goals, cards, tactics boards, played
+  // time, notes and the clock/period. Squad and media are deliberately left
+  // alone: who's called up isn't something that goes wrong mid-match the
+  // way a live scoreboard can, and clearing uploaded photos/videos would
+  // need its own confirmation and Blob cleanup — out of scope for "start
+  // the match over". Goes through the same tracked-state fields Herstel
+  // already watches, so the reset itself is one more undo step, not a
+  // point of no return.
+  const resetGame = () => {
+    if (readOnly || !canReset) return
+    if (!confirm('Weet u zeker dat u de wedstrijd wilt resetten?')) return
+    const freshBoardId = uid()
+    setRunning(false)
+    setSlots(normalizeSlots(undefined, ageGroup, activeVariant))
+    setBench(squad.map(p => ({ playerId: p.id, sinceGameSec: 0 })))
+    setSubs([])
+    setOppMarkers([])
+    setGoals([])
+    setCards([])
+    setTacticsBoards([{ id: freshBoardId, name: 'Opstelling 1', markers: [], arrows: [] }])
+    setActiveBoardId(freshBoardId)
+    setSelectedTacticsMarker(null)
+    setPlayedSeconds({})
+    setNotes('')
+    setScoreOwn(0)
+    setScoreOpp(0)
+    setGameSec(0)
+    setCurrentPeriod(1)
+    setPeriodStartSec(0)
+    setSelected(null)
   }
 
   // slotsRef (declared further below, kept fresh on every render) lets this
@@ -2813,6 +2927,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     club, team, ageGroup, opponent, homeAway, squad, slots, subs, oppMarkers, goals, cards, tacticsBoards, playedSeconds, media, notes, result,
     scoreOwn, scoreOpp,
     finalTime: gameSec,
+    currentPeriod, periodStartSec,
     ownerId: initial?.ownerId ?? user!.id,
     permission: initial?.permission ?? 'owner',
   })
@@ -2838,12 +2953,35 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
             <div className="font-mono font-bold text-sm tabular-nums px-2 py-1 rounded-lg" style={{ background: 'rgba(255,255,255,0.08)' }}>
               {scoreOwn} - {scoreOpp}
             </div>
-            <div className="font-mono font-bold text-xl tabular-nums">{fmtSec(gameSec)}</div>
+            <div className="flex flex-col items-center leading-none">
+              <div className="font-mono font-bold text-xl tabular-nums" style={{ color: remainingInPeriod === 0 ? '#F87171' : undefined }}>
+                {fmtSec(remainingInPeriod)}
+              </div>
+              <div className="text-[9px] font-bold uppercase tracking-wide mt-0.5" style={{ color: 'var(--brand-7b9de0)' }}>
+                {periodLabel} {currentPeriod}/{totalPeriods}
+              </div>
+            </div>
             {!readOnly && (
               <button onClick={e => { e.stopPropagation(); setRunning(r => !r) }}
                 className="px-3 py-1.5 rounded-lg text-xs font-bold"
                 style={{ background: running ? '#D97706' : '#16A34A', color: '#fff' }}>
                 {running ? '⏸' : '▶'}
+              </button>
+            )}
+            {!readOnly && currentPeriod > 1 && (
+              <button onClick={e => { e.stopPropagation(); regressPeriod() }}
+                title={`Vorige ${periodLabel.toLowerCase()}`}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-white"
+                style={{ background: 'var(--brand-1a3fab)' }}>
+                ⏮
+              </button>
+            )}
+            {!readOnly && currentPeriod < totalPeriods && (
+              <button onClick={e => { e.stopPropagation(); advancePeriod() }}
+                title={`Volgende ${periodLabel.toLowerCase()}`}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-white"
+                style={{ background: 'var(--brand-1a3fab)' }}>
+                ⏭
               </button>
             )}
             {readOnly ? (
@@ -3280,6 +3418,18 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                     rows={8} value={notes} onChange={e => setNotes(e.target.value)} readOnly={readOnly}
                     placeholder="Tactische notities, bijzonderheden…" />
                 </div>
+                {!readOnly && canReset && (
+                  <div className="pt-2" style={{ borderTop: '1px solid var(--brand-e8effd)' }}>
+                    <button onClick={resetGame}
+                      className="w-full px-4 py-2.5 rounded-xl font-bold text-sm"
+                      style={{ background: '#FEE2E2', color: '#DC2626' }}>
+                      Wedstrijd resetten
+                    </button>
+                    <p className="text-xs mt-1.5 text-center" style={{ color: 'var(--brand-7b90c8)' }}>
+                      Zet score, opstelling, doelpunten, kaarten en klok terug naar het begin.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -3788,7 +3938,7 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, un
 // whenever one is loaded, so changes made here show up in matches
 // automatically.
 
-function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean }) {
+function TeamPlayerPhotos({ team, canEditPhotos, canAddPlayer, canManageRoster }: { team: string; canEditPhotos: boolean; canAddPlayer: boolean; canManageRoster: boolean }) {
   const [players, setPlayers] = useState<RosterPlayer[]>([])
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -3906,11 +4056,11 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
 
   return (
     <div>
-      {canEdit && (
+      {canEditPhotos && (
         <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
           onChange={e => { onFileChange(e.target.files?.[0]); e.target.value = '' }} />
       )}
-      {!canEdit && (
+      {!canEditPhotos && !canAddPlayer && !canManageRoster && (
         <p className="text-xs mb-3" style={{ color: 'var(--brand-7b90c8)' }}>
           Alleen coaches kunnen spelers en foto's beheren.
         </p>
@@ -3932,7 +4082,7 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
             return (
               <div key={p.id} className="flex items-center gap-3 p-2.5 rounded-xl"
                 style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
-                {canEdit ? (
+                {canEditPhotos ? (
                   <button onClick={() => triggerUpload(p.id)} disabled={busy}
                     className="relative w-11 h-11 rounded-full shrink-0 group overflow-hidden disabled:opacity-50" title="Foto wijzigen">
                     {avatar}
@@ -3950,15 +4100,15 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
                     onBlur={() => saveRename(p.id)}
                     onKeyDown={e => { if (e.key === 'Enter') saveRename(p.id); if (e.key === 'Escape') setEditId(null) }} />
                 ) : (
-                  <span className="flex-1 text-sm font-semibold truncate" style={{ color: 'var(--brand-1a2f6b)', cursor: canEdit ? 'pointer' : 'default' }}
-                    onClick={() => { if (canEdit) { setEditId(p.id); setEditName(p.name) } }}>
+                  <span className="flex-1 text-sm font-semibold truncate" style={{ color: 'var(--brand-1a2f6b)', cursor: canManageRoster ? 'pointer' : 'default' }}
+                    onClick={() => { if (canManageRoster) { setEditId(p.id); setEditName(p.name) } }}>
                     {p.name}
                   </span>
                 )}
-                {canEdit && p.photoUrl && !busy && (
+                {canEditPhotos && p.photoUrl && !busy && (
                   <button onClick={() => removePhoto(p.id, p.name)} className="font-bold text-sm" style={{ color: '#DC2626' }} title="Foto verwijderen">×</button>
                 )}
-                {canEdit && !busy && (
+                {canManageRoster && !busy && (
                   <button onClick={() => removePlayer(p.id, p.name)} className="text-xs font-bold" style={{ color: 'var(--brand-a8bef0)' }} title="Speler verwijderen">🗑</button>
                 )}
               </div>
@@ -3966,7 +4116,7 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
           })}
         </div>
       )}
-      {canEdit && (
+      {canAddPlayer && (
         <div className="flex gap-2 mt-3">
           <input className="flex-1 rounded-xl px-3 py-2 text-sm" style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }}
             value={newName} onChange={e => setNewName(e.target.value)}
@@ -3991,7 +4141,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   onHistory: () => void
   onMessages: () => void
   gameCount: number
-  onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => void
+  onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => Promise<{ ok: true } | { ok: false; error: string }>
   unreadNotifications: number
   notifications: AppNotification[]
   onMarkRead: (id: string) => void
@@ -4004,6 +4154,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   const [lastName, setLastName] = useState(user?.lastName ?? '')
   const [role, setRole] = useState(user?.role ?? '')
   const [saved, setSaved] = useState(false)
+  const [detailsError, setDetailsError] = useState<string | null>(null)
   const [photoError, setPhotoError] = useState<string | null>(null)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const photoInputRef = useRef<HTMLInputElement>(null)
@@ -4019,10 +4170,35 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
     if (user) fetchTeamNames().then(setTeamNames)
   }, [user])
 
-  const saveDetails = () => {
-    onUpdateProfile({ firstName: firstName || null, lastName: lastName || null, role: role || null })
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+  // Already having an elevated role (set before this feature existed, or
+  // verified previously) is grandfathered in — this only decides whether
+  // someone can newly pick their way *into* Trainer/Coach/Trainer &
+  // Coach/Manager from Speler/Supporter, checked live as they type their
+  // name so the dropdown itself reflects it (real enforcement is still
+  // server-side, see PUT /api/auth/me).
+  const alreadyElevated = ELEVATED_ROLES.includes(user?.role ?? '')
+  const [staffEligible, setStaffEligible] = useState(false)
+  useEffect(() => {
+    if (alreadyElevated) return
+    const team = user?.defaultTeam ?? ''
+    if (!team || !firstName.trim() || !lastName.trim()) { setStaffEligible(false); return }
+    let cancelled = false
+    const timer = setTimeout(() => {
+      fetchStaffEligibility(team, firstName, lastName).then(eligible => { if (!cancelled) setStaffEligible(eligible) })
+    }, 400)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [alreadyElevated, user?.defaultTeam, firstName, lastName])
+  const selectableRoles = alreadyElevated || staffEligible ? ROLE_OPTIONS : ROLE_OPTIONS.filter(r => !ELEVATED_ROLES.includes(r))
+
+  const saveDetails = async () => {
+    setDetailsError(null)
+    const result = await onUpdateProfile({ firstName: firstName || null, lastName: lastName || null, role: role || null })
+    if (result.ok) {
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } else {
+      setDetailsError(result.error)
+    }
   }
 
   const pickPhoto = async (file: File | undefined) => {
@@ -4040,6 +4216,10 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   }
 
   const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL
+  // Coach/Trainer/Trainer & Coach/Manager can add a player to their own team
+  // and edit a player's photo — renaming or removing a player entirely is
+  // beheerder-only (see TeamPlayerPhotos' canManageRoster below).
+  const isRosterStaff = user?.role === 'Coach' || user?.role === 'Trainer' || user?.role === 'Trainer & Coach' || user?.role === 'Manager'
   const { users: adminUsers, loading: adminLoading, error: adminError, deleteUser, setAdmin } = useAdminUsers(isAdmin)
   const { teams: adminTeams, loading: adminTeamsLoading, error: adminTeamsError, createTeam, renameTeam, deleteTeam } = useAdminTeams(isAdmin)
   const [newTeamName, setNewTeamName] = useState('')
@@ -4227,8 +4407,14 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                 <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: role ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
                   value={role} onChange={e => setRole(e.target.value)}>
                   <option value="">Kies rol…</option>
-                  {ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                  {selectableRoles.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
+                {!alreadyElevated && !staffEligible && (
+                  <p className="text-xs mt-1.5" style={{ color: 'var(--brand-7b90c8)' }}>
+                    Trainer, Coach en Manager zijn alleen te kiezen als je voor- en achternaam bekend zijn als
+                    Ondersteuning van je team bij Lisa.
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-3">
                 <button onClick={saveDetails}
@@ -4237,6 +4423,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                   Opslaan
                 </button>
                 {saved && <span className="text-sm font-semibold" style={{ color: '#16A34A' }}>Opgeslagen!</span>}
+                {detailsError && <span className="text-sm font-semibold" style={{ color: '#DC2626' }}>{detailsError}</span>}
               </div>
 
               <div className="flex items-center gap-4">
@@ -4274,7 +4461,10 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
             <p className="text-xs mb-4" style={{ color: 'var(--brand-7b90c8)' }}>
               Foto's per speler verschijnen tijdens wedstrijden op het veld en de bank.
             </p>
-            <TeamPlayerPhotos team={user.defaultTeam} canEdit={user.role === 'Coach' || user.role === 'Trainer & Coach'} />
+            <TeamPlayerPhotos team={user.defaultTeam}
+              canEditPhotos={isRosterStaff}
+              canAddPlayer={isRosterStaff}
+              canManageRoster={isAdmin} />
           </section>
         )}
 
@@ -4374,6 +4564,11 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                           Beheerder
                         </span>
                       )}
+                      {u.defaultClub && (
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
+                          {u.defaultClub}
+                        </span>
+                      )}
                       {u.defaultTeam && (
                         <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
                           {u.defaultTeam}
@@ -4442,7 +4637,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                             defaultValue={t.name} key={`${t.id}-${t.name}`}
                             onBlur={e => { const name = e.target.value.trim(); if (name && name !== t.name) renameTeam(t.id, name) }} />
                         </div>
-                        <TeamPlayerPhotos team={t.name} canEdit={true} />
+                        <TeamPlayerPhotos team={t.name} canEditPhotos={true} canAddPlayer={true} canManageRoster={true} />
                       </div>
                     )}
                   </div>
@@ -4587,7 +4782,9 @@ function useAuth() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(fields),
     })
-    if (res.ok) setUser((await res.json()).user)
+    if (res.ok) { setUser((await res.json()).user); return { ok: true as const } }
+    const body = await res.json().catch(() => ({}))
+    return { ok: false as const, error: body.error ?? 'Opslaan mislukt' }
   }, [])
 
   return { user, loading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, forgotPassword, resetPassword, logout, updateProfile }
@@ -5098,6 +5295,7 @@ interface AdminUser {
   lastName: string | null
   role: string | null
   defaultTeam: string | null
+  defaultClub: string | null
   emailVerified: boolean
   hasPassword: boolean
   gameCount: number
