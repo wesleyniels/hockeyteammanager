@@ -9,11 +9,11 @@
 // "Technisch Coördinator" isn't one of this app's roles (Trainer/Coach/
 // Manager) so those entries are dropped; "Ouder coach" is folded into
 // 'Coach'. Someone listed under more than one role gets one row per role.
-// Still missing (not yet provided): MO8-Wit (partial screenshot only),
-// MO10-Blauw, and JO8-Blauw (the "JO8-Wit" screenshot sent for this
-// doesn't match any team name this app knows — needs clarifying whether
-// that's the same team under a different name in Lisa). Add them here
-// once available, using the exact team names from teams/list.
+// Still missing (not yet provided): MO8-Wit (partial screenshot only), and
+// JO8-Blauw (the "JO8-Wit" screenshot sent for this doesn't match any team
+// name this app knows — needs clarifying whether that's the same team
+// under a different name in Lisa). Add them here once available, using the
+// exact team names from teams/list.
 //
 // Used only to gate self-selecting an elevated Rol in Profile (see
 // isVerifiedStaffName in team-staff.ts and the PUT /api/auth/me check in
@@ -60,6 +60,15 @@ export const TEAM_STAFF: Record<string, { role: 'Trainer' | 'Coach' | 'Manager';
   'MO9-Wit': [
     { role: 'Coach', firstName: 'Tom', lastName: 'Houwen' },
     { role: 'Coach', firstName: 'Stefan', lastName: 'Quak' },
+  ],
+  'MO10-Blauw': [
+    { role: 'Manager', firstName: 'Sylvia', lastName: 'van Beukering' },
+    { role: 'Coach', firstName: 'Chris', lastName: 'Coepijn' },
+    { role: 'Coach', firstName: 'Frank', lastName: 'Prinsen' },
+    { role: 'Trainer', firstName: 'Maartje', lastName: 'Lak- Korsten' },
+    { role: 'Trainer', firstName: 'Saar', lastName: 'Stam' },
+    { role: 'Trainer', firstName: 'Pelle', lastName: 'Vis' },
+    { role: 'Trainer', firstName: 'Christiaan', lastName: 'Visser' },
   ],
   'MO11-Blauw': [
     { role: 'Manager', firstName: 'Stefanie', lastName: 'Eerhardt' },
