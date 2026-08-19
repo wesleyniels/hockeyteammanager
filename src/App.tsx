@@ -310,6 +310,13 @@ const GENERIC_TEAM_CATEGORIES = [
 // see TeamPlayerPhotos' canEditPhotos/canAddPlayer vs canManageRoster split.
 const ROLE_OPTIONS = ['Trainer', 'Coach', 'Trainer & Coach', 'Manager', 'Speler', 'Supporter'] as const
 
+// Mirrors ELEVATED_ROLES in api/_lib/team-staff.ts — self-selecting any of
+// these requires a name match in team_staff (see fetchStaffEligibility),
+// enforced server-side in PUT /api/auth/me. Kept as a plain array here
+// (not shared with the API) since frontend and backend code aren't part of
+// the same bundle.
+const ELEVATED_ROLES: string[] = ['Trainer', 'Coach', 'Trainer & Coach', 'Manager']
+
 // ── Field positions ──────────────────────────────────────────────────────────
 // x/y are % of the SVG container (0–100)
 // Standard field SVG viewBox="0 0 62 97", dual viewBox="0 0 140 97"
@@ -663,6 +670,22 @@ async function fetchTeamNames(): Promise<string[]> {
     return teams.map(t => t.name)
   } catch {
     return []
+  }
+}
+
+// Live preview of the same team_staff check PUT /api/auth/me enforces —
+// lets Profile's Rol dropdown hide Trainer/Coach/Trainer & Coach/Manager
+// before someone even tries to save, rather than only erroring afterward.
+async function fetchStaffEligibility(team: string, firstName: string, lastName: string): Promise<boolean> {
+  if (!team || !firstName.trim() || !lastName.trim()) return false
+  try {
+    const params = new URLSearchParams({ team, firstName, lastName })
+    const res = await fetch(`/api/team-staff?${params}`)
+    if (!res.ok) return false
+    const { eligible } = await res.json() as { eligible: boolean }
+    return eligible
+  } catch {
+    return false
   }
 }
 
@@ -4118,7 +4141,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   onHistory: () => void
   onMessages: () => void
   gameCount: number
-  onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => void
+  onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => Promise<{ ok: true } | { ok: false; error: string }>
   unreadNotifications: number
   notifications: AppNotification[]
   onMarkRead: (id: string) => void
@@ -4131,6 +4154,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   const [lastName, setLastName] = useState(user?.lastName ?? '')
   const [role, setRole] = useState(user?.role ?? '')
   const [saved, setSaved] = useState(false)
+  const [detailsError, setDetailsError] = useState<string | null>(null)
   const [photoError, setPhotoError] = useState<string | null>(null)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const photoInputRef = useRef<HTMLInputElement>(null)
@@ -4146,10 +4170,35 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
     if (user) fetchTeamNames().then(setTeamNames)
   }, [user])
 
-  const saveDetails = () => {
-    onUpdateProfile({ firstName: firstName || null, lastName: lastName || null, role: role || null })
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+  // Already having an elevated role (set before this feature existed, or
+  // verified previously) is grandfathered in — this only decides whether
+  // someone can newly pick their way *into* Trainer/Coach/Trainer &
+  // Coach/Manager from Speler/Supporter, checked live as they type their
+  // name so the dropdown itself reflects it (real enforcement is still
+  // server-side, see PUT /api/auth/me).
+  const alreadyElevated = ELEVATED_ROLES.includes(user?.role ?? '')
+  const [staffEligible, setStaffEligible] = useState(false)
+  useEffect(() => {
+    if (alreadyElevated) return
+    const team = user?.defaultTeam ?? ''
+    if (!team || !firstName.trim() || !lastName.trim()) { setStaffEligible(false); return }
+    let cancelled = false
+    const timer = setTimeout(() => {
+      fetchStaffEligibility(team, firstName, lastName).then(eligible => { if (!cancelled) setStaffEligible(eligible) })
+    }, 400)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [alreadyElevated, user?.defaultTeam, firstName, lastName])
+  const selectableRoles = alreadyElevated || staffEligible ? ROLE_OPTIONS : ROLE_OPTIONS.filter(r => !ELEVATED_ROLES.includes(r))
+
+  const saveDetails = async () => {
+    setDetailsError(null)
+    const result = await onUpdateProfile({ firstName: firstName || null, lastName: lastName || null, role: role || null })
+    if (result.ok) {
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } else {
+      setDetailsError(result.error)
+    }
   }
 
   const pickPhoto = async (file: File | undefined) => {
@@ -4358,8 +4407,14 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                 <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: role ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
                   value={role} onChange={e => setRole(e.target.value)}>
                   <option value="">Kies rol…</option>
-                  {ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                  {selectableRoles.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
+                {!alreadyElevated && !staffEligible && (
+                  <p className="text-xs mt-1.5" style={{ color: 'var(--brand-7b90c8)' }}>
+                    Trainer, Coach en Manager zijn alleen te kiezen als je voor- en achternaam bekend zijn als
+                    Ondersteuning van je team bij Lisa.
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-3">
                 <button onClick={saveDetails}
@@ -4368,6 +4423,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                   Opslaan
                 </button>
                 {saved && <span className="text-sm font-semibold" style={{ color: '#16A34A' }}>Opgeslagen!</span>}
+                {detailsError && <span className="text-sm font-semibold" style={{ color: '#DC2626' }}>{detailsError}</span>}
               </div>
 
               <div className="flex items-center gap-4">
@@ -4726,7 +4782,9 @@ function useAuth() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(fields),
     })
-    if (res.ok) setUser((await res.json()).user)
+    if (res.ok) { setUser((await res.json()).user); return { ok: true as const } }
+    const body = await res.json().catch(() => ({}))
+    return { ok: false as const, error: body.error ?? 'Opslaan mislukt' }
   }, [])
 
   return { user, loading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, forgotPassword, resetPassword, logout, updateProfile }

@@ -4,6 +4,7 @@ import { randomUUID } from './crypto.js'
 import { slugify } from './slug.js'
 import { SEED_TEAMS } from './seed-teams.js'
 import { TEAM_FIXTURES, ageGroupFromTeamName } from './team-fixtures.js'
+import { TEAM_STAFF } from './team-staff-roster.js'
 
 export const sql = neon(process.env.POSTGRES_URL!)
 
@@ -114,6 +115,37 @@ async function seedTeamFixtures() {
   `
 }
 
+// Unlike seedTeamFixtures (immutable history once a match happens),
+// TEAM_STAFF (team-staff-roster.ts) is a live lookup table with no
+// downstream references — the source file is the single source of truth,
+// so the simplest correct approach is to make the table match it exactly
+// on every cold start rather than trying to diff/upsert.
+async function seedTeamStaff() {
+  const entries = Object.entries(TEAM_STAFF)
+  if (entries.length === 0) return
+  await sql`DELETE FROM team_staff`
+  const ids: string[] = []
+  const teamIds: string[] = []
+  const roles: string[] = []
+  const firsts: string[] = []
+  const lasts: string[] = []
+  for (const [team, staff] of entries) {
+    const teamId = slugify(team)
+    for (const s of staff) {
+      ids.push(randomUUID())
+      teamIds.push(teamId)
+      roles.push(s.role)
+      firsts.push(s.firstName)
+      lasts.push(s.lastName)
+    }
+  }
+  if (ids.length === 0) return
+  await sql`
+    INSERT INTO team_staff (id, team_id, role, first_name, last_name)
+    SELECT * FROM unnest(${ids}::text[], ${teamIds}::text[], ${roles}::text[], ${firsts}::text[], ${lasts}::text[])
+  `
+}
+
 // Every serverless invocation is a cold-start candidate, so this runs on
 // (almost) every request; `??=` memoizes it per warm instance rather than
 // re-running the ALTERs every time. Intentionally no unique index on
@@ -184,6 +216,22 @@ export function ensureSchema() {
       )
     `
     await sql`CREATE INDEX IF NOT EXISTS team_players_team_idx ON team_players (team_id)`
+    // Reference-only lookup ("is this name really a trainer/coach/manager of
+    // this team") used to gate self-selecting an elevated Rol in Profile —
+    // see team-staff.ts and team-staff-roster.ts. Not linked to `users` at
+    // all: someone can be listed here long before (or without ever) creating
+    // an account.
+    await sql`
+      CREATE TABLE IF NOT EXISTS team_staff (
+        id TEXT PRIMARY KEY,
+        team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+        role TEXT NOT NULL CHECK (role IN ('Trainer', 'Coach', 'Manager')),
+        first_name TEXT NOT NULL,
+        last_name TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `
+    await sql`CREATE INDEX IF NOT EXISTS team_staff_team_idx ON team_staff (team_id)`
     await sql`
       CREATE TABLE IF NOT EXISTS messages (
         id TEXT PRIMARY KEY,
@@ -228,6 +276,12 @@ export function ensureSchema() {
       await seedTeamFixtures()
     } catch (err) {
       console.error('Fixture seeding failed:', err)
+    }
+
+    try {
+      await seedTeamStaff()
+    } catch (err) {
+      console.error('Team staff seeding failed:', err)
     }
 
     // One-time rename of the stored role value — 'Player' is now labeled

@@ -7,6 +7,7 @@ import { sendVerificationEmail, sendNewRegistrationEmail, sendPasswordResetEmail
 import { toUser } from '../_lib/users.js'
 import { getAdminEmails } from '../_lib/admin.js'
 import { createNotification } from '../_lib/notifications.js'
+import { ELEVATED_ROLES, isVerifiedStaffName } from '../_lib/team-staff.js'
 
 // All /api/auth/* routes are collapsed into this single dynamic-segment file
 // (dispatching on the [action] path piece below) — Vercel's Hobby plan caps
@@ -236,6 +237,21 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
     const lastName = 'lastName' in body ? (body.lastName || null) : cur.last_name
     const role = 'role' in body ? (body.role || null) : cur.role
     const picture = 'picture' in body ? (body.picture || null) : cur.picture
+    // Once already elevated, moving between elevated roles needs no
+    // re-verification (e.g. a real coach switching to Trainer & Coach) —
+    // this only gates the first jump away from Speler/Supporter, so nobody
+    // can self-promote by simply typing someone else's job title. The real
+    // roster this checks against lives in team_staff (team-staff-roster.ts,
+    // transcribed from Lisa); GET /api/team-staff lets the client preview
+    // this same check live so the dropdown doesn't offer what this would
+    // reject anyway.
+    if (ELEVATED_ROLES.includes(role ?? '') && !ELEVATED_ROLES.includes(cur.role ?? '')) {
+      const verified = await isVerifiedStaffName(defaultTeam ?? '', firstName ?? '', lastName ?? '')
+      if (!verified) {
+        res.status(403).json({ error: `Je naam staat bij Lisa niet bekend als trainer, coach of manager van ${defaultTeam ?? 'dit team'}. Controleer je voor- en achternaam, of vraag de club om dit na te kijken.` })
+        return
+      }
+    }
     const rows = await sql`
       UPDATE users SET
         default_team = ${defaultTeam},
