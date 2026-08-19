@@ -107,6 +107,16 @@ interface SavedGame {
   scoreOwn: number
   scoreOpp: number
   finalTime: number
+  // Which period the match clock is in, and the `finalTime`/`gameSec` value
+  // it was at when that period began — together these let the header clock
+  // count down the time left in the *current* period instead of counting up
+  // the whole match, without touching `gameSec` itself (still a plain
+  // cumulative elapsed-seconds counter, since bench timers, sub timestamps
+  // and per-player played time all depend on it staying that way). Optional
+  // because older saved games predate this field; missing means "match
+  // hasn't been advanced past period 1 yet".
+  currentPeriod?: number
+  periodStartSec?: number
   // Populated by the API from games/game_shares — absent on a game that
   // hasn't been saved/fetched yet. Missing means "treat as fully owned",
   // which is correct for anything created locally before its first save.
@@ -246,17 +256,24 @@ function matchKnhbClub(s: string): string {
 
 // ── Age group config ─────────────────────────────────────────────────────────
 
-const AGE_CONFIG: Record<AgeGroup, { total: number; field: number; label: string; dual?: boolean }> = {
-  U7:      { total: 6,  field: 6,  label: 'U7 — 3 tegen 3 (KNHB O7), 2 velden', dual: true },
-  U8:      { total: 6,  field: 6,  label: 'U8 — 3 tegen 3 (KNHB O8), 2 velden', dual: true },
-  U9:      { total: 6,  field: 5,  label: 'U9 — 6 spelers (5 veld + 1 keeper, KNHB O9 6-tegen-6)' },
-  U10:     { total: 8,  field: 7,  label: 'U10 — 8 spelers (7 veld + 1 keeper, KNHB O10 8-tegen-8, half veld)' },
-  U11:     { total: 9,  field: 8,  label: 'U11 — 9 spelers (8 veld + 1 keeper)' },
-  U12:     { total: 11, field: 10, label: 'U12 — 11 spelers (10 veld + 1 keeper)' },
-  U14:     { total: 11, field: 10, label: 'U14 — 11 spelers (10 veld + 1 keeper)' },
-  U16:     { total: 11, field: 10, label: 'U16 — 11 spelers (10 veld + 1 keeper)' },
-  U18:     { total: 11, field: 10, label: 'U18 — 11 spelers (10 veld + 1 keeper)' },
-  Senioren:{ total: 11, field: 10, label: 'Sr. — 11 spelers (10 veld + 1 keeper)' },
+// `periods` x `periodSec` is each age group's official KNHB match format —
+// drives the countdown clock in GameView (see `remainingInPeriod`). U9/U10
+// (2 helften) and U11 through Senioren (4 kwarten, 17:30 each) are per KNHB's
+// published competition formats; U7/U8's funkey/dual-field format isn't
+// centrally fixed by the KNHB (districts and clubs set their own timing), so
+// 2x15 min here is a reasonable placeholder — adjust if SC Muiden's actual
+// district uses something else.
+const AGE_CONFIG: Record<AgeGroup, { total: number; field: number; label: string; dual?: boolean; periods: number; periodSec: number }> = {
+  U7:      { total: 6,  field: 6,  label: 'U7 — 3 tegen 3 (KNHB O7), 2 velden', dual: true, periods: 2, periodSec: 15 * 60 },
+  U8:      { total: 6,  field: 6,  label: 'U8 — 3 tegen 3 (KNHB O8), 2 velden', dual: true, periods: 2, periodSec: 15 * 60 },
+  U9:      { total: 6,  field: 5,  label: 'U9 — 6 spelers (5 veld + 1 keeper, KNHB O9 6-tegen-6)', periods: 2, periodSec: 25 * 60 },
+  U10:     { total: 8,  field: 7,  label: 'U10 — 8 spelers (7 veld + 1 keeper, KNHB O10 8-tegen-8, half veld)', periods: 2, periodSec: 30 * 60 },
+  U11:     { total: 9,  field: 8,  label: 'U11 — 9 spelers (8 veld + 1 keeper)', periods: 4, periodSec: 17.5 * 60 },
+  U12:     { total: 11, field: 10, label: 'U12 — 11 spelers (10 veld + 1 keeper)', periods: 4, periodSec: 17.5 * 60 },
+  U14:     { total: 11, field: 10, label: 'U14 — 11 spelers (10 veld + 1 keeper)', periods: 4, periodSec: 17.5 * 60 },
+  U16:     { total: 11, field: 10, label: 'U16 — 11 spelers (10 veld + 1 keeper)', periods: 4, periodSec: 17.5 * 60 },
+  U18:     { total: 11, field: 10, label: 'U18 — 11 spelers (10 veld + 1 keeper)', periods: 4, periodSec: 17.5 * 60 },
+  Senioren:{ total: 11, field: 10, label: 'Sr. — 11 spelers (10 veld + 1 keeper)', periods: 4, periodSec: 17.5 * 60 },
 }
 
 // ── SC Muiden Teams ───────────────────────────────────────────────────────────
@@ -2280,6 +2297,22 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   const [scoreOwn, setScoreOwn] = useState(initial?.scoreOwn ?? 0)
   const [scoreOpp, setScoreOpp] = useState(initial?.scoreOpp ?? 0)
   const [gameSec, setGameSec] = useState(initial?.finalTime ?? 0)
+  // `gameSec` itself stays a plain cumulative elapsed-seconds counter (bench
+  // timers, sub timestamps and per-player played time all key off it) —
+  // `periodStartSec` just marks the `gameSec` value the current period began
+  // at, so the header clock can show time remaining *in this period* without
+  // otherwise touching how `gameSec` behaves.
+  const { periods: totalPeriods, periodSec } = AGE_CONFIG[ageGroup]
+  const [currentPeriod, setCurrentPeriod] = useState(() => initial?.currentPeriod ?? 1)
+  const [periodStartSec, setPeriodStartSec] = useState(() => initial?.periodStartSec ?? 0)
+  const remainingInPeriod = Math.max(0, periodSec - (gameSec - periodStartSec))
+  const periodLabel = totalPeriods === 2 ? 'Helft' : 'Kwart'
+  const advancePeriod = () => {
+    if (readOnly || currentPeriod >= totalPeriods) return
+    setRunning(false)
+    setPeriodStartSec(gameSec)
+    setCurrentPeriod(p => p + 1)
+  }
   const [running, setRunning] = useState(false)
   const [selected, setSelected] = useState<Selected>(null)
   const [activeTab, setActiveTab] = useState<'bench' | 'subs' | 'notes' | 'tactics' | 'media'>('bench')
@@ -2293,7 +2326,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   // change pushes the state *before* that change onto a stack; Herstel pops
   // and restores it, one click per change, all the way back to the state
   // the match started in.
-  const tracked = { slots, bench, subs, oppMarkers, goals, cards, tacticsBoards, notes, scoreOwn, scoreOpp }
+  const tracked = { slots, bench, subs, oppMarkers, goals, cards, tacticsBoards, notes, scoreOwn, scoreOpp, currentPeriod, periodStartSec }
   const historyRef = useRef<(typeof tracked)[]>([])
   const lastTrackedRef = useRef(tracked)
   const isFirstTrackRef = useRef(true)
@@ -2367,6 +2400,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     setNotes(prev.notes)
     setScoreOwn(prev.scoreOwn)
     setScoreOpp(prev.scoreOpp)
+    setCurrentPeriod(prev.currentPeriod)
+    setPeriodStartSec(prev.periodStartSec)
   }
 
   // slotsRef (declared further below, kept fresh on every render) lets this
@@ -2813,6 +2848,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     club, team, ageGroup, opponent, homeAway, squad, slots, subs, oppMarkers, goals, cards, tacticsBoards, playedSeconds, media, notes, result,
     scoreOwn, scoreOpp,
     finalTime: gameSec,
+    currentPeriod, periodStartSec,
     ownerId: initial?.ownerId ?? user!.id,
     permission: initial?.permission ?? 'owner',
   })
@@ -2838,12 +2874,27 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
             <div className="font-mono font-bold text-sm tabular-nums px-2 py-1 rounded-lg" style={{ background: 'rgba(255,255,255,0.08)' }}>
               {scoreOwn} - {scoreOpp}
             </div>
-            <div className="font-mono font-bold text-xl tabular-nums">{fmtSec(gameSec)}</div>
+            <div className="flex flex-col items-center leading-none">
+              <div className="font-mono font-bold text-xl tabular-nums" style={{ color: remainingInPeriod === 0 ? '#F87171' : undefined }}>
+                {fmtSec(remainingInPeriod)}
+              </div>
+              <div className="text-[9px] font-bold uppercase tracking-wide mt-0.5" style={{ color: 'var(--brand-7b9de0)' }}>
+                {periodLabel} {currentPeriod}/{totalPeriods}
+              </div>
+            </div>
             {!readOnly && (
               <button onClick={e => { e.stopPropagation(); setRunning(r => !r) }}
                 className="px-3 py-1.5 rounded-lg text-xs font-bold"
                 style={{ background: running ? '#D97706' : '#16A34A', color: '#fff' }}>
                 {running ? '⏸' : '▶'}
+              </button>
+            )}
+            {!readOnly && currentPeriod < totalPeriods && (
+              <button onClick={e => { e.stopPropagation(); advancePeriod() }}
+                title={`Volgende ${periodLabel.toLowerCase()}`}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-white"
+                style={{ background: 'var(--brand-1a3fab)' }}>
+                ⏭
               </button>
             )}
             {readOnly ? (
