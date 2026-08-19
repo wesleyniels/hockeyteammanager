@@ -10,8 +10,10 @@
 // Manager) so those entries are dropped; "Ouder coach" is folded into
 // 'Coach'. Someone listed under more than one role gets one row per role.
 // Still missing (not yet provided): MO8-Wit (partial screenshot only),
-// MO8-Rood, MO9-Wit, MO10-Blauw, MO12-2, JO8-Blauw, JO9-Blauw — add them
-// here once available, using the exact team names from teams/list.
+// MO10-Blauw, and JO8-Blauw (the "JO8-Wit" screenshot sent for this
+// doesn't match any team name this app knows — needs clarifying whether
+// that's the same team under a different name in Lisa). Add them here
+// once available, using the exact team names from teams/list.
 //
 // Used only to gate self-selecting an elevated Rol in Profile (see
 // isVerifiedStaffName in team-staff.ts and the PUT /api/auth/me check in
@@ -36,6 +38,10 @@ export const TEAM_STAFF: Record<string, { role: 'Trainer' | 'Coach' | 'Manager';
     { role: 'Coach', firstName: 'Jeroen', lastName: 'Edens' },
     { role: 'Manager', firstName: 'Yana', lastName: 'van den Bor' },
   ],
+  'MO8-Rood': [
+    { role: 'Coach', firstName: 'Wim', lastName: 'Gille' },
+    { role: 'Manager', firstName: 'Haiko', lastName: 'Brinkers' },
+  ],
   'MO9-Blauw': [
     { role: 'Manager', firstName: 'Juliette', lastName: 'Velthuysen' },
     { role: 'Coach', firstName: 'Juliette', lastName: 'Velthuysen' },
@@ -50,6 +56,10 @@ export const TEAM_STAFF: Record<string, { role: 'Trainer' | 'Coach' | 'Manager';
     { role: 'Coach', firstName: 'Michiel', lastName: 'Huisman' },
     { role: 'Manager', firstName: 'Jort', lastName: 'Bangma' },
     { role: 'Trainer', firstName: 'Nienke', lastName: 'van Haare heijmeijer' },
+  ],
+  'MO9-Wit': [
+    { role: 'Coach', firstName: 'Tom', lastName: 'Houwen' },
+    { role: 'Coach', firstName: 'Stefan', lastName: 'Quak' },
   ],
   'MO11-Blauw': [
     { role: 'Manager', firstName: 'Stefanie', lastName: 'Eerhardt' },
@@ -71,6 +81,13 @@ export const TEAM_STAFF: Record<string, { role: 'Trainer' | 'Coach' | 'Manager';
     { role: 'Coach', firstName: 'Lotte', lastName: 'Bloemendal' },
     { role: 'Coach', firstName: 'Rogier', lastName: 'van der Maat' },
     { role: 'Coach', firstName: 'Dominique', lastName: 'Vosmaer' },
+    { role: 'Trainer', firstName: 'Saar', lastName: 'Stam' },
+  ],
+  'MO12-2': [
+    { role: 'Coach', firstName: 'Tjeerd', lastName: 'van Lotringen' },
+    { role: 'Manager', firstName: 'Loes', lastName: 'Bruning- van der Burgt' },
+    { role: 'Coach', firstName: 'Thijs', lastName: 'Jansen' },
+    { role: 'Coach', firstName: 'Joost', lastName: 'De Weerdt' },
     { role: 'Trainer', firstName: 'Saar', lastName: 'Stam' },
   ],
   'MO14-1': [
@@ -96,6 +113,11 @@ export const TEAM_STAFF: Record<string, { role: 'Trainer' | 'Coach' | 'Manager';
   ],
   'JO7-Blauw': [
     { role: 'Coach', firstName: 'Hugo', lastName: 'le Conge kleyn' },
+  ],
+  'JO9-Blauw': [
+    { role: 'Coach', firstName: 'Benno', lastName: 'Naaijkens' },
+    { role: 'Trainer', firstName: 'Dolph', lastName: 'Thieme' },
+    { role: 'Trainer', firstName: 'Pelle', lastName: 'Vis' },
   ],
   'JO9-Wit': [
     { role: 'Coach', firstName: 'Nick', lastName: 'Botter' },
