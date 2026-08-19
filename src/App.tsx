@@ -302,7 +302,12 @@ const GENERIC_TEAM_CATEGORIES = [
   'Senioren',
 ]
 
-const ROLE_OPTIONS = ['Trainer', 'Coach', 'Trainer & Coach', 'Player', 'Supporter'] as const
+// 'Manager' sits between the coaching roles and Speler/Supporter: it's
+// eligible for nothing ELIGIBLE_ROLES/canReset gate (messaging, match
+// squads, resetting a match), but — unlike Speler/Supporter — can edit
+// their own team's player photos (not rename/remove players); see
+// TeamPlayerPhotos' canEditPhotos vs canManageRoster split.
+const ROLE_OPTIONS = ['Trainer', 'Coach', 'Trainer & Coach', 'Manager', 'Speler', 'Supporter'] as const
 
 // ── Field positions ──────────────────────────────────────────────────────────
 // x/y are % of the SVG container (0–100)
@@ -2366,7 +2371,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     lastTrackedRef.current = tracked
     scheduleSave()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slots, bench, subs, oppMarkers, goals, cards, tacticsBoards, notes, scoreOwn, scoreOpp])
+  }, [slots, bench, subs, oppMarkers, goals, cards, tacticsBoards, notes, scoreOwn, scoreOpp, currentPeriod, periodStartSec])
 
   const isFirstMediaRef = useRef(true)
   useEffect(() => {
@@ -2413,6 +2418,45 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
     setScoreOpp(prev.scoreOpp)
     setCurrentPeriod(prev.currentPeriod)
     setPeriodStartSec(prev.periodStartSec)
+  }
+
+  // Only a Coach/Trainer (solo or combined) may reset a match — Manager and
+  // below get no say over match state at all, only their own team's player
+  // photos (see TeamPlayerPhotos). Combined with `readOnly` so a coach who's
+  // merely viewing someone else's shared game (permission: 'view') can't
+  // reset it either.
+  const canReset = user?.role === 'Coach' || user?.role === 'Trainer' || user?.role === 'Trainer & Coach'
+  // Puts everything that happens *during* a match back to a blank slate —
+  // score, field/bench assignments, goals, cards, tactics boards, played
+  // time, notes and the clock/period. Squad and media are deliberately left
+  // alone: who's called up isn't something that goes wrong mid-match the
+  // way a live scoreboard can, and clearing uploaded photos/videos would
+  // need its own confirmation and Blob cleanup — out of scope for "start
+  // the match over". Goes through the same tracked-state fields Herstel
+  // already watches, so the reset itself is one more undo step, not a
+  // point of no return.
+  const resetGame = () => {
+    if (readOnly || !canReset) return
+    if (!confirm('Weet u zeker dat u de wedstrijd wilt resetten?')) return
+    const freshBoardId = uid()
+    setRunning(false)
+    setSlots(normalizeSlots(undefined, ageGroup, activeVariant))
+    setBench(squad.map(p => ({ playerId: p.id, sinceGameSec: 0 })))
+    setSubs([])
+    setOppMarkers([])
+    setGoals([])
+    setCards([])
+    setTacticsBoards([{ id: freshBoardId, name: 'Opstelling 1', markers: [], arrows: [] }])
+    setActiveBoardId(freshBoardId)
+    setSelectedTacticsMarker(null)
+    setPlayedSeconds({})
+    setNotes('')
+    setScoreOwn(0)
+    setScoreOpp(0)
+    setGameSec(0)
+    setCurrentPeriod(1)
+    setPeriodStartSec(0)
+    setSelected(null)
   }
 
   // slotsRef (declared further below, kept fresh on every render) lets this
@@ -3350,6 +3394,18 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
                     rows={8} value={notes} onChange={e => setNotes(e.target.value)} readOnly={readOnly}
                     placeholder="Tactische notities, bijzonderheden…" />
                 </div>
+                {!readOnly && canReset && (
+                  <div className="pt-2" style={{ borderTop: '1px solid var(--brand-e8effd)' }}>
+                    <button onClick={resetGame}
+                      className="w-full px-4 py-2.5 rounded-xl font-bold text-sm"
+                      style={{ background: '#FEE2E2', color: '#DC2626' }}>
+                      Wedstrijd resetten
+                    </button>
+                    <p className="text-xs mt-1.5 text-center" style={{ color: 'var(--brand-7b90c8)' }}>
+                      Zet score, opstelling, doelpunten, kaarten en klok terug naar het begin.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -3858,7 +3914,7 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, un
 // whenever one is loaded, so changes made here show up in matches
 // automatically.
 
-function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean }) {
+function TeamPlayerPhotos({ team, canEditPhotos, canManageRoster }: { team: string; canEditPhotos: boolean; canManageRoster: boolean }) {
   const [players, setPlayers] = useState<RosterPlayer[]>([])
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -3976,11 +4032,11 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
 
   return (
     <div>
-      {canEdit && (
+      {canEditPhotos && (
         <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
           onChange={e => { onFileChange(e.target.files?.[0]); e.target.value = '' }} />
       )}
-      {!canEdit && (
+      {!canEditPhotos && !canManageRoster && (
         <p className="text-xs mb-3" style={{ color: 'var(--brand-7b90c8)' }}>
           Alleen coaches kunnen spelers en foto's beheren.
         </p>
@@ -4002,7 +4058,7 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
             return (
               <div key={p.id} className="flex items-center gap-3 p-2.5 rounded-xl"
                 style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
-                {canEdit ? (
+                {canEditPhotos ? (
                   <button onClick={() => triggerUpload(p.id)} disabled={busy}
                     className="relative w-11 h-11 rounded-full shrink-0 group overflow-hidden disabled:opacity-50" title="Foto wijzigen">
                     {avatar}
@@ -4020,15 +4076,15 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
                     onBlur={() => saveRename(p.id)}
                     onKeyDown={e => { if (e.key === 'Enter') saveRename(p.id); if (e.key === 'Escape') setEditId(null) }} />
                 ) : (
-                  <span className="flex-1 text-sm font-semibold truncate" style={{ color: 'var(--brand-1a2f6b)', cursor: canEdit ? 'pointer' : 'default' }}
-                    onClick={() => { if (canEdit) { setEditId(p.id); setEditName(p.name) } }}>
+                  <span className="flex-1 text-sm font-semibold truncate" style={{ color: 'var(--brand-1a2f6b)', cursor: canManageRoster ? 'pointer' : 'default' }}
+                    onClick={() => { if (canManageRoster) { setEditId(p.id); setEditName(p.name) } }}>
                     {p.name}
                   </span>
                 )}
-                {canEdit && p.photoUrl && !busy && (
+                {canEditPhotos && p.photoUrl && !busy && (
                   <button onClick={() => removePhoto(p.id, p.name)} className="font-bold text-sm" style={{ color: '#DC2626' }} title="Foto verwijderen">×</button>
                 )}
-                {canEdit && !busy && (
+                {canManageRoster && !busy && (
                   <button onClick={() => removePlayer(p.id, p.name)} className="text-xs font-bold" style={{ color: 'var(--brand-a8bef0)' }} title="Speler verwijderen">🗑</button>
                 )}
               </div>
@@ -4036,7 +4092,7 @@ function TeamPlayerPhotos({ team, canEdit }: { team: string; canEdit: boolean })
           })}
         </div>
       )}
-      {canEdit && (
+      {canManageRoster && (
         <div className="flex gap-2 mt-3">
           <input className="flex-1 rounded-xl px-3 py-2 text-sm" style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }}
             value={newName} onChange={e => setNewName(e.target.value)}
@@ -4344,7 +4400,9 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
             <p className="text-xs mb-4" style={{ color: 'var(--brand-7b90c8)' }}>
               Foto's per speler verschijnen tijdens wedstrijden op het veld en de bank.
             </p>
-            <TeamPlayerPhotos team={user.defaultTeam} canEdit={user.role === 'Coach' || user.role === 'Trainer & Coach'} />
+            <TeamPlayerPhotos team={user.defaultTeam}
+              canEditPhotos={user.role === 'Coach' || user.role === 'Trainer & Coach' || user.role === 'Manager'}
+              canManageRoster={user.role === 'Coach' || user.role === 'Trainer & Coach'} />
           </section>
         )}
 
@@ -4444,6 +4502,11 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                           Beheerder
                         </span>
                       )}
+                      {u.defaultClub && (
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
+                          {u.defaultClub}
+                        </span>
+                      )}
                       {u.defaultTeam && (
                         <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
                           {u.defaultTeam}
@@ -4512,7 +4575,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                             defaultValue={t.name} key={`${t.id}-${t.name}`}
                             onBlur={e => { const name = e.target.value.trim(); if (name && name !== t.name) renameTeam(t.id, name) }} />
                         </div>
-                        <TeamPlayerPhotos team={t.name} canEdit={true} />
+                        <TeamPlayerPhotos team={t.name} canEditPhotos={true} canManageRoster={true} />
                       </div>
                     )}
                   </div>
@@ -5168,6 +5231,7 @@ interface AdminUser {
   lastName: string | null
   role: string | null
   defaultTeam: string | null
+  defaultClub: string | null
   emailVerified: boolean
   hasPassword: boolean
   gameCount: number

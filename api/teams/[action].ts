@@ -5,7 +5,7 @@ import { getSessionFromCookies, type SessionUser } from '../_lib/session.js'
 import { isAdmin } from '../_lib/admin.js'
 import { randomUUID } from '../_lib/crypto.js'
 import { slugify } from '../_lib/slug.js'
-import { isCoachOfTeamName, canEditPlayer } from '../_lib/team-access.js'
+import { isCoachOfTeamName, canEditPlayer, isPhotoEditorForPlayer } from '../_lib/team-access.js'
 
 // /api/teams/list, /api/teams/roster, etc. collapsed into one dynamic-segment
 // file — see the comment in api/auth/[action].ts for why (Hobby plan's
@@ -96,7 +96,7 @@ async function handleSetPlayerPhoto(req: VercelRequest, res: VercelResponse, use
   const id = String(req.body?.id ?? '')
   const url = String(req.body?.url ?? '')
   if (!id || !url) { res.status(400).json({ error: 'Missing id or url' }); return }
-  if (!(await canEditPlayer(user, id)) && !(await isAdmin(user))) { res.status(403).json({ error: 'Forbidden' }); return }
+  if (!(await isPhotoEditorForPlayer(user, id)) && !(await isAdmin(user))) { res.status(403).json({ error: 'Forbidden' }); return }
   await sql`UPDATE team_players SET photo_url = ${url} WHERE id = ${id}`
   res.status(200).json({ ok: true })
 }
@@ -105,7 +105,7 @@ async function handleRemovePlayerPhoto(req: VercelRequest, res: VercelResponse, 
   if (req.method !== 'DELETE') { res.status(405).json({ error: 'Method not allowed' }); return }
   const id = typeof req.query.id === 'string' ? req.query.id : req.body?.id
   if (!id) { res.status(400).json({ error: 'Missing id' }); return }
-  if (!(await canEditPlayer(user, id)) && !(await isAdmin(user))) { res.status(403).json({ error: 'Forbidden' }); return }
+  if (!(await isPhotoEditorForPlayer(user, id)) && !(await isAdmin(user))) { res.status(403).json({ error: 'Forbidden' }); return }
 
   const rows = await sql`SELECT photo_url FROM team_players WHERE id = ${id}`
   await sql`UPDATE team_players SET photo_url = NULL WHERE id = ${id}`

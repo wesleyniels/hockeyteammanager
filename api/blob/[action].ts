@@ -4,7 +4,7 @@ import { del, get, list } from '@vercel/blob'
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client'
 import { getSessionFromCookies, type SessionUser } from '../_lib/session.js'
 import { ensureSchema } from '../_lib/db.js'
-import { canEditPlayer } from '../_lib/team-access.js'
+import { isPhotoEditorForPlayer } from '../_lib/team-access.js'
 import { isAdmin } from '../_lib/admin.js'
 
 // Player-photo pathnames are players/{playerId}/photo.ext, where playerId is
@@ -17,7 +17,7 @@ import { isAdmin } from '../_lib/admin.js'
 async function canEditPlayerPhoto(user: SessionUser, pathname: string): Promise<boolean> {
   if (await isAdmin(user)) return true
   const playerId = pathname.split('/')[1]
-  return !!playerId && canEditPlayer(user, playerId)
+  return !!playerId && isPhotoEditorForPlayer(user, playerId)
 }
 
 // /api/blob/upload, /api/blob/delete and /api/blob/view collapsed into one

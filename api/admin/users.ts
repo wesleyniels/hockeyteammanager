@@ -18,7 +18,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === 'GET') {
     const rows = await sql`
-      SELECT u.id, u.email, u.name, u.first_name, u.last_name, u.role, u.default_team,
+      SELECT u.id, u.email, u.name, u.first_name, u.last_name, u.role, u.default_team, u.default_club,
              u.email_verified, u.created_at, u.is_admin, (u.password_hash IS NOT NULL) AS has_password,
              COUNT(g.id)::int AS game_count
       FROM users u
@@ -35,6 +35,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         lastName: r.last_name,
         role: r.role,
         defaultTeam: r.default_team,
+        defaultClub: r.default_club,
         emailVerified: r.email_verified,
         hasPassword: r.has_password,
         gameCount: r.game_count,

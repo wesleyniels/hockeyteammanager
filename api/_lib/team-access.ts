@@ -24,3 +24,16 @@ export async function canEditPlayer(user: SessionUser, playerId: string): Promis
   const teamName = await getPlayerTeamName(playerId)
   return !!teamName && isCoachOfTeamName(user.id, teamName)
 }
+
+// Manager gets a narrower slice than Coach/Trainer & Coach: only their own
+// team's player *photos* — renaming or removing a player entirely stays
+// gated by canEditPlayer/isCoachOfTeamName above.
+export async function isPhotoEditorForPlayer(user: SessionUser, playerId: string): Promise<boolean> {
+  const teamName = await getPlayerTeamName(playerId)
+  if (!teamName) return false
+  const rows = await sql`SELECT role, default_team FROM users WHERE id = ${user.id}`
+  const u = rows[0]
+  if (!u) return false
+  const eligible = u.role === 'Coach' || u.role === 'Trainer & Coach' || u.role === 'Manager'
+  return eligible && !!u.default_team && u.default_team.toLowerCase() === teamName.toLowerCase()
+}

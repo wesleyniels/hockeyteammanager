@@ -229,6 +229,15 @@ export function ensureSchema() {
     } catch (err) {
       console.error('Fixture seeding failed:', err)
     }
+
+    // One-time rename of the stored role value — 'Player' is now labeled
+    // 'Speler' in ROLE_OPTIONS (src/App.tsx). The WHERE clause makes this
+    // safely re-runnable: a no-op once every existing row has been migrated.
+    try {
+      await sql`UPDATE users SET role = 'Speler' WHERE role = 'Player'`
+    } catch (err) {
+      console.error('Player->Speler role migration failed:', err)
+    }
   })()
   return schemaReady
 }
