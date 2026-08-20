@@ -1929,158 +1929,126 @@ function NotificationBell({ unreadNotifications, notifications, onMarkRead, onMa
 // ── Home / dashboard ─────────────────────────────────────────────────────────
 // The main landing screen once logged in — a real dashboard (next match,
 // last result) instead of always showing the match-creation form. Creating a
-// match now lives under Wedstrijden ("Wedstrijd aanmaken"), but a logged-out
-// visitor has no games/dashboard data to show at all, so this keeps a direct
-// way in too (same onCreateMatch target) instead of forcing a detour through
-// a screen that's gated behind login.
+// match now lives entirely under Wedstrijden ("Wedstrijd aanmaken"); a
+// logged-out visitor has no games/dashboard data to show at all, so App()
+// routes them straight to SetupView's form instead of this component.
 
-function HomeView({ user, authLoading, games, onEditGame, onCreateMatch, onProfile, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification, onOpenHistory }: {
-  user: AuthUser | null
-  authLoading: boolean
+function HomeView({ user, games, onEditGame, onOpenHistory, onCreateMatch, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
+  user: AuthUser
   games: SavedGame[]
   onEditGame: (g: SavedGame) => void
+  onOpenHistory: () => void
   onCreateMatch: () => void
-  onProfile: () => void
   unreadNotifications: number
   notifications: AppNotification[]
   onMarkRead: (id: string) => void
   onMarkAllRead: () => void
   onMarkUnread: (id: string) => void
   onDeleteNotification: (id: string) => void
-  onOpenHistory: () => void
 }) {
   // Same "not yet played" signal HistoryView's upcoming list uses — the
   // clock hasn't run yet, regardless of whether a squad's already built.
   const nextMatch = [...games].filter(g => g.finalTime === 0).sort((a, b) => a.date.localeCompare(b.date))[0] ?? null
-  const lastPlayed = [...games].filter(g => g.finalTime > 0).sort((a, b) => b.date.localeCompare(a.date))[0] ?? null
+  // A played match's clock should read > 0, but not every recorded result
+  // necessarily ran through the live timer for its full duration — a match
+  // dated in the past is a more forgiving fallback signal than finalTime
+  // alone, so a real result isn't missed here just because it's 0.
+  const lastPlayed = [...games]
+    .filter(g => g.finalTime > 0 || g.date < todayStr())
+    .sort((a, b) => b.date.localeCompare(a.date))[0] ?? null
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
           <div className="flex items-center gap-3 justify-self-start">
-            {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
+            {user.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
             <div>
               <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
-                {user?.defaultClub ?? 'Hockey One'}
+                {user.defaultClub ?? 'Hockey One'}
               </p>
               <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
-                {user?.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
+                {user.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
               </p>
             </div>
           </div>
           <div className="flex justify-center">
-            {user && <H1Logo height={26} />}
+            <H1Logo height={26} />
           </div>
           <div className="flex items-center gap-2 justify-self-end">
-            {user && (
-              <NotificationBell
-                unreadNotifications={unreadNotifications}
-                notifications={notifications}
-                onMarkRead={onMarkRead}
-                onMarkAllRead={onMarkAllRead}
-                onMarkUnread={onMarkUnread}
-                onDelete={onDeleteNotification}
-                onOpenHistory={onOpenHistory}
-              />
-            )}
-            {!user && (
-              <button onClick={onProfile} className="text-sm px-3 py-1.5 rounded-lg font-semibold"
-                style={{ color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
-                Inloggen
-              </button>
-            )}
+            <NotificationBell
+              unreadNotifications={unreadNotifications}
+              notifications={notifications}
+              onMarkRead={onMarkRead}
+              onMarkAllRead={onMarkAllRead}
+              onMarkUnread={onMarkUnread}
+              onDelete={onDeleteNotification}
+              onOpenHistory={onOpenHistory}
+            />
           </div>
         </div>
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
-        {!authLoading && !user ? (
-          <div className="text-center py-16">
-            <div className="text-5xl mb-4">🏑</div>
-            <p className="font-display text-xl font-bold uppercase mb-3" style={{ color: 'var(--brand-a8bef0)' }}>
-              Welkom bij Hockey One
-            </p>
-            <p className="text-sm mb-5" style={{ color: 'var(--brand-6b82b8)' }}>
-              Log in om je team, wedstrijden en resultaten hier terug te zien.
-            </p>
-            <div className="flex flex-col items-center gap-3">
-              <button onClick={onCreateMatch}
-                className="px-5 py-3 rounded-xl font-display font-bold uppercase tracking-wide text-sm text-white"
-                style={{ background: 'var(--brand-1a3fab)' }}>
-                Wedstrijd aanmaken
-              </button>
-              <button onClick={onProfile} className="text-sm font-bold" style={{ color: 'var(--brand-1a3fab)' }}>
-                Inloggen →
-              </button>
+        {nextMatch && (
+          <section className="rounded-2xl p-6 text-white shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
+            <h2 className="font-display text-xs font-bold uppercase mb-3" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.14em' }}>
+              Volgende wedstrijd
+            </h2>
+            <div className="flex items-center gap-3">
+              <ClubLogo club={nextMatch.club} size={40} />
+              <span className="font-display text-lg font-bold uppercase" style={{ color: 'var(--brand-a8bef0)' }}>
+                {nextMatch.homeAway === 'Thuis' ? 'Thuis' : 'Uit'}
+              </span>
+              <ClubLogo club={matchKnhbClub(nextMatch.opponent)} size={40} />
             </div>
-          </div>
-        ) : (
-          <>
-            {nextMatch && (
-              <section className="rounded-2xl p-6 text-white shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
-                <h2 className="font-display text-xs font-bold uppercase mb-3" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.14em' }}>
-                  Volgende wedstrijd
-                </h2>
-                <div className="flex items-center gap-3">
-                  <ClubLogo club={nextMatch.club} size={40} />
-                  <span className="font-display text-lg font-bold uppercase" style={{ color: 'var(--brand-a8bef0)' }}>
-                    {nextMatch.homeAway === 'Thuis' ? 'Thuis' : 'Uit'}
-                  </span>
-                  <ClubLogo club={matchKnhbClub(nextMatch.opponent)} size={40} />
-                </div>
-                <p className="font-display text-xl font-bold mt-3 leading-tight">
-                  {nextMatch.club} {nextMatch.team} <span style={{ color: 'var(--brand-a8bef0)', fontWeight: 400 }}>vs</span> {nextMatch.opponent}
-                </p>
-                <p className="text-sm mt-1" style={{ color: 'var(--brand-a8bef0)' }}>
-                  {new Date(nextMatch.date).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })}
-                </p>
-                <button onClick={() => onEditGame(nextMatch)}
-                  className="w-full mt-4 py-3 rounded-xl font-display font-bold uppercase tracking-wide text-sm"
-                  style={{ background: '#fff', color: 'var(--brand-0d2b7a)' }}>
-                  Wedstrijd voorbereiden →
-                </button>
-              </section>
-            )}
-
-            {lastPlayed && (
-              <section className="bg-white rounded-2xl p-6 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
-                <h2 className="font-display text-xs font-bold uppercase mb-3" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.14em' }}>
-                  Laatste resultaat
-                </h2>
-                <div className="flex items-center gap-3">
-                  <ClubLogo club={lastPlayed.club} size={36} />
-                  <span className="font-display text-2xl font-bold" style={{ color: 'var(--brand-0d2b7a)' }}>
-                    {lastPlayed.scoreOwn} - {lastPlayed.scoreOpp}
-                  </span>
-                  <ClubLogo club={matchKnhbClub(lastPlayed.opponent)} size={36} />
-                </div>
-                <p className="text-sm font-semibold mt-3" style={{ color: 'var(--brand-1a2f6b)' }}>
-                  {lastPlayed.club} {lastPlayed.team} <span style={{ color: 'var(--brand-a8bef0)', fontWeight: 400 }}>vs</span> {lastPlayed.opponent}
-                </p>
-                <p className="text-xs mt-1" style={{ color: 'var(--brand-a8bef0)' }}>
-                  {new Date(lastPlayed.date).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })}
-                </p>
-                <button onClick={onOpenHistory} className="text-sm font-bold mt-3" style={{ color: 'var(--brand-1a3fab)' }}>
-                  Bekijk wedstrijden →
-                </button>
-              </section>
-            )}
-
-            {!nextMatch && !lastPlayed && (
-              <div className="text-center py-16">
-                <div className="text-5xl mb-4">🏑</div>
-                <p className="font-display text-xl font-bold uppercase" style={{ color: 'var(--brand-a8bef0)' }}>Nog geen wedstrijden</p>
-              </div>
-            )}
-
-            <button onClick={onCreateMatch}
-              className="w-full py-3.5 rounded-xl font-display font-bold uppercase tracking-widest text-sm"
-              style={{ background: 'var(--brand-f8faff)', color: 'var(--brand-1a3fab)', border: '2px solid var(--brand-d0dcfa)' }}>
-              + Wedstrijd aanmaken
+            <p className="font-display text-xl font-bold mt-3 leading-tight">
+              {nextMatch.club} {nextMatch.team} <span style={{ color: 'var(--brand-a8bef0)', fontWeight: 400 }}>vs</span> {nextMatch.opponent}
+            </p>
+            <p className="text-sm mt-1" style={{ color: 'var(--brand-a8bef0)' }}>
+              {new Date(nextMatch.date).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })}
+            </p>
+            <button onClick={() => onEditGame(nextMatch)}
+              className="w-full mt-4 py-3 rounded-xl font-display font-bold uppercase tracking-wide text-sm"
+              style={{ background: '#fff', color: 'var(--brand-0d2b7a)' }}>
+              Wedstrijd voorbereiden →
             </button>
-          </>
+          </section>
         )}
+
+        <section className="bg-white rounded-2xl p-6 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+          <h2 className="font-display text-xs font-bold uppercase mb-3" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.14em' }}>
+            Laatste resultaat
+          </h2>
+          {lastPlayed ? (
+            <>
+              <div className="flex items-center gap-3">
+                <ClubLogo club={lastPlayed.club} size={36} />
+                <span className="font-display text-2xl font-bold" style={{ color: 'var(--brand-0d2b7a)' }}>
+                  {lastPlayed.scoreOwn} - {lastPlayed.scoreOpp}
+                </span>
+                <ClubLogo club={matchKnhbClub(lastPlayed.opponent)} size={36} />
+              </div>
+              <p className="text-sm font-semibold mt-3" style={{ color: 'var(--brand-1a2f6b)' }}>
+                {lastPlayed.club} {lastPlayed.team} <span style={{ color: 'var(--brand-a8bef0)', fontWeight: 400 }}>vs</span> {lastPlayed.opponent}
+              </p>
+              <p className="text-xs mt-1" style={{ color: 'var(--brand-a8bef0)' }}>
+                {new Date(lastPlayed.date).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })}
+              </p>
+              <button onClick={onOpenHistory} className="text-sm font-bold mt-3" style={{ color: 'var(--brand-1a3fab)' }}>
+                Bekijk wedstrijden →
+              </button>
+            </>
+          ) : (
+            <p className="text-sm py-2" style={{ color: 'var(--brand-a8bef0)' }}>Geen resultaten beschikbaar</p>
+          )}
+        </section>
+
+        <button onClick={onCreateMatch}
+          className="w-full py-3.5 rounded-xl font-display font-bold uppercase tracking-widest text-sm text-white"
+          style={{ background: 'var(--brand-1a3fab)' }}>
+          Wedstrijd aanmaken
+        </button>
       </div>
     </div>
   )
@@ -3911,27 +3879,30 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, on
             )}
           </div>
         </div>
-        <div className="max-w-2xl mx-auto px-4 pb-3 flex items-center gap-2">
+      </header>
+
+      <div className="max-w-2xl mx-auto px-4 py-8">
+        {/* Not sticky, unlike the header above — this scrolls away with the
+            match list, it isn't meant to stay pinned while browsing it. */}
+        <div className="flex items-center gap-2 mb-5">
           <div className="flex gap-1.5 flex-1">
             {([['all', 'Alles'], ['upcoming', 'Aankomend'], ['played', 'Gespeeld']] as const).map(([key, label]) => (
               <button key={key} onClick={() => setFilter(key)}
                 className="text-xs font-bold px-3 py-1.5 rounded-full transition-colors"
                 style={filter === key
                   ? { background: 'var(--brand-1a3fab)', color: '#fff' }
-                  : { background: 'rgba(255,255,255,0.08)', color: 'var(--brand-a8bef0)' }}>
+                  : { background: '#fff', color: 'var(--brand-3b5299)', border: '1px solid var(--brand-d0dcfa)' }}>
                 {label}
               </button>
             ))}
           </div>
           <button onClick={onCreateMatch}
-            className="text-xs font-bold px-3 py-1.5 rounded-full shrink-0"
-            style={{ background: '#fff', color: 'var(--brand-0d2b7a)' }}>
-            + Aanmaken
+            className="text-xs font-bold px-3 py-1.5 rounded-full shrink-0 text-white"
+            style={{ background: 'var(--brand-1a3fab)' }}>
+            Wedstrijd aanmaken
           </button>
         </div>
-      </header>
 
-      <div className="max-w-2xl mx-auto px-4 py-8">
         {!authLoading && !user ? (
           <div className="text-center py-20">
             <div className="text-5xl mb-4">🔒</div>
@@ -4552,9 +4523,6 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                 onDelete={onDeleteNotification}
                 onOpenHistory={onHistory}
               />
-            )}
-            {user && (
-              <span className="rounded-full shrink-0"><ProfileAvatar user={user} /></span>
             )}
           </div>
         </div>
@@ -6087,7 +6055,11 @@ export default function App() {
         onBack={() => { setEditingGame(null); setView('home') }}
       />
     )
-  if (view === 'setup')
+  // A logged-out visitor has no games/dashboard data for HomeView to show —
+  // route them straight to the creation form instead (this is also where
+  // "Wedstrijd aanmaken" from Wedstrijden and Home itself send a logged-in
+  // coach).
+  if (view === 'setup' || (view === 'home' && !user))
     return withBottomBar(
       <SetupView
         onStart={p => { setEditingGame(null); setGameParams(p); setView('game') }}
@@ -6106,19 +6078,17 @@ export default function App() {
   return withBottomBar(
     <>
       <HomeView
-        user={user}
-        authLoading={authLoading}
+        user={user!}
         games={games}
         onEditGame={startEdit}
+        onOpenHistory={() => setView('history')}
         onCreateMatch={() => setView('setup')}
-        onProfile={() => setView('profile')}
         unreadNotifications={notif.unreadNotifications}
         notifications={notif.notifications}
         onMarkRead={notif.markRead}
         onMarkAllRead={notif.markAllRead}
         onMarkUnread={notif.markUnread}
         onDeleteNotification={notif.remove}
-        onOpenHistory={() => setView('history')}
       />
       {gamesError && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 text-xs font-semibold px-4 py-2 rounded-xl shadow-lg"
