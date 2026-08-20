@@ -4,7 +4,7 @@ import { upload as uploadToBlob } from '@vercel/blob/client'
 // ── Types ───────────────────────────────────────────────────────────────────
 
 type AgeGroup = 'U7' | 'U8' | 'U9' | 'U10' | 'U11' | 'U12' | 'U14' | 'U16' | 'U18' | 'Senioren'
-type View = 'home' | 'setup' | 'game' | 'history' | 'profile' | 'messages'
+type View = 'home' | 'setup' | 'game' | 'history' | 'profile' | 'messages' | 'matchDetail'
 
 interface Player {
   id: string
@@ -45,12 +45,18 @@ interface OppMarker {
 interface Goal {
   id: string
   playerId: string
+  // Match-clock time the goal was recorded at. Optional because it was only
+  // ever added once the Timeline tab needed a time to sort by — matches
+  // saved before that show up without one (see MatchTimeline).
+  gameTimeSec?: number
 }
 
 interface Card {
   id: string
   playerId: string
   color: 'green' | 'yellow' | 'red'
+  // See Goal.gameTimeSec.
+  gameTimeSec?: number
 }
 
 interface MediaItem {
@@ -1056,7 +1062,7 @@ function FieldSVG({ half }: { half?: 'top' | 'bottom' } = {}) {
 
   const stripes = Array.from({ length: 14 }, (_, i) => (
     <rect key={i} x="0" y={i * 6.93} width="62" height="6.93"
-      fill={i % 2 === 0 ? '#1C6B38' : '#217040'} />
+      fill={i % 2 === 0 ? 'url(#turfA)' : 'url(#turfB)'} />
   ))
 
   // Crop the same drawing to one half by panning the viewBox — every element
@@ -1065,52 +1071,75 @@ function FieldSVG({ half }: { half?: 'top' | 'bottom' } = {}) {
 
   return (
     <svg className="absolute inset-0 w-full h-full" viewBox={viewBox} preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <linearGradient id="turfA" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#1E8049" />
+          <stop offset="100%" stopColor="#146132" />
+        </linearGradient>
+        <linearGradient id="turfB" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#24824F" />
+          <stop offset="100%" stopColor="#1A7040" />
+        </linearGradient>
+        <radialGradient id="turfVignette" cx="50%" cy="42%" r="75%">
+          <stop offset="55%" stopColor="#000" stopOpacity="0" />
+          <stop offset="100%" stopColor="#000" stopOpacity="0.3" />
+        </radialGradient>
+        <filter id="lineGlow" x="-30%" y="-30%" width="160%" height="160%">
+          <feGaussianBlur stdDeviation="0.35" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+
       {stripes}
+      <rect x="0" y="0" width="62" height="97" fill="url(#turfVignette)" />
 
       {/* Goals (behind backlines) */}
       <rect x={goalX1} y="1" width={goalW} height="3.8" rx="0.3"
-        fill="#14472A" stroke="white" strokeWidth="0.7" strokeOpacity="0.9"/>
+        fill="#0C3A21" stroke="white" strokeWidth="0.7"/>
       <rect x={goalX1} y={botY} width={goalW} height="3.8" rx="0.3"
-        fill="#14472A" stroke="white" strokeWidth="0.7" strokeOpacity="0.9"/>
+        fill="#0C3A21" stroke="white" strokeWidth="0.7"/>
 
       {/* Field boundary */}
       <rect x="1" y={topY} width="60" height={botY - topY}
-        fill="none" stroke="white" strokeWidth="0.9" strokeOpacity="0.9"/>
+        fill="none" stroke="white" strokeWidth="0.9" filter="url(#lineGlow)"/>
 
       {/* 23m lines */}
       <line x1="1" y1={top23} x2="61" y2={top23}
-        stroke="white" strokeWidth="0.55" strokeOpacity="0.65"/>
+        stroke="white" strokeWidth="0.5" strokeOpacity="0.75"/>
       <line x1="1" y1={bot23} x2="61" y2={bot23}
-        stroke="white" strokeWidth="0.55" strokeOpacity="0.65"/>
+        stroke="white" strokeWidth="0.5" strokeOpacity="0.75"/>
 
       {/* Center line */}
       <line x1="1" y1="48.5" x2="61" y2="48.5"
-        stroke="white" strokeWidth="0.65" strokeOpacity="0.7"/>
+        stroke="white" strokeWidth="0.6" strokeOpacity="0.8"/>
 
       {/* Shooting circles (D) — semicircles projecting INTO the field */}
       {/* Top D: arc from (cx-dR, topY) to (cx+dR, topY) bowing downward, into the field */}
       <path d={`M ${cx - dR} ${topY} A ${dR} ${dR} 0 0 0 ${cx + dR} ${topY}`}
-        fill="none" stroke="white" strokeWidth="0.8" strokeOpacity="0.85"/>
+        fill="none" stroke="white" strokeWidth="0.75" filter="url(#lineGlow)"/>
       {/* Bottom D: arc from (cx-dR, botY) to (cx+dR, botY) bowing upward, into the field */}
       <path d={`M ${cx - dR} ${botY} A ${dR} ${dR} 0 0 1 ${cx + dR} ${botY}`}
-        fill="none" stroke="white" strokeWidth="0.8" strokeOpacity="0.85"/>
+        fill="none" stroke="white" strokeWidth="0.75" filter="url(#lineGlow)"/>
 
       {/* Penalty spots */}
-      <circle cx={cx} cy={topPen} r="0.65" fill="white" fillOpacity="0.8"/>
-      <circle cx={cx} cy={botPen} r="0.65" fill="white" fillOpacity="0.8"/>
+      <circle cx={cx} cy={topPen} r="0.65" fill="white" fillOpacity="0.9"/>
+      <circle cx={cx} cy={botPen} r="0.65" fill="white" fillOpacity="0.9"/>
 
       {/* Center spot */}
-      <circle cx={cx} cy="48.5" r="0.5" fill="white" fillOpacity="0.55"/>
+      <circle cx={cx} cy="48.5" r="0.5" fill="white" fillOpacity="0.65"/>
 
       {/* Corner arcs (r=0.9m, struck from corner flags) */}
       <path d={`M 1.9 ${topY} A 0.9 0.9 0 0 1 1 ${topY + 0.9}`}
-        fill="none" stroke="white" strokeWidth="0.55" strokeOpacity="0.6"/>
+        fill="none" stroke="white" strokeWidth="0.5" strokeOpacity="0.7"/>
       <path d={`M 61 ${topY + 0.9} A 0.9 0.9 0 0 1 60.1 ${topY}`}
-        fill="none" stroke="white" strokeWidth="0.55" strokeOpacity="0.6"/>
+        fill="none" stroke="white" strokeWidth="0.5" strokeOpacity="0.7"/>
       <path d={`M 1 ${botY - 0.9} A 0.9 0.9 0 0 1 1.9 ${botY}`}
-        fill="none" stroke="white" strokeWidth="0.55" strokeOpacity="0.6"/>
+        fill="none" stroke="white" strokeWidth="0.5" strokeOpacity="0.7"/>
       <path d={`M 60.1 ${botY} A 0.9 0.9 0 0 1 61 ${botY - 0.9}`}
-        fill="none" stroke="white" strokeWidth="0.55" strokeOpacity="0.6"/>
+        fill="none" stroke="white" strokeWidth="0.5" strokeOpacity="0.7"/>
     </svg>
   )
 }
@@ -1134,30 +1163,30 @@ function DualFieldSVG() {
 
   const stripes = Array.from({ length: 14 }, (_, i) => (
     <rect key={i} x="0" y={i * 6.93} width="140" height="6.93"
-      fill={i % 2 === 0 ? '#1C6B38' : '#217040'} />
+      fill={i % 2 === 0 ? 'url(#turfA2)' : 'url(#turfB2)'} />
   ))
 
   const miniField = (x: number, cx: number, label: string) => (
     <g key={label}>
       {/* Goals */}
       <rect x={cx - goalW / 2} y="1" width={goalW} height="3.8" rx="0.3"
-        fill="#14472A" stroke="white" strokeWidth="0.7" strokeOpacity="0.9"/>
+        fill="#0C3A21" stroke="white" strokeWidth="0.7"/>
       <rect x={cx - goalW / 2} y={gBot} width={goalW} height="3.8" rx="0.3"
-        fill="#14472A" stroke="white" strokeWidth="0.7" strokeOpacity="0.9"/>
+        fill="#0C3A21" stroke="white" strokeWidth="0.7"/>
       {/* Boundary */}
       <rect x={x} y={gy} width={fW} height={fH}
-        fill="none" stroke="white" strokeWidth="0.85" strokeOpacity="0.9"/>
+        fill="none" stroke="white" strokeWidth="0.85" filter="url(#lineGlow2)"/>
       {/* Center line */}
       <line x1={x} y1={centerY} x2={x + fW} y2={centerY}
-        stroke="white" strokeWidth="0.55" strokeOpacity="0.6"/>
+        stroke="white" strokeWidth="0.5" strokeOpacity="0.7"/>
       {/* D circles — bow into the field, not out behind the goal */}
       <path d={`M ${cx - dR} ${gy} A ${dR} ${dR} 0 0 0 ${cx + dR} ${gy}`}
-        fill="none" stroke="white" strokeWidth="0.75" strokeOpacity="0.85"/>
+        fill="none" stroke="white" strokeWidth="0.7" filter="url(#lineGlow2)"/>
       <path d={`M ${cx - dR} ${gBot} A ${dR} ${dR} 0 0 1 ${cx + dR} ${gBot}`}
-        fill="none" stroke="white" strokeWidth="0.75" strokeOpacity="0.85"/>
+        fill="none" stroke="white" strokeWidth="0.7" filter="url(#lineGlow2)"/>
       {/* Penalty spots */}
-      <circle cx={cx} cy={gy + 5.5} r="0.6" fill="white" fillOpacity="0.75"/>
-      <circle cx={cx} cy={gBot - 5.5} r="0.6" fill="white" fillOpacity="0.75"/>
+      <circle cx={cx} cy={gy + 5.5} r="0.6" fill="white" fillOpacity="0.85"/>
+      <circle cx={cx} cy={gBot - 5.5} r="0.6" fill="white" fillOpacity="0.85"/>
       {/* Field label */}
       <text x={cx} y="96.5" textAnchor="middle" fill="white" fontSize="5.5"
         fontWeight="800" fillOpacity="0.9" fontFamily="'Barlow Condensed',sans-serif"
@@ -1168,9 +1197,32 @@ function DualFieldSVG() {
   return (
     <svg className="absolute inset-0 w-full h-full" viewBox="0 0 140 97"
       preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <linearGradient id="turfA2" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#1E8049" />
+          <stop offset="100%" stopColor="#146132" />
+        </linearGradient>
+        <linearGradient id="turfB2" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#24824F" />
+          <stop offset="100%" stopColor="#1A7040" />
+        </linearGradient>
+        <radialGradient id="turfVignette2" cx="50%" cy="42%" r="80%">
+          <stop offset="55%" stopColor="#000" stopOpacity="0" />
+          <stop offset="100%" stopColor="#000" stopOpacity="0.3" />
+        </radialGradient>
+        <filter id="lineGlow2" x="-30%" y="-30%" width="160%" height="160%">
+          <feGaussianBlur stdDeviation="0.35" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+
       {stripes}
+      <rect x="0" y="0" width="140" height="97" fill="url(#turfVignette2)"/>
       {/* Gap between fields */}
-      <rect x={aX + fW} y="0" width={gap} height="97" fill="#173523" fillOpacity="0.7"/>
+      <rect x={aX + fW} y="0" width={gap} height="97" fill="#173523" fillOpacity="0.75"/>
       {miniField(aX, aCx, 'VELD A')}
       {miniField(bX, bCx, 'VELD B')}
     </svg>
@@ -1379,6 +1431,64 @@ function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, 
           }} />
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Read-only field (match-detail Line-up tab) ───────────────────────────────
+// A static rendering of a saved game's final formation — same field SVG and
+// percentage-positioned markers as FieldView, with every drag/click/selection
+// affordance stripped out since nothing here is editable.
+
+function ReadOnlyFieldView({ ageGroup, slots, squad }: { ageGroup: AgeGroup; slots: PositionSlot[]; squad: Player[] }) {
+  const isDual = ageGroup === 'U7' || ageGroup === 'U8'
+  const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
+
+  return (
+    <div className="relative w-full" style={{ aspectRatio: isDual ? '140/97' : '62/97', maxHeight: '100%' }}>
+      {isDual ? <DualFieldSVG /> : <FieldSVG />}
+
+      {slots.map(slot => {
+        const player = getPlayer(slot.playerId)
+        const isGK = slot.posId === 'gk'
+
+        return (
+          <div key={slot.posId} className="absolute transform -translate-x-1/2 -translate-y-1/2"
+            style={{ left: `${slot.x}%`, top: `${slot.y}%`, zIndex: 10 }}>
+            <div style={{
+              width: player ? '46px' : '36px',
+              height: player ? '46px' : '36px',
+              background: isGK ? '#FBBF24' : player ? '#fff' : 'rgba(255,255,255,0.18)',
+              border: player ? '2px solid rgba(255,255,255,0.85)' : '1.5px dashed rgba(255,255,255,0.45)',
+              borderRadius: '50%',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: player ? '0 2px 8px rgba(0,0,0,0.3)' : 'none',
+            }}>
+              {player ? (
+                player.photoUrl ? (
+                  <img src={mediaSrc(player.photoUrl)} alt={player.name} className="w-full h-full rounded-full object-cover" />
+                ) : (
+                  <>
+                    <span style={{ fontSize: '12px', fontWeight: 800, lineHeight: 1, color: '#111' }}>
+                      {player.number ?? initials(player.name)}
+                    </span>
+                    <span style={{ fontSize: '8px', fontWeight: 600, color: '#333', marginTop: '1px', maxWidth: '42px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '0 2px' }}>
+                      {firstName(player.name)}
+                    </span>
+                  </>
+                )
+              ) : (
+                <span style={{ fontSize: '8px', fontWeight: 700, color: 'rgba(255,255,255,0.6)' }}>
+                  {slot.label}
+                </span>
+              )}
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -1933,11 +2043,12 @@ function NotificationBell({ unreadNotifications, notifications, onMarkRead, onMa
 // logged-out visitor has no games/dashboard data to show at all, so App()
 // routes them straight to SetupView's form instead of this component.
 
-function HomeView({ user, games, onEditGame, onOpenHistory, onCreateMatch, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
+function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreateMatch, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
   user: AuthUser
   games: SavedGame[]
   onEditGame: (g: SavedGame) => void
   onOpenHistory: () => void
+  onOpenMatch: (id: string) => void
   onCreateMatch: () => void
   unreadNotifications: number
   notifications: AppNotification[]
@@ -2035,8 +2146,8 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onCreateMatch, unrea
               <p className="text-xs mt-1" style={{ color: 'var(--brand-a8bef0)' }}>
                 {new Date(lastPlayed.date).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })}
               </p>
-              <button onClick={onOpenHistory} className="text-sm font-bold mt-3" style={{ color: 'var(--brand-1a3fab)' }}>
-                Bekijk wedstrijden →
+              <button onClick={() => onOpenMatch(lastPlayed.id)} className="text-sm font-bold mt-3" style={{ color: 'var(--brand-1a3fab)' }}>
+                Bekijk wedstrijd →
               </button>
             </>
           ) : (
@@ -3478,7 +3589,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                     </select>
                     <button onClick={() => {
                       if (readOnly || !goalPlayerId) return
-                      setGoals(g => [...g, { id: uid(), playerId: goalPlayerId }])
+                      setGoals(g => [...g, { id: uid(), playerId: goalPlayerId, gameTimeSec: gameSec }])
                     }}
                       disabled={readOnly}
                       className="px-4 py-2 rounded-xl font-bold text-white text-lg shrink-0 disabled:opacity-50"
@@ -3531,7 +3642,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                     ))}
                     <button onClick={() => {
                       if (readOnly || !cardPlayerId) return
-                      setCards(c => [...c, { id: uid(), playerId: cardPlayerId, color: cardColor }])
+                      setCards(c => [...c, { id: uid(), playerId: cardPlayerId, color: cardColor, gameTimeSec: gameSec }])
                       // A red card ends the player's match — take them off the
                       // field immediately rather than leaving it to be noticed
                       // (and enforced) only the next time someone tries to sub
@@ -3793,6 +3904,167 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
 
 // ── History View ─────────────────────────────────────────────────────────────
 
+// Shared between HistoryView's expand-in-place row and the "Match" tab of
+// MatchDetailView — every section that isn't Stats/Line-up/Timeline lives
+// here so the two surfaces can't drift out of sync.
+function MatchDetailSections({ g, user, getPlayer, canManageSharing, shares, addShare, removeShare, onEdit, onDelete }: {
+  g: SavedGame
+  user: AuthUser | null
+  getPlayer: (g: SavedGame, id: string) => Player | undefined
+  canManageSharing: boolean
+  shares: GameShare[]
+  addShare: (email: string, permission: 'view' | 'edit') => Promise<{ ok: true } | { ok: false; error: string }>
+  removeShare: (userId: string) => void
+  onEdit: (game: SavedGame) => void
+  onDelete: (id: string) => void
+}) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>
+          Selectie ({g.squad.length})
+        </h4>
+        <div className="flex flex-wrap gap-1.5">
+          {sortPlayers(g.squad).map(p => (
+            <span key={p.id} className="text-xs px-2 py-1 rounded-lg font-medium"
+              style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
+              {p.number != null && <span className="font-mono font-bold" style={{ color: 'var(--brand-1a3fab)' }}>#{p.number} </span>}{p.name}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {g.subs.length > 0 && (
+        <div>
+          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Wissels</h4>
+          <div className="space-y-1">
+            {g.subs.map((s, i) => {
+              const pIn = getPlayer(g, s.playerInId)
+              const pOut = getPlayer(g, s.playerOutId)
+              return (
+                <div key={i} className="flex items-center gap-2 text-xs">
+                  <span className="font-mono font-bold w-10 shrink-0" style={{ color: 'var(--brand-7b90c8)' }}>{fmtSec(s.gameTimeSec)}</span>
+                  {s.posLabel && (
+                    <span className="text-xs font-bold px-1.5 rounded shrink-0" style={{ color: 'var(--brand-1a3fab)', background: 'var(--brand-e4ecfe)' }}>{s.posLabel}</span>
+                  )}
+                  <span className="font-semibold" style={{ color: '#16A34A' }}>↑ {pIn?.name}</span>
+                  <span className="font-semibold" style={{ color: '#DC2626' }}>↓ {pOut?.name}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {g.goals && g.goals.length > 0 && (
+        <div>
+          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Doelpunten</h4>
+          <div className="flex flex-wrap gap-1.5">
+            {Object.entries(
+              g.goals.reduce<Record<string, number>>((acc, goal) => {
+                acc[goal.playerId] = (acc[goal.playerId] ?? 0) + 1
+                return acc
+              }, {})
+            ).map(([playerId, count]) => {
+              const p = getPlayer(g, playerId)
+              return (
+                <span key={playerId} className="text-xs px-2 py-1 rounded-lg font-medium"
+                  style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
+                  <HockeyBallIcon /> {p?.name ?? 'Onbekende speler'}{count > 1 ? ` ×${count}` : ''}
+                </span>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {g.cards && g.cards.length > 0 && (
+        <div>
+          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Kaarten</h4>
+          <div className="flex flex-wrap gap-1.5">
+            {g.cards.map(c => {
+              const p = getPlayer(g, c.playerId)
+              return (
+                <span key={c.id} className="text-xs px-2 py-1 rounded-lg font-medium"
+                  style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
+                  <span className="inline-block w-3 h-4 rounded-sm mr-1 align-middle"
+                    style={{ background: c.color === 'green' ? '#16A34A' : c.color === 'yellow' ? '#EAB308' : '#DC2626' }} />
+                  {p?.name ?? 'Onbekende speler'}
+                </span>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {g.playedSeconds && Object.keys(g.playedSeconds).length > 0 && (
+        <div>
+          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Speeltijd</h4>
+          <div className="flex flex-wrap gap-1.5">
+            {Object.entries(g.playedSeconds)
+              .map(([playerId, sec]) => ({ playerId, sec, player: getPlayer(g, playerId) }))
+              .filter((x): x is { playerId: string; sec: number; player: Player } => !!x.player)
+              .sort((a, b) => (a.player.number ?? Infinity) - (b.player.number ?? Infinity) || a.player.name.localeCompare(b.player.name))
+              .map(x => (
+                <span key={x.playerId} className="text-xs px-2 py-1 rounded-lg font-medium"
+                  style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
+                  {x.player.name} <span style={{ color: 'var(--brand-3b5299)' }}>· {fmtSec(x.sec)}</span>
+                </span>
+              ))}
+          </div>
+        </div>
+      )}
+
+      {g.media && g.media.length > 0 && (
+        <div>
+          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Media</h4>
+          <div className="grid grid-cols-4 gap-1.5">
+            {g.media.map(item => (
+              <a key={item.id} href={mediaSrc(item.url)} target="_blank" rel="noreferrer"
+                className="block rounded-lg overflow-hidden" style={{ border: '1px solid var(--brand-d0dcfa)', background: 'var(--brand-0d2b7a)' }}>
+                {item.type === 'image' ? (
+                  <img src={mediaSrc(item.url)} alt={item.name} className="w-full h-16 object-cover" />
+                ) : (
+                  <video src={mediaSrc(item.url)} className="w-full h-16 object-cover" />
+                )}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {g.notes && (
+        <div>
+          <h4 className="font-display text-sm font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)' }}>Notities</h4>
+          <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--brand-3b4f7a)' }}>{g.notes}</p>
+        </div>
+      )}
+
+      {canManageSharing && (
+        <div>
+          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Delen</h4>
+          <GameShareManager shares={shares} onAdd={addShare} onRemove={removeShare} />
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <button onClick={() => onEdit(g)}
+          className="text-xs font-bold px-3 py-1.5 rounded-lg text-white"
+          style={{ background: 'var(--brand-1a3fab)' }}>
+          {(g.permission ?? 'owner') === 'view' ? 'Bekijken' : 'Bewerken'}
+        </button>
+        {(!g.ownerId || g.ownerId === user?.id) && (
+          <button onClick={() => { if (confirm('Wedstrijd verwijderen?')) onDelete(g.id) }}
+            className="text-xs font-bold px-3 py-1.5 rounded-lg"
+            style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
+            Verwijder
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, onCreateMatch, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
   games: SavedGame[]
   user: AuthUser | null
@@ -3998,154 +4270,225 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, on
 
                 {expanded === g.id && (
                   <div className="px-5 pb-5" style={{ borderTop: '1px solid var(--brand-eef3ff)' }}>
-                    <div className="pt-4 space-y-4">
-                      <div>
-                        <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>
-                          Selectie ({g.squad.length})
-                        </h4>
-                        <div className="flex flex-wrap gap-1.5">
-                          {sortPlayers(g.squad).map(p => (
-                            <span key={p.id} className="text-xs px-2 py-1 rounded-lg font-medium"
-                              style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
-                              {p.number != null && <span className="font-mono font-bold" style={{ color: 'var(--brand-1a3fab)' }}>#{p.number} </span>}{p.name}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-
-                      {g.subs.length > 0 && (
-                        <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Wissels</h4>
-                          <div className="space-y-1">
-                            {g.subs.map((s, i) => {
-                              const pIn = getPlayer(g, s.playerInId)
-                              const pOut = getPlayer(g, s.playerOutId)
-                              return (
-                                <div key={i} className="flex items-center gap-2 text-xs">
-                                  <span className="font-mono font-bold w-10 shrink-0" style={{ color: 'var(--brand-7b90c8)' }}>{fmtSec(s.gameTimeSec)}</span>
-                                  {s.posLabel && (
-                                    <span className="text-xs font-bold px-1.5 rounded shrink-0" style={{ color: 'var(--brand-1a3fab)', background: 'var(--brand-e4ecfe)' }}>{s.posLabel}</span>
-                                  )}
-                                  <span className="font-semibold" style={{ color: '#16A34A' }}>↑ {pIn?.name}</span>
-                                  <span className="font-semibold" style={{ color: '#DC2626' }}>↓ {pOut?.name}</span>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {g.goals && g.goals.length > 0 && (
-                        <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Doelpunten</h4>
-                          <div className="flex flex-wrap gap-1.5">
-                            {Object.entries(
-                              g.goals.reduce<Record<string, number>>((acc, goal) => {
-                                acc[goal.playerId] = (acc[goal.playerId] ?? 0) + 1
-                                return acc
-                              }, {})
-                            ).map(([playerId, count]) => {
-                              const p = getPlayer(g, playerId)
-                              return (
-                                <span key={playerId} className="text-xs px-2 py-1 rounded-lg font-medium"
-                                  style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
-                                  <HockeyBallIcon /> {p?.name ?? 'Onbekende speler'}{count > 1 ? ` ×${count}` : ''}
-                                </span>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {g.cards && g.cards.length > 0 && (
-                        <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Kaarten</h4>
-                          <div className="flex flex-wrap gap-1.5">
-                            {g.cards.map(c => {
-                              const p = getPlayer(g, c.playerId)
-                              return (
-                                <span key={c.id} className="text-xs px-2 py-1 rounded-lg font-medium"
-                                  style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
-                                  <span className="inline-block w-3 h-4 rounded-sm mr-1 align-middle"
-                                    style={{ background: c.color === 'green' ? '#16A34A' : c.color === 'yellow' ? '#EAB308' : '#DC2626' }} />
-                                  {p?.name ?? 'Onbekende speler'}
-                                </span>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {g.playedSeconds && Object.keys(g.playedSeconds).length > 0 && (
-                        <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Speeltijd</h4>
-                          <div className="flex flex-wrap gap-1.5">
-                            {Object.entries(g.playedSeconds)
-                              .map(([playerId, sec]) => ({ playerId, sec, player: getPlayer(g, playerId) }))
-                              .filter((x): x is { playerId: string; sec: number; player: Player } => !!x.player)
-                              .sort((a, b) => (a.player.number ?? Infinity) - (b.player.number ?? Infinity) || a.player.name.localeCompare(b.player.name))
-                              .map(x => (
-                                <span key={x.playerId} className="text-xs px-2 py-1 rounded-lg font-medium"
-                                  style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
-                                  {x.player.name} <span style={{ color: 'var(--brand-3b5299)' }}>· {fmtSec(x.sec)}</span>
-                                </span>
-                              ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {g.media && g.media.length > 0 && (
-                        <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Media</h4>
-                          <div className="grid grid-cols-4 gap-1.5">
-                            {g.media.map(item => (
-                              <a key={item.id} href={mediaSrc(item.url)} target="_blank" rel="noreferrer"
-                                className="block rounded-lg overflow-hidden" style={{ border: '1px solid var(--brand-d0dcfa)', background: 'var(--brand-0d2b7a)' }}>
-                                {item.type === 'image' ? (
-                                  <img src={mediaSrc(item.url)} alt={item.name} className="w-full h-16 object-cover" />
-                                ) : (
-                                  <video src={mediaSrc(item.url)} className="w-full h-16 object-cover" />
-                                )}
-                              </a>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {g.notes && (
-                        <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)' }}>Notities</h4>
-                          <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--brand-3b4f7a)' }}>{g.notes}</p>
-                        </div>
-                      )}
-
-                      {canManageSharing && (
-                        <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Delen</h4>
-                          <GameShareManager shares={shares} onAdd={addShare} onRemove={removeShare} />
-                        </div>
-                      )}
-
-                      <div className="flex gap-2">
-                        <button onClick={() => onEdit(g)}
-                          className="text-xs font-bold px-3 py-1.5 rounded-lg text-white"
-                          style={{ background: 'var(--brand-1a3fab)' }}>
-                          {(g.permission ?? 'owner') === 'view' ? 'Bekijken' : 'Bewerken'}
-                        </button>
-                        {(!g.ownerId || g.ownerId === user?.id) && (
-                          <button onClick={() => { if (confirm('Wedstrijd verwijderen?')) onDelete(g.id) }}
-                            className="text-xs font-bold px-3 py-1.5 rounded-lg"
-                            style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
-                            Verwijder
-                          </button>
-                        )}
-                      </div>
+                    <div className="pt-4">
+                      <MatchDetailSections g={g} user={user} getPlayer={getPlayer}
+                        canManageSharing={canManageSharing} shares={shares} addShare={addShare} removeShare={removeShare}
+                        onEdit={onEdit} onDelete={onDelete} />
                     </div>
                   </div>
                 )}
               </div>
     )
   }
+}
+
+// ── Match Detail View (Stats / Line-up / Timeline / Match) ──────────────────
+// Opened from HomeView's "Laatste resultaat" card. Only scoreOwn/scoreOpp is
+// genuinely bilateral data — subs and cards are only ever recorded for the
+// tracked team, so their bars show a real own-team number against a visibly
+// untracked opponent side rather than a fabricated comparison.
+
+function StatBar({ label, own, opp, tracked }: { label: string; own: number; opp: number | null; tracked: boolean }) {
+  const total = tracked ? Math.max(own + (opp ?? 0), 1) : Math.max(own, 1)
+  const ownPct = tracked ? (own / total) * 100 : 100
+  const oppPct = tracked ? ((opp ?? 0) / total) * 100 : 0
+
+  return (
+    <div>
+      <div className="flex items-center justify-between text-sm font-bold mb-1.5">
+        <span style={{ color: 'var(--brand-1a3fab)' }}>{own}</span>
+        <span className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>{label}</span>
+        {tracked ? (
+          <span style={{ color: 'var(--brand-7b90c8)' }}>{opp}</span>
+        ) : (
+          <span className="text-[10px] font-semibold uppercase" style={{ color: 'var(--brand-a8bef0)' }}>Niet bijgehouden</span>
+        )}
+      </div>
+      <div className="flex w-full h-2.5 rounded-full overflow-hidden" style={{ background: 'var(--brand-eef3ff)' }}>
+        <div style={{ width: `${ownPct}%`, background: 'var(--brand-1a3fab)' }} />
+        {tracked ? (
+          <div style={{ width: `${oppPct}%`, background: 'var(--brand-a8bef0)' }} />
+        ) : (
+          <div className="flex-1" style={{ background: 'repeating-linear-gradient(135deg, var(--brand-d0dcfa), var(--brand-d0dcfa) 4px, transparent 4px, transparent 8px)' }} />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function MatchStats({ game }: { game: SavedGame }) {
+  return (
+    <div className="bg-white rounded-2xl p-5 shadow-sm space-y-5" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+      <div className="flex items-center justify-between">
+        <div className="flex flex-col items-center gap-1.5 flex-1 min-w-0">
+          <ClubLogo club={game.club} size={40} />
+          <span className="text-xs font-bold uppercase text-center truncate w-full" style={{ color: 'var(--brand-1a2f6b)' }}>{game.club} {game.team}</span>
+        </div>
+        <span className="text-xs font-bold uppercase px-2 shrink-0" style={{ color: 'var(--brand-a8bef0)' }}>vs</span>
+        <div className="flex flex-col items-center gap-1.5 flex-1 min-w-0">
+          <ClubLogo club={matchKnhbClub(game.opponent)} size={40} />
+          <span className="text-xs font-bold uppercase text-center truncate w-full" style={{ color: 'var(--brand-1a2f6b)' }}>{game.opponent}</span>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <StatBar label="Doelpunten" own={game.scoreOwn} opp={game.scoreOpp} tracked />
+        <StatBar label="Wissels" own={game.subs.length} opp={null} tracked={false} />
+        <StatBar label="Kaarten" own={game.cards.length} opp={null} tracked={false} />
+      </div>
+    </div>
+  )
+}
+
+function MatchTimeline({ game, getPlayer }: { game: SavedGame; getPlayer: (id: string) => Player | undefined }) {
+  const timed: { time: number; node: React.ReactNode }[] = []
+  const untimed: React.ReactNode[] = []
+  const row = "flex items-center gap-2 text-xs py-2.5"
+  const rowStyle = { borderBottom: '1px solid var(--brand-eef3ff)' }
+
+  game.subs.forEach((s, i) => {
+    const pIn = getPlayer(s.playerInId)
+    const pOut = getPlayer(s.playerOutId)
+    timed.push({
+      time: s.gameTimeSec,
+      node: (
+        <div key={`sub-${i}`} className={row} style={rowStyle}>
+          <span className="font-mono font-bold w-10 shrink-0" style={{ color: 'var(--brand-7b90c8)' }}>{fmtSec(s.gameTimeSec)}</span>
+          {s.posLabel && (
+            <span className="text-xs font-bold px-1.5 rounded shrink-0" style={{ color: 'var(--brand-1a3fab)', background: 'var(--brand-e4ecfe)' }}>{s.posLabel}</span>
+          )}
+          <span className="font-semibold" style={{ color: '#16A34A' }}>↑ {pIn?.name}</span>
+          <span className="font-semibold" style={{ color: '#DC2626' }}>↓ {pOut?.name}</span>
+        </div>
+      ),
+    })
+  })
+
+  game.goals.forEach(g => {
+    const p = getPlayer(g.playerId)
+    const node = (
+      <div key={`goal-${g.id}`} className={row} style={rowStyle}>
+        {g.gameTimeSec != null && <span className="font-mono font-bold w-10 shrink-0" style={{ color: 'var(--brand-7b90c8)' }}>{fmtSec(g.gameTimeSec)}</span>}
+        <span className="font-semibold flex items-center gap-1" style={{ color: 'var(--brand-1a2f6b)' }}>
+          <HockeyBallIcon /> {p?.name ?? 'Onbekende speler'}
+        </span>
+      </div>
+    )
+    if (g.gameTimeSec != null) timed.push({ time: g.gameTimeSec, node }); else untimed.push(node)
+  })
+
+  game.cards.forEach(c => {
+    const p = getPlayer(c.playerId)
+    const node = (
+      <div key={`card-${c.id}`} className={row} style={rowStyle}>
+        {c.gameTimeSec != null && <span className="font-mono font-bold w-10 shrink-0" style={{ color: 'var(--brand-7b90c8)' }}>{fmtSec(c.gameTimeSec)}</span>}
+        <span className="inline-block w-3 h-4 rounded-sm shrink-0"
+          style={{ background: c.color === 'green' ? '#16A34A' : c.color === 'yellow' ? '#EAB308' : '#DC2626' }} />
+        <span className="font-semibold" style={{ color: 'var(--brand-1a2f6b)' }}>{p?.name ?? 'Onbekende speler'}</span>
+      </div>
+    )
+    if (c.gameTimeSec != null) timed.push({ time: c.gameTimeSec, node }); else untimed.push(node)
+  })
+
+  timed.sort((a, b) => a.time - b.time)
+
+  if (timed.length === 0 && untimed.length === 0) {
+    return <p className="text-sm text-center py-10" style={{ color: 'var(--brand-a8bef0)' }}>Geen gebeurtenissen vastgelegd</p>
+  }
+
+  return (
+    <div>
+      {timed.length > 0 && <div>{timed.map(t => t.node)}</div>}
+      {untimed.length > 0 && (
+        <div className="mt-4">
+          <h4 className="font-display text-sm font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)' }}>
+            Overig (geen tijd vastgelegd)
+          </h4>
+          {untimed}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MatchDetailView({ game, user, onBack, onEdit, onDelete }: {
+  game: SavedGame
+  user: AuthUser | null
+  onBack: () => void
+  onEdit: (game: SavedGame) => void
+  onDelete: (id: string) => void
+}) {
+  const [tab, setTab] = useState<'stats' | 'lineup' | 'timeline' | 'match'>('stats')
+  const getPlayer = (id: string) => game.squad.find(p => p.id === id)
+  const getPlayerFromGame = (g: SavedGame, id: string) => g.squad.find(p => p.id === id)
+  const canManageSharing = (game.ownerId ?? user?.id) === user?.id
+  const { shares, addShare, removeShare } = useGameShares(canManageSharing ? game.id : null)
+
+  return (
+    <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
+      <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
+        <div className="max-w-2xl mx-auto px-4 py-3">
+          <button onClick={onBack} className="text-sm font-semibold mb-2" style={{ color: 'var(--brand-7b9de0)' }}>
+            ← Terug
+          </button>
+          <div className="flex items-center justify-center gap-3">
+            <ClubLogo club={game.club} size={36} />
+            <div className="text-center min-w-0">
+              <p className="font-display text-base font-bold truncate">
+                {game.club} {game.team} <span style={{ color: 'var(--brand-a8bef0)', fontWeight: 400 }}>vs</span> {game.opponent}
+              </p>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--brand-a8bef0)' }}>
+                {new Date(game.date).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })} · {game.homeAway === 'Thuis' ? 'Thuis' : 'Uit'}
+              </p>
+            </div>
+            <ClubLogo club={matchKnhbClub(game.opponent)} size={36} />
+          </div>
+          <p className="text-center font-display text-2xl font-bold mt-1">{game.scoreOwn} - {game.scoreOpp}</p>
+        </div>
+      </header>
+
+      <div className="max-w-2xl mx-auto px-4 py-6">
+        {tab === 'stats' && <MatchStats game={game} />}
+        {tab === 'lineup' && (
+          <div className="bg-white rounded-2xl p-4 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <ReadOnlyFieldView ageGroup={game.ageGroup} slots={game.slots} squad={game.squad} />
+          </div>
+        )}
+        {tab === 'timeline' && (
+          <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <MatchTimeline game={game} getPlayer={getPlayer} />
+          </div>
+        )}
+        {tab === 'match' && (
+          <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <MatchDetailSections g={game} user={user} getPlayer={getPlayerFromGame}
+              canManageSharing={canManageSharing} shares={shares} addShare={addShare} removeShare={removeShare}
+              onEdit={onEdit} onDelete={onDelete} />
+          </div>
+        )}
+        <div style={{ height: 128 }} />
+      </div>
+
+      <div className="fixed bottom-16 left-0 right-0 z-20 shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
+        <div className="max-w-2xl mx-auto grid grid-cols-4 px-2 py-1.5 gap-1">
+          {([
+            ['stats', 'Stats'],
+            ['lineup', 'Line-up'],
+            ['timeline', 'Timeline'],
+            ['match', 'Match'],
+          ] as const).map(([key, label]) => (
+            <button key={key} onClick={() => setTab(key)}
+              className="py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-colors"
+              style={tab === key
+                ? { background: 'var(--brand-1a3fab)', color: '#fff' }
+                : { color: 'var(--brand-7b9de0)' }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ── Profile View ─────────────────────────────────────────────────────────────
@@ -5946,6 +6289,7 @@ export default function App() {
   const [view, setView] = useState<View>('home')
   const [gameParams, setGameParams] = useState<GameParams | null>(null)
   const [editingGame, setEditingGame] = useState<SavedGame | null>(null)
+  const [selectedGameId, setSelectedGameId] = useState<string | null>(null)
   const { user, loading: authLoading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, forgotPassword, resetPassword, logout, updateProfile } = useAuth()
   const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user, user?.defaultTeam ?? null)
   const notif = useNotificationCenter(!!user)
@@ -6059,6 +6403,19 @@ export default function App() {
         onOpenHistory={() => setView('history')}
       />
     )
+  if (view === 'matchDetail') {
+    const selectedGame = games.find(g => g.id === selectedGameId)
+    if (!selectedGame) { setView('home'); return null }
+    return withBottomBar(
+      <MatchDetailView
+        game={selectedGame}
+        user={user}
+        onBack={() => setView('home')}
+        onEdit={startEdit}
+        onDelete={deleteGame}
+      />
+    )
+  }
   if (view === 'game' && gameParams)
     return (
       <GameView
@@ -6096,6 +6453,7 @@ export default function App() {
         games={games}
         onEditGame={startEdit}
         onOpenHistory={() => setView('history')}
+        onOpenMatch={id => { setSelectedGameId(id); setView('matchDetail') }}
         onCreateMatch={() => setView('setup')}
         unreadNotifications={notif.unreadNotifications}
         notifications={notif.notifications}
