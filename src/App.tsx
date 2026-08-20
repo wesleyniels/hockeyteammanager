@@ -4142,7 +4142,9 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, on
                 </p>
               </div>
             </div>
-            <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">WEDSTRIJDEN</h1>
+            <div className="flex justify-center">
+              <H1Logo height={26} />
+            </div>
             <div className="flex items-center gap-2 justify-self-end">
               {user && (
                 <NotificationBell
@@ -4761,6 +4763,7 @@ function TeamView({ user, games, onProfile, onSelectPlayer, unreadNotifications,
   const draws = playedGames.filter(g => g.scoreOwn === g.scoreOpp).length
   const totalMinutes = playedGames.reduce((n, g) => n + g.finalTime, 0)
   const goalsFor = playedGames.reduce((n, g) => n + g.scoreOwn, 0)
+  const goalsAgainst = playedGames.reduce((n, g) => n + g.scoreOpp, 0)
 
   const stat = (label: string, value: React.ReactNode) => (
     <div>
@@ -4784,7 +4787,9 @@ function TeamView({ user, games, onProfile, onSelectPlayer, unreadNotifications,
               </p>
             </div>
           </div>
-          <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">TEAM</h1>
+          <div className="flex justify-center">
+            <H1Logo height={26} />
+          </div>
           <div className="flex items-center gap-2 justify-self-end">
             {user && (
               <NotificationBell
@@ -4830,6 +4835,7 @@ function TeamView({ user, games, onProfile, onSelectPlayer, unreadNotifications,
                 {stat('Wedstrijden', playedGames.length)}
                 {stat('Minuten gespeeld', fmtHM(totalMinutes))}
                 {stat('Doelpunten voor', goalsFor)}
+                {stat('Doelpunten tegen', goalsAgainst)}
                 {stat('Gewonnen', wins)}
                 {stat('Verloren', losses)}
                 {stat('Gelijkgespeeld', draws)}
@@ -6424,9 +6430,13 @@ function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, n
               </p>
             </div>
           </div>
-          <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">
-            {activeId ? activeName : 'Berichten'}
-          </h1>
+          {activeId ? (
+            <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">{activeName}</h1>
+          ) : (
+            <div className="flex justify-center">
+              <H1Logo height={26} />
+            </div>
+          )}
           <div className="flex items-center gap-2 justify-self-end">
             {activeId && (
               <button onClick={closeThread} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>
