@@ -3845,64 +3845,68 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, on
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
-      <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
-        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
-          <div className="flex items-center gap-3 justify-self-start">
-            {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
-            <div>
-              <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
-                {user?.defaultClub ?? 'Hockey One'}
-              </p>
-              <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
-                {user?.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
-              </p>
+      {/* Header + filter/create bar stick together as one unit — only the
+          match list below them scrolls. */}
+      <div className="sticky top-0 z-20">
+        <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white shadow-lg">
+          <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
+            <div className="flex items-center gap-3 justify-self-start">
+              {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
+              <div>
+                <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
+                  {user?.defaultClub ?? 'Hockey One'}
+                </p>
+                <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
+                  {user?.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
+                </p>
+              </div>
+            </div>
+            <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">WEDSTRIJDEN</h1>
+            <div className="flex items-center gap-2 justify-self-end">
+              {user && (
+                <NotificationBell
+                  unreadNotifications={unreadNotifications}
+                  notifications={notifications}
+                  onMarkRead={onMarkRead}
+                  onMarkAllRead={onMarkAllRead}
+                  onMarkUnread={onMarkUnread}
+                  onDelete={onDeleteNotification}
+                  onOpenHistory={() => {}}
+                />
+              )}
+              {!user && (
+                <button onClick={onProfile} className="text-sm px-3 py-1.5 rounded-lg font-semibold"
+                  style={{ color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
+                  Inloggen
+                </button>
+              )}
             </div>
           </div>
-          <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">WEDSTRIJDEN</h1>
-          <div className="flex items-center gap-2 justify-self-end">
-            {user && (
-              <NotificationBell
-                unreadNotifications={unreadNotifications}
-                notifications={notifications}
-                onMarkRead={onMarkRead}
-                onMarkAllRead={onMarkAllRead}
-                onMarkUnread={onMarkUnread}
-                onDelete={onDeleteNotification}
-                onOpenHistory={() => {}}
-              />
-            )}
-            {!user && (
-              <button onClick={onProfile} className="text-sm px-3 py-1.5 rounded-lg font-semibold"
-                style={{ color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
-                Inloggen
-              </button>
-            )}
+        </header>
+
+        <div className="shadow-sm" style={{ background: 'var(--brand-eef3ff)' }}>
+          <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-2">
+            <div className="flex gap-1.5 flex-1">
+              {([['all', 'Alles'], ['upcoming', 'Aankomend'], ['played', 'Gespeeld']] as const).map(([key, label]) => (
+                <button key={key} onClick={() => setFilter(key)}
+                  className="text-xs font-bold px-3 py-1.5 rounded-full transition-colors"
+                  style={filter === key
+                    ? { background: 'var(--brand-1a3fab)', color: '#fff' }
+                    : { background: '#fff', color: 'var(--brand-3b5299)', border: '1px solid var(--brand-d0dcfa)' }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <button onClick={onCreateMatch}
+              className="text-xs font-bold px-3 py-1.5 rounded-full shrink-0 text-white"
+              style={{ background: 'var(--brand-1a3fab)' }}>
+              Wedstrijd aanmaken
+            </button>
           </div>
         </div>
-      </header>
+      </div>
 
       <div className="max-w-2xl mx-auto px-4 py-8">
-        {/* Not sticky, unlike the header above — this scrolls away with the
-            match list, it isn't meant to stay pinned while browsing it. */}
-        <div className="flex items-center gap-2 mb-5">
-          <div className="flex gap-1.5 flex-1">
-            {([['all', 'Alles'], ['upcoming', 'Aankomend'], ['played', 'Gespeeld']] as const).map(([key, label]) => (
-              <button key={key} onClick={() => setFilter(key)}
-                className="text-xs font-bold px-3 py-1.5 rounded-full transition-colors"
-                style={filter === key
-                  ? { background: 'var(--brand-1a3fab)', color: '#fff' }
-                  : { background: '#fff', color: 'var(--brand-3b5299)', border: '1px solid var(--brand-d0dcfa)' }}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <button onClick={onCreateMatch}
-            className="text-xs font-bold px-3 py-1.5 rounded-full shrink-0 text-white"
-            style={{ background: 'var(--brand-1a3fab)' }}>
-            Wedstrijd aanmaken
-          </button>
-        </div>
-
         {!authLoading && !user ? (
           <div className="text-center py-20">
             <div className="text-5xl mb-4">🔒</div>
