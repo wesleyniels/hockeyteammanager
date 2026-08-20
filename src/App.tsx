@@ -4,7 +4,7 @@ import { upload as uploadToBlob } from '@vercel/blob/client'
 // ── Types ───────────────────────────────────────────────────────────────────
 
 type AgeGroup = 'U7' | 'U8' | 'U9' | 'U10' | 'U11' | 'U12' | 'U14' | 'U16' | 'U18' | 'Senioren'
-type View = 'setup' | 'game' | 'history' | 'profile' | 'messages'
+type View = 'home' | 'setup' | 'game' | 'history' | 'profile' | 'messages'
 
 interface Player {
   id: string
@@ -1926,15 +1926,173 @@ function NotificationBell({ unreadNotifications, notifications, onMarkRead, onMa
   )
 }
 
-// ── Setup View ───────────────────────────────────────────────────────────────
+// ── Home / dashboard ─────────────────────────────────────────────────────────
+// The main landing screen once logged in — a real dashboard (next match,
+// last result) instead of always showing the match-creation form. Creating a
+// match now lives under Wedstrijden ("Wedstrijd aanmaken"), but a logged-out
+// visitor has no games/dashboard data to show at all, so this keeps a direct
+// way in too (same onCreateMatch target) instead of forcing a detour through
+// a screen that's gated behind login.
 
-function SetupView({ onStart, onProfile, user, authLoading, games, onEditGame, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification, onOpenHistory }: {
-  onStart: (p: GameParams) => void
-  onProfile: () => void
+function HomeView({ user, authLoading, games, onEditGame, onCreateMatch, onProfile, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification, onOpenHistory }: {
   user: AuthUser | null
   authLoading: boolean
   games: SavedGame[]
   onEditGame: (g: SavedGame) => void
+  onCreateMatch: () => void
+  onProfile: () => void
+  unreadNotifications: number
+  notifications: AppNotification[]
+  onMarkRead: (id: string) => void
+  onMarkAllRead: () => void
+  onMarkUnread: (id: string) => void
+  onDeleteNotification: (id: string) => void
+  onOpenHistory: () => void
+}) {
+  // Same "not yet played" signal HistoryView's upcoming list uses — the
+  // clock hasn't run yet, regardless of whether a squad's already built.
+  const nextMatch = [...games].filter(g => g.finalTime === 0).sort((a, b) => a.date.localeCompare(b.date))[0] ?? null
+  const lastPlayed = [...games].filter(g => g.finalTime > 0).sort((a, b) => b.date.localeCompare(a.date))[0] ?? null
+
+  return (
+    <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
+      <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
+        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
+          <div className="flex items-center gap-3 justify-self-start">
+            {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
+            <div>
+              <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
+                {user?.defaultClub ?? 'Hockey One'}
+              </p>
+              <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
+                {user?.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
+              </p>
+            </div>
+          </div>
+          <div className="flex justify-center">
+            {user && <H1Logo height={26} />}
+          </div>
+          <div className="flex items-center gap-2 justify-self-end">
+            {user && (
+              <NotificationBell
+                unreadNotifications={unreadNotifications}
+                notifications={notifications}
+                onMarkRead={onMarkRead}
+                onMarkAllRead={onMarkAllRead}
+                onMarkUnread={onMarkUnread}
+                onDelete={onDeleteNotification}
+                onOpenHistory={onOpenHistory}
+              />
+            )}
+            {!user && (
+              <button onClick={onProfile} className="text-sm px-3 py-1.5 rounded-lg font-semibold"
+                style={{ color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
+                Inloggen
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
+        {!authLoading && !user ? (
+          <div className="text-center py-16">
+            <div className="text-5xl mb-4">🏑</div>
+            <p className="font-display text-xl font-bold uppercase mb-3" style={{ color: 'var(--brand-a8bef0)' }}>
+              Welkom bij Hockey One
+            </p>
+            <p className="text-sm mb-5" style={{ color: 'var(--brand-6b82b8)' }}>
+              Log in om je team, wedstrijden en resultaten hier terug te zien.
+            </p>
+            <div className="flex flex-col items-center gap-3">
+              <button onClick={onCreateMatch}
+                className="px-5 py-3 rounded-xl font-display font-bold uppercase tracking-wide text-sm text-white"
+                style={{ background: 'var(--brand-1a3fab)' }}>
+                Wedstrijd aanmaken
+              </button>
+              <button onClick={onProfile} className="text-sm font-bold" style={{ color: 'var(--brand-1a3fab)' }}>
+                Inloggen →
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {nextMatch && (
+              <section className="rounded-2xl p-6 text-white shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
+                <h2 className="font-display text-xs font-bold uppercase mb-3" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.14em' }}>
+                  Volgende wedstrijd
+                </h2>
+                <div className="flex items-center gap-3">
+                  <ClubLogo club={nextMatch.club} size={40} />
+                  <span className="font-display text-lg font-bold uppercase" style={{ color: 'var(--brand-a8bef0)' }}>
+                    {nextMatch.homeAway === 'Thuis' ? 'Thuis' : 'Uit'}
+                  </span>
+                  <ClubLogo club={matchKnhbClub(nextMatch.opponent)} size={40} />
+                </div>
+                <p className="font-display text-xl font-bold mt-3 leading-tight">
+                  {nextMatch.club} {nextMatch.team} <span style={{ color: 'var(--brand-a8bef0)', fontWeight: 400 }}>vs</span> {nextMatch.opponent}
+                </p>
+                <p className="text-sm mt-1" style={{ color: 'var(--brand-a8bef0)' }}>
+                  {new Date(nextMatch.date).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })}
+                </p>
+                <button onClick={() => onEditGame(nextMatch)}
+                  className="w-full mt-4 py-3 rounded-xl font-display font-bold uppercase tracking-wide text-sm"
+                  style={{ background: '#fff', color: 'var(--brand-0d2b7a)' }}>
+                  Wedstrijd voorbereiden →
+                </button>
+              </section>
+            )}
+
+            {lastPlayed && (
+              <section className="bg-white rounded-2xl p-6 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+                <h2 className="font-display text-xs font-bold uppercase mb-3" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.14em' }}>
+                  Laatste resultaat
+                </h2>
+                <div className="flex items-center gap-3">
+                  <ClubLogo club={lastPlayed.club} size={36} />
+                  <span className="font-display text-2xl font-bold" style={{ color: 'var(--brand-0d2b7a)' }}>
+                    {lastPlayed.scoreOwn} - {lastPlayed.scoreOpp}
+                  </span>
+                  <ClubLogo club={matchKnhbClub(lastPlayed.opponent)} size={36} />
+                </div>
+                <p className="text-sm font-semibold mt-3" style={{ color: 'var(--brand-1a2f6b)' }}>
+                  {lastPlayed.club} {lastPlayed.team} <span style={{ color: 'var(--brand-a8bef0)', fontWeight: 400 }}>vs</span> {lastPlayed.opponent}
+                </p>
+                <p className="text-xs mt-1" style={{ color: 'var(--brand-a8bef0)' }}>
+                  {new Date(lastPlayed.date).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })}
+                </p>
+                <button onClick={onOpenHistory} className="text-sm font-bold mt-3" style={{ color: 'var(--brand-1a3fab)' }}>
+                  Bekijk wedstrijden →
+                </button>
+              </section>
+            )}
+
+            {!nextMatch && !lastPlayed && (
+              <div className="text-center py-16">
+                <div className="text-5xl mb-4">🏑</div>
+                <p className="font-display text-xl font-bold uppercase" style={{ color: 'var(--brand-a8bef0)' }}>Nog geen wedstrijden</p>
+              </div>
+            )}
+
+            <button onClick={onCreateMatch}
+              className="w-full py-3.5 rounded-xl font-display font-bold uppercase tracking-widest text-sm"
+              style={{ background: 'var(--brand-f8faff)', color: 'var(--brand-1a3fab)', border: '2px solid var(--brand-d0dcfa)' }}>
+              + Wedstrijd aanmaken
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Setup View ───────────────────────────────────────────────────────────────
+
+function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification, onOpenHistory }: {
+  onStart: (p: GameParams) => void
+  onProfile: () => void
+  user: AuthUser | null
+  authLoading: boolean
   unreadNotifications: number
   notifications: AppNotification[]
   onMarkRead: (id: string) => void
@@ -2071,10 +2229,6 @@ function SetupView({ onStart, onProfile, user, authLoading, games, onEditGame, u
   const teamFull = user ? team : [team, teamSuffix.trim()].filter(Boolean).join('-')
   const canStart = club && team && (opponent || opponentTeamFull)
 
-  // Same "not yet played" signal HistoryView's upcoming-matches list uses —
-  // the clock hasn't run yet, regardless of whether a squad's already built.
-  const nextMatch = [...games].filter(g => g.finalTime === 0).sort((a, b) => a.date.localeCompare(b.date))[0] ?? null
-
   const inputStyle = { border: '2px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }
 
   if (showFormationEditor) {
@@ -2085,21 +2239,19 @@ function SetupView({ onStart, onProfile, user, authLoading, games, onEditGame, u
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 justify-self-start">
             {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
             <div>
-              <h1 className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
+              <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
                 {user?.defaultClub ?? 'Hockey One'}
-              </h1>
+              </p>
               <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
                 {user?.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
               </p>
             </div>
           </div>
-          <div className="flex justify-center">
-            {user && <H1Logo height={26} />}
-          </div>
-          <div className="flex items-center gap-2 justify-end">
+          <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">Nieuwe wedstrijd</h1>
+          <div className="flex items-center gap-2 justify-self-end">
             {user && (
               <NotificationBell
                 unreadNotifications={unreadNotifications}
@@ -2111,11 +2263,7 @@ function SetupView({ onStart, onProfile, user, authLoading, games, onEditGame, u
                 onOpenHistory={onOpenHistory}
               />
             )}
-            {user ? (
-              // Profiel is a bottom-bar tab now — this stays a status
-              // indicator, not a second control pointing at the same place.
-              <span className="shrink-0"><ProfileAvatar user={user} /></span>
-            ) : (
+            {!user && (
               <button onClick={onProfile} className="text-sm px-3 py-1.5 rounded-lg font-semibold"
                 style={{ color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
                 Inloggen
@@ -2126,32 +2274,6 @@ function SetupView({ onStart, onProfile, user, authLoading, games, onEditGame, u
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
-
-        {nextMatch && (
-          <section className="rounded-2xl p-6 text-white shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
-            <h2 className="font-display text-xs font-bold uppercase mb-3" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.14em' }}>
-              Volgende wedstrijd
-            </h2>
-            <div className="flex items-center gap-3">
-              <ClubLogo club={nextMatch.club} size={40} />
-              <span className="font-display text-lg font-bold uppercase" style={{ color: 'var(--brand-a8bef0)' }}>
-                {nextMatch.homeAway === 'Thuis' ? 'Thuis' : 'Uit'}
-              </span>
-              <ClubLogo club={matchKnhbClub(nextMatch.opponent)} size={40} />
-            </div>
-            <p className="font-display text-xl font-bold mt-3 leading-tight">
-              {nextMatch.club} {nextMatch.team} <span style={{ color: 'var(--brand-a8bef0)', fontWeight: 400 }}>vs</span> {nextMatch.opponent}
-            </p>
-            <p className="text-sm mt-1" style={{ color: 'var(--brand-a8bef0)' }}>
-              {new Date(nextMatch.date).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })}
-            </p>
-            <button onClick={() => onEditGame(nextMatch)}
-              className="w-full mt-4 py-3 rounded-xl font-display font-bold uppercase tracking-wide text-sm"
-              style={{ background: '#fff', color: 'var(--brand-0d2b7a)' }}>
-              Wedstrijd voorbereiden →
-            </button>
-          </section>
-        )}
 
         {/* Team config */}
         <section className="bg-white rounded-2xl p-6 space-y-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
@@ -3703,13 +3825,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
 
 // ── History View ─────────────────────────────────────────────────────────────
 
-function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
+function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, onCreateMatch, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
   games: SavedGame[]
   user: AuthUser | null
   authLoading: boolean
   onDelete: (id: string) => void
   onEdit: (game: SavedGame) => void
   onProfile: () => void
+  onCreateMatch: () => void
   unreadNotifications: number
   notifications: AppNotification[]
   onMarkRead: (id: string) => void
@@ -3718,6 +3841,7 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, un
   onDeleteNotification: (id: string) => void
 }) {
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [filter, setFilter] = useState<'all' | 'upcoming' | 'played'>('upcoming')
   const getPlayer = (g: SavedGame, id: string) => g.squad.find(p => p.id === id)
 
   // Sum minutes played across every saved match — `games` is already ordered
@@ -3749,6 +3873,7 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, un
   // existing newest-first order.
   const upcomingGames = games.filter(g => g.finalTime === 0).sort((a, b) => a.date.localeCompare(b.date))
   const playedGames = [...games.filter(g => g.finalTime > 0)].reverse()
+  const filteredGames = filter === 'upcoming' ? upcomingGames : filter === 'played' ? playedGames : [...upcomingGames, ...playedGames]
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
@@ -3778,17 +3903,31 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, un
                 onOpenHistory={() => {}}
               />
             )}
-            {user ? (
-              // Profiel is a bottom-bar tab now — this stays a status
-              // indicator, not a second control pointing at the same place.
-              <span className="shrink-0"><ProfileAvatar user={user} /></span>
-            ) : (
+            {!user && (
               <button onClick={onProfile} className="text-sm px-3 py-1.5 rounded-lg font-semibold"
                 style={{ color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
                 Inloggen
               </button>
             )}
           </div>
+        </div>
+        <div className="max-w-2xl mx-auto px-4 pb-3 flex items-center gap-2">
+          <div className="flex gap-1.5 flex-1">
+            {([['all', 'Alles'], ['upcoming', 'Aankomend'], ['played', 'Gespeeld']] as const).map(([key, label]) => (
+              <button key={key} onClick={() => setFilter(key)}
+                className="text-xs font-bold px-3 py-1.5 rounded-full transition-colors"
+                style={filter === key
+                  ? { background: 'var(--brand-1a3fab)', color: '#fff' }
+                  : { background: 'rgba(255,255,255,0.08)', color: 'var(--brand-a8bef0)' }}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <button onClick={onCreateMatch}
+            className="text-xs font-bold px-3 py-1.5 rounded-full shrink-0"
+            style={{ background: '#fff', color: 'var(--brand-0d2b7a)' }}>
+            + Aanmaken
+          </button>
         </div>
       </header>
 
@@ -3826,24 +3965,13 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, un
                 </div>
               </div>
             )}
-            {upcomingGames.length > 0 && (
-              <div>
-                <h2 className="font-display text-sm font-bold uppercase mb-3" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
-                  Aankomende Wedstrijden
-                </h2>
-                <div className="space-y-3">
-                  {upcomingGames.map(renderGame)}
-                </div>
-              </div>
-            )}
-            {playedGames.length > 0 && (
-              <div>
-                <h2 className="font-display text-sm font-bold uppercase mb-3" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
-                  Gespeelde Wedstrijden
-                </h2>
-                <div className="space-y-3">
-                  {playedGames.map(renderGame)}
-                </div>
+            {filteredGames.length === 0 ? (
+              <p className="text-sm text-center py-10" style={{ color: 'var(--brand-a8bef0)' }}>
+                {filter === 'upcoming' ? 'Geen aankomende wedstrijden' : 'Geen gespeelde wedstrijden'}
+              </p>
+            ) : (
+              <div className="bg-white rounded-2xl overflow-hidden shadow-sm divide-y" style={{ border: '1px solid var(--brand-d0dcfa)', borderColor: 'var(--brand-d0dcfa)' }}>
+                {filteredGames.map(renderGame)}
               </div>
             )}
           </div>
@@ -3854,37 +3982,43 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, un
 
   function renderGame(g: SavedGame) {
     return (
-              <div key={g.id} className="bg-white rounded-2xl overflow-hidden shadow-sm"
-                style={{ border: '1px solid var(--brand-d0dcfa)' }}>
-                <button className="w-full text-left px-5 py-4 flex items-center justify-between"
+              <div key={g.id}>
+                <button className="w-full text-left px-5 py-4"
                   onClick={() => setExpanded(expanded === g.id ? null : g.id)}>
-                  <div className="min-w-0">
-                    <div className="font-display text-lg font-bold leading-tight flex items-center flex-wrap gap-x-1.5" style={{ color: 'var(--brand-0d2b7a)' }}>
-                      <ClubLogo club={g.club} size={20} />
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold" style={{ color: 'var(--brand-7b90c8)' }}>
+                      {new Date(g.date).toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' })}
+                    </span>
+                    <span className="text-xs font-bold uppercase" style={{ color: 'var(--brand-a8bef0)' }}>
+                      {g.homeAway === 'Thuis' ? 'Thuis' : 'Uit'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex items-center gap-1.5 flex-wrap font-display text-base font-bold" style={{ color: 'var(--brand-0d2b7a)' }}>
+                      <ClubLogo club={g.club} size={22} />
                       <span>{g.club} {g.team}</span>
-                      <span style={{ color: 'var(--brand-7b90c8)', fontWeight: 400 }}>{g.homeAway === 'Thuis' ? 'Thuis' : 'Uit'}</span>
-                      <ClubLogo club={matchKnhbClub(g.opponent)} size={20} />
+                      <span className="font-normal text-xs" style={{ color: 'var(--brand-a8bef0)' }}>vs</span>
+                      <ClubLogo club={matchKnhbClub(g.opponent)} size={22} />
                       <span>{g.opponent}</span>
                     </div>
-                    <div className="flex flex-wrap gap-3 mt-0.5">
-                      <span className="text-xs font-medium" style={{ color: 'var(--brand-7b90c8)' }}>{g.date}</span>
-                      <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>{ageGroupLabel(g.ageGroup)}</span>
-                      {typeof g.scoreOwn === 'number' && typeof g.scoreOpp === 'number' ? (
-                        <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>{g.scoreOwn} - {g.scoreOpp}</span>
-                      ) : g.result ? (
-                        <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>{g.result}</span>
-                      ) : null}
-                      <span className="text-xs font-mono" style={{ color: 'var(--brand-a8bef0)' }}>{fmtSec(g.finalTime)}</span>
-                      {g.ownerId && user && g.ownerId !== user.id && (
-                        <span className="text-xs font-bold px-1.5 rounded" style={{ color: '#6D28D9', background: '#EDE9FE' }}>
-                          {g.ownerId === 'hockey-one' ? 'Officiële wedstrijd' : 'Gedeeld'} · {g.permission === 'edit' ? 'Bewerken' : 'Bekijken'}
-                        </span>
-                      )}
-                    </div>
+                    <span className="text-xs shrink-0" style={{ color: 'var(--brand-c8d5f5)' }}>
+                      {expanded === g.id ? '▲' : '▼'}
+                    </span>
                   </div>
-                  <span className="text-xs ml-4 shrink-0" style={{ color: 'var(--brand-c8d5f5)' }}>
-                    {expanded === g.id ? '▲' : '▼'}
-                  </span>
+                  <div className="flex flex-wrap gap-3 mt-1.5">
+                    <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>{ageGroupLabel(g.ageGroup)}</span>
+                    {typeof g.scoreOwn === 'number' && typeof g.scoreOpp === 'number' ? (
+                      <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>{g.scoreOwn} - {g.scoreOpp}</span>
+                    ) : g.result ? (
+                      <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>{g.result}</span>
+                    ) : null}
+                    <span className="text-xs font-mono" style={{ color: 'var(--brand-a8bef0)' }}>{fmtSec(g.finalTime)}</span>
+                    {g.ownerId && user && g.ownerId !== user.id && (
+                      <span className="text-xs font-bold px-1.5 rounded" style={{ color: '#6D28D9', background: '#EDE9FE' }}>
+                        {g.ownerId === 'hockey-one' ? 'Officiële wedstrijd' : 'Gedeeld'} · {g.permission === 'edit' ? 'Bewerken' : 'Bekijken'}
+                      </span>
+                    )}
+                  </div>
                 </button>
 
                 {expanded === g.id && (
@@ -5553,7 +5687,7 @@ function BottomBar({ view, user, unreadMessages, onMessages, onOpenHistory, onHo
   return (
     <div className="fixed bottom-0 left-0 right-0 z-30 shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
       <div className="max-w-2xl mx-auto grid grid-cols-4">
-        {tab(view === 'setup', onHome, <IconHome size={20} />, 'Thuis')}
+        {tab(view === 'home', onHome, <IconHome size={20} />, 'Thuis')}
         {tab(view === 'history', onOpenHistory, <IconCalendar size={20} />, 'Wedstrijden')}
         {tab(view === 'messages', onMessages, <IconMail size={20} />, 'Berichten', badge(unreadMessages))}
         {tab(view === 'profile', onProfile, <ProfileAvatar user={user} size={26} />, 'Profiel')}
@@ -5685,11 +5819,6 @@ function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, n
                 onDelete={onDeleteNotification}
                 onOpenHistory={onOpenHistory}
               />
-            )}
-            {!activeId && (
-              // Profiel is a bottom-bar tab now — this stays a status
-              // indicator, not a second control pointing at the same place.
-              <span className="shrink-0"><ProfileAvatar user={user} /></span>
             )}
           </div>
         </div>
@@ -5833,7 +5962,7 @@ export default function App() {
     window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''))
   }
 
-  const [view, setView] = useState<View>('setup')
+  const [view, setView] = useState<View>('home')
   const [gameParams, setGameParams] = useState<GameParams | null>(null)
   const [editingGame, setEditingGame] = useState<SavedGame | null>(null)
   const { user, loading: authLoading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, forgotPassword, resetPassword, logout, updateProfile } = useAuth()
@@ -5856,7 +5985,7 @@ export default function App() {
             unreadMessages={notif.unreadMessages}
             onMessages={() => setView('messages')}
             onOpenHistory={() => setView('history')}
-            onHome={() => setView('setup')}
+            onHome={() => setView('home')}
             onProfile={() => setView('profile')}
           />
         </>
@@ -5924,6 +6053,7 @@ export default function App() {
         onDelete={deleteGame}
         onEdit={startEdit}
         onProfile={() => setView('profile')}
+        onCreateMatch={() => setView('setup')}
         unreadNotifications={notif.unreadNotifications}
         notifications={notif.notifications}
         onMarkRead={notif.markRead}
@@ -5954,18 +6084,34 @@ export default function App() {
         initial={editingGame ?? undefined}
         user={user}
         onSave={g => { if (games.some(x => x.id === g.id)) updateGame(g); else addGame(g) }}
-        onBack={() => { setEditingGame(null); setView('setup') }}
+        onBack={() => { setEditingGame(null); setView('home') }}
       />
     )
-  return withBottomBar(
-    <>
+  if (view === 'setup')
+    return withBottomBar(
       <SetupView
         onStart={p => { setEditingGame(null); setGameParams(p); setView('game') }}
         onProfile={() => setView('profile')}
         user={user}
         authLoading={authLoading}
+        unreadNotifications={notif.unreadNotifications}
+        notifications={notif.notifications}
+        onMarkRead={notif.markRead}
+        onMarkAllRead={notif.markAllRead}
+        onMarkUnread={notif.markUnread}
+        onDeleteNotification={notif.remove}
+        onOpenHistory={() => setView('history')}
+      />
+    )
+  return withBottomBar(
+    <>
+      <HomeView
+        user={user}
+        authLoading={authLoading}
         games={games}
         onEditGame={startEdit}
+        onCreateMatch={() => setView('setup')}
+        onProfile={() => setView('profile')}
         unreadNotifications={notif.unreadNotifications}
         notifications={notif.notifications}
         onMarkRead={notif.markRead}
