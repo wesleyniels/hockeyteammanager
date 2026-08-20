@@ -4349,7 +4349,7 @@ function TeamPlayerPhotos({ team, canEditPhotos, canAddPlayer, canManageRoster }
   )
 }
 
-function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword, onResendVerification, onForgotPassword, onLogout, onHistory, onUpdateProfile, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
+function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword, onResendVerification, onForgotPassword, onLogout, onBack, onHistory, onUpdateProfile, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
   user: AuthUser | null
   loading: boolean
   onCredential: (credential: string) => void
@@ -4358,6 +4358,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   onResendVerification: (email: string) => Promise<void>
   onForgotPassword: (email: string) => Promise<{ ok: true } | { ok: false; error: string }>
   onLogout: () => void
+  onBack: () => void
   onHistory: () => void
   onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => Promise<{ ok: true } | { ok: false; error: string }>
   unreadNotifications: number
@@ -4527,6 +4528,14 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                 onDelete={onDeleteNotification}
                 onOpenHistory={onHistory}
               />
+            )}
+            {/* Logged-out visitors have no bottom bar at all (it only shows
+                once signed in) — without this, landing here (e.g. via the
+                "Log in" link in Team setup) was a dead end. */}
+            {!user && (
+              <button onClick={onBack} className="text-sm font-semibold" style={{ color: 'var(--brand-7b9de0)' }}>
+                ← Terug
+              </button>
             )}
           </div>
         </div>
@@ -6006,6 +6015,7 @@ export default function App() {
         onResendVerification={resendVerification}
         onForgotPassword={forgotPassword}
         onLogout={logout}
+        onBack={() => setView('home')}
         onHistory={() => setView('history')}
         onUpdateProfile={updateProfile}
         unreadNotifications={notif.unreadNotifications}
