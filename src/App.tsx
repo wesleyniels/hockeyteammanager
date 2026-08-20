@@ -978,6 +978,63 @@ function HockeyBallIcon({ size = 13 }: { size?: number }) {
   )
 }
 
+// ── Nav icons ────────────────────────────────────────────────────────────────
+// A small hand-rolled set (same pattern as HockeyBallIcon above — plain inline
+// SVG, no icon-library dependency) used only for navigation chrome (bottom
+// bar, notification bell). Stroke-based on currentColor so active/inactive
+// tinting is just a CSS color change, not a second asset per state.
+
+function IconHome({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 11.5 12 4l9 7.5" />
+      <path d="M5.5 10v9a1 1 0 0 0 1 1H9a1 1 0 0 0 1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 0 1 1h2.5a1 1 0 0 0 1-1v-9" />
+    </svg>
+  )
+}
+
+function IconCalendar({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3.5" y="5" width="17" height="15.5" rx="2" />
+      <path d="M3.5 9.5h17" />
+      <path d="M8 3v4M16 3v4" />
+    </svg>
+  )
+}
+
+function IconMail({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="5.5" width="18" height="13" rx="2" />
+      <path d="M3.5 6.5 12 13l8.5-6.5" />
+    </svg>
+  )
+}
+
+function IconBell({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 10a6 6 0 0 1 12 0c0 3.2 1 4.8 1.6 5.6a.8.8 0 0 1-.6 1.4H5a.8.8 0 0 1-.6-1.4C5 14.8 6 13.2 6 10Z" />
+      <path d="M10 19.5a2 2 0 0 0 4 0" />
+    </svg>
+  )
+}
+
+// Avatar shown for the signed-in user (photo, or initials-on-brand-blue
+// fallback) — the same markup used to be duplicated across every header;
+// factored out here since it's now also used in BottomBar's Profiel tab.
+function ProfileAvatar({ user, size = 32 }: { user: AuthUser; size?: number }) {
+  return user.picture ? (
+    <img src={user.picture} alt="Profiel" width={size} height={size} className="rounded-full" style={{ width: size, height: size }} referrerPolicy="no-referrer" />
+  ) : (
+    <span className="rounded-full flex items-center justify-center font-bold text-white shrink-0"
+      style={{ width: size, height: size, fontSize: size * 0.35, background: 'var(--brand-1a3fab)' }}>
+      {initials(user.name ?? user.email)}
+    </span>
+  )
+}
+
 // ── Field Hockey Field SVG (standard portrait) ───────────────────────────────
 // viewBox="0 0 62 97" — field lines from y=4.5 to y=92.5, goals at y=0-4.5 and y=92.5-97
 
@@ -1816,8 +1873,8 @@ function NotificationBell({ unreadNotifications, notifications, onMarkRead, onMa
 
   return (
     <div className="relative">
-      <button onClick={() => setOpen(o => !o)} className="relative w-8 h-8 flex items-center justify-center text-lg" aria-label="Meldingen">
-        🔔
+      <button onClick={() => setOpen(o => !o)} className="relative w-8 h-8 flex items-center justify-center" style={{ color: 'var(--brand-a8bef0)' }} aria-label="Meldingen">
+        <IconBell />
         {unreadNotifications > 0 && (
           <span className="absolute -top-1 -right-1 text-[10px] font-bold rounded-full px-1.5 py-0.5 text-white leading-tight" style={{ background: '#DC2626' }}>
             {unreadNotifications > 9 ? '9+' : unreadNotifications}
@@ -1871,11 +1928,13 @@ function NotificationBell({ unreadNotifications, notifications, onMarkRead, onMa
 
 // ── Setup View ───────────────────────────────────────────────────────────────
 
-function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification, onOpenHistory }: {
+function SetupView({ onStart, onProfile, user, authLoading, games, onEditGame, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification, onOpenHistory }: {
   onStart: (p: GameParams) => void
   onProfile: () => void
   user: AuthUser | null
   authLoading: boolean
+  games: SavedGame[]
+  onEditGame: (g: SavedGame) => void
   unreadNotifications: number
   notifications: AppNotification[]
   onMarkRead: (id: string) => void
@@ -2012,7 +2071,11 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
   const teamFull = user ? team : [team, teamSuffix.trim()].filter(Boolean).join('-')
   const canStart = club && team && (opponent || opponentTeamFull)
 
-  const inputStyle = { border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }
+  // Same "not yet played" signal HistoryView's upcoming-matches list uses —
+  // the clock hasn't run yet, regardless of whether a squad's already built.
+  const nextMatch = [...games].filter(g => g.finalTime === 0).sort((a, b) => a.date.localeCompare(b.date))[0] ?? null
+
+  const inputStyle = { border: '2px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }
 
   if (showFormationEditor) {
     return <FormationEditorView ageGroup={ageGroup} onBack={() => setShowFormationEditor(false)} />
@@ -2048,29 +2111,47 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
                 onOpenHistory={onOpenHistory}
               />
             )}
-            <button onClick={onProfile}
-              className={user ? 'rounded-full' : 'text-sm px-3 py-1.5 rounded-lg font-semibold'}
-              style={user
-                ? {}
-                : { color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
-              {user ? (
-                user.picture ? (
-                  <img src={user.picture} alt="Profiel" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
-                ) : (
-                  <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                    style={{ background: 'var(--brand-1a3fab)' }}>
-                    {initials(user.name ?? user.email)}
-                  </span>
-                )
-              ) : (
-                'Inloggen'
-              )}
-            </button>
+            {user ? (
+              // Profiel is a bottom-bar tab now — this stays a status
+              // indicator, not a second control pointing at the same place.
+              <span className="shrink-0"><ProfileAvatar user={user} /></span>
+            ) : (
+              <button onClick={onProfile} className="text-sm px-3 py-1.5 rounded-lg font-semibold"
+                style={{ color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
+                Inloggen
+              </button>
+            )}
           </div>
         </div>
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
+
+        {nextMatch && (
+          <section className="rounded-2xl p-6 text-white shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
+            <h2 className="font-display text-xs font-bold uppercase mb-3" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.14em' }}>
+              Volgende wedstrijd
+            </h2>
+            <div className="flex items-center gap-3">
+              <ClubLogo club={nextMatch.club} size={40} />
+              <span className="font-display text-lg font-bold uppercase" style={{ color: 'var(--brand-a8bef0)' }}>
+                {nextMatch.homeAway === 'Thuis' ? 'Thuis' : 'Uit'}
+              </span>
+              <ClubLogo club={matchKnhbClub(nextMatch.opponent)} size={40} />
+            </div>
+            <p className="font-display text-xl font-bold mt-3 leading-tight">
+              {nextMatch.club} {nextMatch.team} <span style={{ color: 'var(--brand-a8bef0)', fontWeight: 400 }}>vs</span> {nextMatch.opponent}
+            </p>
+            <p className="text-sm mt-1" style={{ color: 'var(--brand-a8bef0)' }}>
+              {new Date(nextMatch.date).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })}
+            </p>
+            <button onClick={() => onEditGame(nextMatch)}
+              className="w-full mt-4 py-3 rounded-xl font-display font-bold uppercase tracking-wide text-sm"
+              style={{ background: '#fff', color: 'var(--brand-0d2b7a)' }}>
+              Wedstrijd voorbereiden →
+            </button>
+          </section>
+        )}
 
         {/* Team config */}
         <section className="bg-white rounded-2xl p-6 space-y-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
@@ -3697,24 +3778,16 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, un
                 onOpenHistory={() => {}}
               />
             )}
-            <button onClick={onProfile}
-              className={user ? 'rounded-full' : 'text-sm px-3 py-1.5 rounded-lg font-semibold'}
-              style={user
-                ? {}
-                : { color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
-              {user ? (
-                user.picture ? (
-                  <img src={user.picture} alt="Profiel" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
-                ) : (
-                  <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                    style={{ background: 'var(--brand-1a3fab)' }}>
-                    {initials(user.name ?? user.email)}
-                  </span>
-                )
-              ) : (
-                'Inloggen'
-              )}
-            </button>
+            {user ? (
+              // Profiel is a bottom-bar tab now — this stays a status
+              // indicator, not a second control pointing at the same place.
+              <span className="shrink-0"><ProfileAvatar user={user} /></span>
+            ) : (
+              <button onClick={onProfile} className="text-sm px-3 py-1.5 rounded-lg font-semibold"
+                style={{ color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
+                Inloggen
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -4347,16 +4420,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
               />
             )}
             {user && (
-              <span className="rounded-full shrink-0">
-                {user.picture ? (
-                  <img src={user.picture} alt="Profiel" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
-                ) : (
-                  <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                    style={{ background: 'var(--brand-1a3fab)' }}>
-                    {initials(user.name ?? user.email)}
-                  </span>
-                )}
-              </span>
+              <span className="rounded-full shrink-0"><ProfileAvatar user={user} /></span>
             )}
           </div>
         </div>
@@ -5453,13 +5517,16 @@ function SplashScreen({ onContinue }: { onContinue: () => void }) {
 // Persistent across every logged-in view except the live match (GameView
 // wants the full screen). Messages navigates to its own full view since
 // threads need real space; Meldingen lives in the main page's topbar instead
-// (see NotificationBell) since there's only room for three destinations here.
+// (see NotificationBell) since there's only room for four destinations here.
 
-function BottomBar({ unreadMessages, onMessages, onOpenHistory, onHome }: {
+function BottomBar({ view, user, unreadMessages, onMessages, onOpenHistory, onHome, onProfile }: {
+  view: View
+  user: AuthUser
   unreadMessages: number
   onMessages: () => void
   onOpenHistory: () => void
   onHome: () => void
+  onProfile: () => void
 }) {
   const badge = (n: number) => n > 0 && (
     <span className="absolute -top-1.5 -right-2.5 text-[10px] font-bold rounded-full px-1.5 py-0.5 text-white leading-tight" style={{ background: '#DC2626' }}>
@@ -5467,21 +5534,29 @@ function BottomBar({ unreadMessages, onMessages, onOpenHistory, onHome }: {
     </span>
   )
 
+  // Icon-over-label tabs with a filled pill behind the active icon — the old
+  // row of plain text+emoji buttons gave no sense of "where am I", which read
+  // as flat/unfinished next to the rest of the app's active/inactive styling
+  // (e.g. the Thuis/Uit toggle already uses this same filled-pill language).
+  const tab = (active: boolean, onClick: () => void, icon: React.ReactNode, label: string, badgeEl?: React.ReactNode) => (
+    <button onClick={onClick} className="flex flex-col items-center justify-center gap-1 py-2.5 text-[11px] font-bold"
+      style={{ color: active ? '#fff' : 'var(--brand-7b9de0)' }}>
+      <span className="relative w-9 h-7 rounded-full flex items-center justify-center transition-colors"
+        style={{ background: active ? 'var(--brand-1a3fab)' : 'transparent' }}>
+        {icon}
+        {badgeEl}
+      </span>
+      {label}
+    </button>
+  )
+
   return (
     <div className="fixed bottom-0 left-0 right-0 z-30 shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
-      <div className="max-w-2xl mx-auto grid grid-cols-3">
-        <button onClick={onHome} className="flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-white">
-          <span className="relative text-base">🏠</span>
-          Thuis
-        </button>
-        <button onClick={onOpenHistory} className="flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-white" style={{ borderLeft: '1px solid rgba(255,255,255,0.12)' }}>
-          <span className="relative text-base">🏑</span>
-          Wedstrijden
-        </button>
-        <button onClick={onMessages} className="flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-white" style={{ borderLeft: '1px solid rgba(255,255,255,0.12)' }}>
-          <span className="relative text-base">✉️{badge(unreadMessages)}</span>
-          Berichten
-        </button>
+      <div className="max-w-2xl mx-auto grid grid-cols-4">
+        {tab(view === 'setup', onHome, <IconHome size={20} />, 'Thuis')}
+        {tab(view === 'history', onOpenHistory, <IconCalendar size={20} />, 'Wedstrijden')}
+        {tab(view === 'messages', onMessages, <IconMail size={20} />, 'Berichten', badge(unreadMessages))}
+        {tab(view === 'profile', onProfile, <ProfileAvatar user={user} size={26} />, 'Profiel')}
       </div>
     </div>
   )
@@ -5612,16 +5687,9 @@ function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, n
               />
             )}
             {!activeId && (
-              <button onClick={onProfile} className="rounded-full shrink-0">
-                {user.picture ? (
-                  <img src={user.picture} alt="Profiel" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
-                ) : (
-                  <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                    style={{ background: 'var(--brand-1a3fab)' }}>
-                    {initials(user.name ?? user.email)}
-                  </span>
-                )}
-              </button>
+              // Profiel is a bottom-bar tab now — this stays a status
+              // indicator, not a second control pointing at the same place.
+              <span className="shrink-0"><ProfileAvatar user={user} /></span>
             )}
           </div>
         </div>
@@ -5783,10 +5851,13 @@ export default function App() {
         <>
           <div style={{ height: 64 }} />
           <BottomBar
+            view={view}
+            user={user!}
             unreadMessages={notif.unreadMessages}
             onMessages={() => setView('messages')}
             onOpenHistory={() => setView('history')}
             onHome={() => setView('setup')}
+            onProfile={() => setView('profile')}
           />
         </>
       )}
@@ -5893,6 +5964,8 @@ export default function App() {
         onProfile={() => setView('profile')}
         user={user}
         authLoading={authLoading}
+        games={games}
+        onEditGame={startEdit}
         unreadNotifications={notif.unreadNotifications}
         notifications={notif.notifications}
         onMarkRead={notif.markRead}
