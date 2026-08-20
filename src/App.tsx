@@ -1443,9 +1443,15 @@ function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, 
 function ReadOnlyFieldView({ ageGroup, slots, squad }: { ageGroup: AgeGroup; slots: PositionSlot[]; squad: Player[] }) {
   const isDual = ageGroup === 'U7' || ageGroup === 'U8'
   const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
+  // Width-driven sizing (never an explicit height) so the aspect-ratio always
+  // resolves cleanly: capped at 100% of the card so it never overflows a
+  // narrow phone, and at 60dvh-worth-of-width so a tall pitch never runs off
+  // the bottom of a short screen (landscape phone, small laptop window, etc).
+  const ratio = isDual ? 140 / 97 : 62 / 97
 
   return (
-    <div className="relative w-full" style={{ aspectRatio: isDual ? '140/97' : '62/97', maxHeight: '100%' }}>
+    <div className="flex justify-center">
+      <div className="relative" style={{ width: `min(100%, calc(60dvh * ${ratio}))`, aspectRatio: isDual ? '140/97' : '62/97' }}>
       {isDual ? <DualFieldSVG /> : <FieldSVG />}
 
       {slots.map(slot => {
@@ -1489,6 +1495,7 @@ function ReadOnlyFieldView({ ageGroup, slots, squad }: { ageGroup: AgeGroup; slo
           </div>
         )
       })}
+      </div>
     </div>
   )
 }
@@ -4283,34 +4290,25 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, on
 }
 
 // ── Match Detail View (Stats / Line-up / Timeline / Match) ──────────────────
-// Opened from HomeView's "Laatste resultaat" card. Only scoreOwn/scoreOpp is
-// genuinely bilateral data — subs and cards are only ever recorded for the
-// tracked team, so their bars show a real own-team number against a visibly
-// untracked opponent side rather than a fabricated comparison.
+// Opened from HomeView's "Laatste resultaat" card. Subs/cards are only ever
+// recorded for the tracked team (there's no opponent roster), so their
+// opponent side is shown as 0 rather than a real comparison.
 
-function StatBar({ label, own, opp, tracked }: { label: string; own: number; opp: number | null; tracked: boolean }) {
-  const total = tracked ? Math.max(own + (opp ?? 0), 1) : Math.max(own, 1)
-  const ownPct = tracked ? (own / total) * 100 : 100
-  const oppPct = tracked ? ((opp ?? 0) / total) * 100 : 0
+function StatBar({ label, own, opp }: { label: string; own: number; opp: number }) {
+  const total = Math.max(own + opp, 1)
+  const ownPct = (own / total) * 100
+  const oppPct = (opp / total) * 100
 
   return (
     <div>
       <div className="flex items-center justify-between text-sm font-bold mb-1.5">
         <span style={{ color: 'var(--brand-1a3fab)' }}>{own}</span>
         <span className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>{label}</span>
-        {tracked ? (
-          <span style={{ color: 'var(--brand-7b90c8)' }}>{opp}</span>
-        ) : (
-          <span className="text-[10px] font-semibold uppercase" style={{ color: 'var(--brand-a8bef0)' }}>Niet bijgehouden</span>
-        )}
+        <span style={{ color: 'var(--brand-7b90c8)' }}>{opp}</span>
       </div>
       <div className="flex w-full h-2.5 rounded-full overflow-hidden" style={{ background: 'var(--brand-eef3ff)' }}>
         <div style={{ width: `${ownPct}%`, background: 'var(--brand-1a3fab)' }} />
-        {tracked ? (
-          <div style={{ width: `${oppPct}%`, background: 'var(--brand-a8bef0)' }} />
-        ) : (
-          <div className="flex-1" style={{ background: 'repeating-linear-gradient(135deg, var(--brand-d0dcfa), var(--brand-d0dcfa) 4px, transparent 4px, transparent 8px)' }} />
-        )}
+        <div style={{ width: `${oppPct}%`, background: 'var(--brand-a8bef0)' }} />
       </div>
     </div>
   )
@@ -4332,9 +4330,9 @@ function MatchStats({ game }: { game: SavedGame }) {
       </div>
 
       <div className="space-y-4">
-        <StatBar label="Doelpunten" own={game.scoreOwn} opp={game.scoreOpp} tracked />
-        <StatBar label="Wissels" own={game.subs.length} opp={null} tracked={false} />
-        <StatBar label="Kaarten" own={game.cards.length} opp={null} tracked={false} />
+        <StatBar label="Doelpunten" own={game.scoreOwn} opp={game.scoreOpp} />
+        <StatBar label="Wissels" own={game.subs.length} opp={0} />
+        <StatBar label="Kaarten" own={game.cards.length} opp={0} />
       </div>
     </div>
   )
@@ -4411,10 +4409,9 @@ function MatchTimeline({ game, getPlayer }: { game: SavedGame; getPlayer: (id: s
   )
 }
 
-function MatchDetailView({ game, user, onBack, onEdit, onDelete }: {
+function MatchDetailView({ game, user, onEdit, onDelete }: {
   game: SavedGame
   user: AuthUser | null
-  onBack: () => void
   onEdit: (game: SavedGame) => void
   onDelete: (id: string) => void
 }) {
@@ -4427,23 +4424,17 @@ function MatchDetailView({ game, user, onBack, onEdit, onDelete }: {
   return (
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
-        <div className="max-w-2xl mx-auto px-4 py-3">
-          <button onClick={onBack} className="text-sm font-semibold mb-2" style={{ color: 'var(--brand-7b9de0)' }}>
-            ← Terug
-          </button>
-          <div className="flex items-center justify-center gap-3">
-            <ClubLogo club={game.club} size={36} />
-            <div className="text-center min-w-0">
-              <p className="font-display text-base font-bold truncate">
-                {game.club} {game.team} <span style={{ color: 'var(--brand-a8bef0)', fontWeight: 400 }}>vs</span> {game.opponent}
-              </p>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--brand-a8bef0)' }}>
-                {new Date(game.date).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })} · {game.homeAway === 'Thuis' ? 'Thuis' : 'Uit'}
-              </p>
-            </div>
-            <ClubLogo club={matchKnhbClub(game.opponent)} size={36} />
+        <div className="max-w-2xl mx-auto px-4 py-2 flex items-center justify-center gap-2.5">
+          <ClubLogo club={game.club} size={26} />
+          <div className="text-center min-w-0">
+            <p className="font-display text-sm font-bold truncate">
+              {game.club} {game.team} <span style={{ color: 'var(--brand-a8bef0)', fontWeight: 400 }}>vs</span> {game.opponent}
+            </p>
+            <p className="text-[11px] leading-tight" style={{ color: 'var(--brand-a8bef0)' }}>
+              {new Date(game.date).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })} · {game.homeAway === 'Thuis' ? 'Thuis' : 'Uit'} · {game.scoreOwn} - {game.scoreOpp}
+            </p>
           </div>
-          <p className="text-center font-display text-2xl font-bold mt-1">{game.scoreOwn} - {game.scoreOpp}</p>
+          <ClubLogo club={matchKnhbClub(game.opponent)} size={26} />
         </div>
       </header>
 
@@ -6410,7 +6401,6 @@ export default function App() {
       <MatchDetailView
         game={selectedGame}
         user={user}
-        onBack={() => setView('home')}
         onEdit={startEdit}
         onDelete={deleteGame}
       />
