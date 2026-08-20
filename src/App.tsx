@@ -1445,13 +1445,15 @@ function ReadOnlyFieldView({ ageGroup, slots, squad }: { ageGroup: AgeGroup; slo
   const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
   // Width-driven sizing (never an explicit height) so the aspect-ratio always
   // resolves cleanly: capped at 100% of the card so it never overflows a
-  // narrow phone, and at 60dvh-worth-of-width so a tall pitch never runs off
-  // the bottom of a short screen (landscape phone, small laptop window, etc).
+  // narrow phone, and at (100dvh - chrome)-worth-of-width so the field fills
+  // the space between the header and the local tab bar without needing to
+  // scroll, on any screen size. 260px approximates the header + tab-bar +
+  // card/page padding that isn't available to the field itself.
   const ratio = isDual ? 140 / 97 : 62 / 97
 
   return (
     <div className="flex justify-center">
-      <div className="relative" style={{ width: `min(100%, calc(60dvh * ${ratio}))`, aspectRatio: isDual ? '140/97' : '62/97' }}>
+      <div className="relative" style={{ width: `min(100%, calc((100dvh - 260px) * ${ratio}))`, aspectRatio: isDual ? '140/97' : '62/97' }}>
       {isDual ? <DualFieldSVG /> : <FieldSVG />}
 
       {slots.map(slot => {
@@ -2442,8 +2444,15 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
           </div>
           <div>
             <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Datum</label>
-            <input type="date" className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle}
-              value={matchDate} onChange={e => setMatchDate(e.target.value)} />
+            {/* Native date-picker controls can render wider than the CSS box on
+                some mobile browsers (their internal segments/icon ignore
+                width:100%) — clipping on this wrapper, with the input itself
+                borderless/transparent, keeps the visible box the same size as
+                every other field regardless of that native overflow. */}
+            <div className="w-full rounded-xl overflow-hidden" style={inputStyle}>
+              <input type="date" className="w-full block px-3 py-2.5 text-sm bg-transparent border-0 outline-none"
+                value={matchDate} onChange={e => setMatchDate(e.target.value)} />
+            </div>
           </div>
         </section>
 
@@ -4341,69 +4350,121 @@ function MatchStats({ game }: { game: SavedGame }) {
 function MatchTimeline({ game, getPlayer }: { game: SavedGame; getPlayer: (id: string) => Player | undefined }) {
   const timed: { time: number; node: React.ReactNode }[] = []
   const untimed: React.ReactNode[] = []
-  const row = "flex items-center gap-2 text-xs py-2.5"
-  const rowStyle = { borderBottom: '1px solid var(--brand-eef3ff)' }
+  const untimedRow = "flex items-center gap-2 text-xs py-2"
+  const untimedRowStyle = { borderBottom: '1px solid var(--brand-eef3ff)' }
+
+  const timePill = (time: number) => (
+    <span className="relative z-10 shrink-0 text-[11px] font-bold font-mono px-2 py-1 rounded-full text-white"
+      style={{ background: 'var(--brand-1a3fab)' }}>
+      {fmtSec(time)}
+    </span>
+  )
+
+  // Every tracked goal/card/sub belongs to our own squad — there's no
+  // opponent roster to attribute events to — so the whole timeline renders
+  // on our side of the center spine; the opponent column stays empty rather
+  // than showing fabricated events.
+  const ownRow = (key: string, time: number, content: React.ReactNode) => (
+    <div key={key} className="grid grid-cols-[1fr_auto_1fr] items-start gap-3 py-2">
+      <div className="text-right">{content}</div>
+      {timePill(time)}
+      <div />
+    </div>
+  )
 
   game.subs.forEach((s, i) => {
     const pIn = getPlayer(s.playerInId)
     const pOut = getPlayer(s.playerOutId)
     timed.push({
       time: s.gameTimeSec,
-      node: (
-        <div key={`sub-${i}`} className={row} style={rowStyle}>
-          <span className="font-mono font-bold w-10 shrink-0" style={{ color: 'var(--brand-7b90c8)' }}>{fmtSec(s.gameTimeSec)}</span>
-          {s.posLabel && (
-            <span className="text-xs font-bold px-1.5 rounded shrink-0" style={{ color: 'var(--brand-1a3fab)', background: 'var(--brand-e4ecfe)' }}>{s.posLabel}</span>
-          )}
-          <span className="font-semibold" style={{ color: '#16A34A' }}>↑ {pIn?.name}</span>
-          <span className="font-semibold" style={{ color: '#DC2626' }}>↓ {pOut?.name}</span>
+      node: ownRow(`sub-${i}`, s.gameTimeSec, (
+        <div className="text-xs">
+          {s.posLabel && <div className="font-bold mb-0.5" style={{ color: 'var(--brand-1a3fab)' }}>{s.posLabel}</div>}
+          <div className="font-semibold" style={{ color: '#16A34A' }}>↑ {pIn?.name}</div>
+          <div className="font-semibold" style={{ color: '#DC2626' }}>↓ {pOut?.name}</div>
         </div>
-      ),
+      )),
     })
   })
 
   game.goals.forEach(g => {
     const p = getPlayer(g.playerId)
-    const node = (
-      <div key={`goal-${g.id}`} className={row} style={rowStyle}>
-        {g.gameTimeSec != null && <span className="font-mono font-bold w-10 shrink-0" style={{ color: 'var(--brand-7b90c8)' }}>{fmtSec(g.gameTimeSec)}</span>}
-        <span className="font-semibold flex items-center gap-1" style={{ color: 'var(--brand-1a2f6b)' }}>
-          <HockeyBallIcon /> {p?.name ?? 'Onbekende speler'}
-        </span>
-      </div>
+    const content = (
+      <span className="text-xs font-semibold inline-flex items-center justify-end gap-1" style={{ color: 'var(--brand-1a2f6b)' }}>
+        {p?.name ?? 'Onbekende speler'} <HockeyBallIcon />
+      </span>
     )
-    if (g.gameTimeSec != null) timed.push({ time: g.gameTimeSec, node }); else untimed.push(node)
+    if (g.gameTimeSec != null) {
+      timed.push({ time: g.gameTimeSec, node: ownRow(`goal-${g.id}`, g.gameTimeSec, content) })
+    } else {
+      untimed.push(
+        <div key={`goal-${g.id}`} className={untimedRow} style={untimedRowStyle}>
+          <HockeyBallIcon /> {p?.name ?? 'Onbekende speler'}
+        </div>
+      )
+    }
   })
 
   game.cards.forEach(c => {
     const p = getPlayer(c.playerId)
-    const node = (
-      <div key={`card-${c.id}`} className={row} style={rowStyle}>
-        {c.gameTimeSec != null && <span className="font-mono font-bold w-10 shrink-0" style={{ color: 'var(--brand-7b90c8)' }}>{fmtSec(c.gameTimeSec)}</span>}
-        <span className="inline-block w-3 h-4 rounded-sm shrink-0"
-          style={{ background: c.color === 'green' ? '#16A34A' : c.color === 'yellow' ? '#EAB308' : '#DC2626' }} />
-        <span className="font-semibold" style={{ color: 'var(--brand-1a2f6b)' }}>{p?.name ?? 'Onbekende speler'}</span>
-      </div>
+    const swatch = (
+      <span className="inline-block w-3 h-4 rounded-sm shrink-0"
+        style={{ background: c.color === 'green' ? '#16A34A' : c.color === 'yellow' ? '#EAB308' : '#DC2626' }} />
     )
-    if (c.gameTimeSec != null) timed.push({ time: c.gameTimeSec, node }); else untimed.push(node)
+    const content = (
+      <span className="text-xs font-semibold inline-flex items-center justify-end gap-1.5" style={{ color: 'var(--brand-1a2f6b)' }}>
+        {p?.name ?? 'Onbekende speler'} {swatch}
+      </span>
+    )
+    if (c.gameTimeSec != null) {
+      timed.push({ time: c.gameTimeSec, node: ownRow(`card-${c.id}`, c.gameTimeSec, content) })
+    } else {
+      untimed.push(
+        <div key={`card-${c.id}`} className={untimedRow} style={untimedRowStyle}>
+          {swatch} {p?.name ?? 'Onbekende speler'}
+        </div>
+      )
+    }
   })
 
   timed.sort((a, b) => a.time - b.time)
 
-  if (timed.length === 0 && untimed.length === 0) {
-    return <p className="text-sm text-center py-10" style={{ color: 'var(--brand-a8bef0)' }}>Geen gebeurtenissen vastgelegd</p>
-  }
-
   return (
     <div>
-      {timed.length > 0 && <div>{timed.map(t => t.node)}</div>}
-      {untimed.length > 0 && (
-        <div className="mt-4">
-          <h4 className="font-display text-sm font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)' }}>
-            Overig (geen tijd vastgelegd)
-          </h4>
-          {untimed}
+      {/* Crests + score, left/right of the center line — establishes the
+          two-sided split even when one side (the opponent) has no events. */}
+      <div className="flex items-center justify-between mb-4 pb-3" style={{ borderBottom: '1px solid var(--brand-eef3ff)' }}>
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <ClubLogo club={game.club} size={28} />
+          <span className="text-xs font-bold uppercase truncate" style={{ color: 'var(--brand-1a2f6b)' }}>{game.club} {game.team}</span>
         </div>
+        <span className="text-sm font-display font-bold shrink-0 px-2" style={{ color: 'var(--brand-1a3fab)' }}>{game.scoreOwn} - {game.scoreOpp}</span>
+        <div className="flex items-center gap-2 min-w-0 flex-1 justify-end">
+          <span className="text-xs font-bold uppercase truncate" style={{ color: 'var(--brand-a8bef0)' }}>{game.opponent}</span>
+          <ClubLogo club={matchKnhbClub(game.opponent)} size={28} />
+        </div>
+      </div>
+
+      {timed.length === 0 && untimed.length === 0 ? (
+        <p className="text-sm text-center py-10" style={{ color: 'var(--brand-a8bef0)' }}>Geen gebeurtenissen vastgelegd</p>
+      ) : (
+        <>
+          {timed.length > 0 && (
+            <div className="relative">
+              <div className="absolute left-1/2 top-0 bottom-0 w-px" style={{ background: 'var(--brand-d0dcfa)' }} />
+              {timed.map(t => t.node)}
+            </div>
+          )}
+
+          {untimed.length > 0 && (
+            <div className="mt-4">
+              <h4 className="font-display text-sm font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)' }}>
+                Overig (geen tijd vastgelegd)
+              </h4>
+              {untimed}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
@@ -4424,17 +4485,17 @@ function MatchDetailView({ game, user, onEdit, onDelete }: {
   return (
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
-        <div className="max-w-2xl mx-auto px-4 py-2 flex items-center justify-center gap-2.5">
-          <ClubLogo club={game.club} size={26} />
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-center gap-3">
+          <ClubLogo club={game.club} size={32} />
           <div className="text-center min-w-0">
-            <p className="font-display text-sm font-bold truncate">
+            <p className="font-display text-base font-bold truncate">
               {game.club} {game.team} <span style={{ color: 'var(--brand-a8bef0)', fontWeight: 400 }}>vs</span> {game.opponent}
             </p>
-            <p className="text-[11px] leading-tight" style={{ color: 'var(--brand-a8bef0)' }}>
+            <p className="text-xs leading-tight mt-0.5" style={{ color: 'var(--brand-a8bef0)' }}>
               {new Date(game.date).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })} · {game.homeAway === 'Thuis' ? 'Thuis' : 'Uit'} · {game.scoreOwn} - {game.scoreOpp}
             </p>
           </div>
-          <ClubLogo club={matchKnhbClub(game.opponent)} size={26} />
+          <ClubLogo club={matchKnhbClub(game.opponent)} size={32} />
         </div>
       </header>
 
@@ -4457,7 +4518,7 @@ function MatchDetailView({ game, user, onEdit, onDelete }: {
               onEdit={onEdit} onDelete={onDelete} />
           </div>
         )}
-        <div style={{ height: 128 }} />
+        <div style={{ height: tab === 'lineup' ? 16 : 128 }} />
       </div>
 
       <div className="fixed bottom-16 left-0 right-0 z-20 shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
