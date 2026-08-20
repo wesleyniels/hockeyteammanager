@@ -131,6 +131,7 @@ interface GameParams {
   opponent: string
   homeAway: 'Thuis' | 'Uit'
   squad: Player[]
+  date?: string
 }
 
 // ── KNHB Clubs ───────────────────────────────────────────────────────────────
@@ -1892,6 +1893,7 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
   const [opponentTeam, setOpponentTeam] = useState('')
   const [opponentTeamSuffix, setOpponentTeamSuffix] = useState('')
   const [homeAway, setHomeAway] = useState<'Thuis' | 'Uit'>('Thuis')
+  const [matchDate, setMatchDate] = useState(() => todayStr())
   const [squad, setSquad] = useLS<Player[]>('fh_squad', [])
   const [newName, setNewName] = useState('')
   const [editId, setEditId] = useState<string | null>(null)
@@ -2149,6 +2151,11 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
               </button>
             ))}
           </div>
+          <div>
+            <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Datum</label>
+            <input type="date" className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle}
+              value={matchDate} onChange={e => setMatchDate(e.target.value)} />
+          </div>
         </section>
 
         {/* Squad */}
@@ -2209,7 +2216,7 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
 
         <button
           disabled={!canStart}
-          onClick={() => onStart({ club, team: teamFull, ageGroup, opponent: [opponent, opponentTeamFull].filter(Boolean).join(' '), homeAway, squad })}
+          onClick={() => onStart({ club, team: teamFull, ageGroup, opponent: [opponent, opponentTeamFull].filter(Boolean).join(' '), homeAway, squad, date: matchDate })}
           className="w-full py-4 rounded-2xl font-display text-xl font-bold uppercase tracking-widest text-white shadow-lg"
           style={{ background: canStart ? 'var(--brand-1a3fab)' : 'var(--brand-b8c8f0)', cursor: canStart ? 'pointer' : 'not-allowed' }}>
           Wedstrijd starten →
@@ -2265,7 +2272,7 @@ function reassignSlotsForVariant(oldSlots: PositionSlot[], ageGroup: AgeGroup, v
   return { slots, benched }
 }
 
-function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, user, onSave, onBack }: GameParams & {
+function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initial, user, onSave, onBack }: GameParams & {
   initial?: SavedGame
   user: AuthUser | null
   onSave: (g: SavedGame) => void
@@ -2281,7 +2288,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, initial, us
   // undefined, which would have inserted a new row per autosave tick instead
   // of updating the same one.
   const [gameId] = useState(() => initial?.id ?? uid())
-  const [gameDate] = useState(() => initial?.date ?? todayStr())
+  const [gameDate] = useState(() => initial?.date ?? date ?? todayStr())
 
   const formationVariants = getFormationVariants(ageGroup)
   const [variantId, setVariantId] = useState(() => findVariantForSlots(ageGroup, initial?.slots).id)
@@ -3654,6 +3661,14 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, un
   const canManageSharing = !!expandedGame && (expandedGame.ownerId ?? user?.id) === user?.id
   const { shares, addShare, removeShare } = useGameShares(canManageSharing ? expanded : null)
 
+  // A game is "played" once its clock has actually run — seeded fixtures and
+  // freshly-scheduled manual matches start at finalTime 0 (even if a squad's
+  // already been built for them), so that's a more reliable signal than the
+  // date alone. Upcoming matches sort soonest-first; played ones keep the
+  // existing newest-first order.
+  const upcomingGames = games.filter(g => g.finalTime === 0).sort((a, b) => a.date.localeCompare(b.date))
+  const playedGames = [...games.filter(g => g.finalTime > 0)].reverse()
+
   return (
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
@@ -3738,7 +3753,34 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, un
                 </div>
               </div>
             )}
-            {[...games].reverse().map(g => (
+            {upcomingGames.length > 0 && (
+              <div>
+                <h2 className="font-display text-sm font-bold uppercase mb-3" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
+                  Aankomende Wedstrijden
+                </h2>
+                <div className="space-y-3">
+                  {upcomingGames.map(renderGame)}
+                </div>
+              </div>
+            )}
+            {playedGames.length > 0 && (
+              <div>
+                <h2 className="font-display text-sm font-bold uppercase mb-3" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
+                  Gespeelde Wedstrijden
+                </h2>
+                <div className="space-y-3">
+                  {playedGames.map(renderGame)}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+
+  function renderGame(g: SavedGame) {
+    return (
               <div key={g.id} className="bg-white rounded-2xl overflow-hidden shadow-sm"
                 style={{ border: '1px solid var(--brand-d0dcfa)' }}>
                 <button className="w-full text-left px-5 py-4 flex items-center justify-between"
@@ -3920,12 +3962,8 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, un
                   </div>
                 )}
               </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  )
+    )
+  }
 }
 
 // ── Profile View ─────────────────────────────────────────────────────────────
@@ -4129,7 +4167,7 @@ function TeamPlayerPhotos({ team, canEditPhotos, canAddPlayer, canManageRoster }
   )
 }
 
-function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword, onResendVerification, onForgotPassword, onLogout, onHistory, onMessages, gameCount, onUpdateProfile, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
+function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword, onResendVerification, onForgotPassword, onLogout, onHistory, onUpdateProfile, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
   user: AuthUser | null
   loading: boolean
   onCredential: (credential: string) => void
@@ -4139,8 +4177,6 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   onForgotPassword: (email: string) => Promise<{ ok: true } | { ok: false; error: string }>
   onLogout: () => void
   onHistory: () => void
-  onMessages: () => void
-  gameCount: number
   onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => Promise<{ ok: true } | { ok: false; error: string }>
   unreadNotifications: number
   notifications: AppNotification[]
@@ -4424,15 +4460,6 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                 </button>
                 {saved && <span className="text-sm font-semibold" style={{ color: '#16A34A' }}>Opgeslagen!</span>}
                 {detailsError && <span className="text-sm font-semibold" style={{ color: '#DC2626' }}>{detailsError}</span>}
-              </div>
-
-              <div className="flex items-center gap-4">
-                <button onClick={onHistory} className="text-sm font-medium hover:underline" style={{ color: 'var(--brand-1a3fab)' }}>
-                  {gameCount} opgeslagen wedstrijd{gameCount !== 1 ? 'en' : ''} →
-                </button>
-                <button onClick={onMessages} className="text-sm font-medium hover:underline" style={{ color: 'var(--brand-1a3fab)' }}>
-                  Berichtencentrum →
-                </button>
               </div>
             </div>
           ) : (
@@ -5808,8 +5835,6 @@ export default function App() {
         onForgotPassword={forgotPassword}
         onLogout={logout}
         onHistory={() => setView('history')}
-        onMessages={() => setView('messages')}
-        gameCount={games.length}
         onUpdateProfile={updateProfile}
         unreadNotifications={notif.unreadNotifications}
         notifications={notif.notifications}
