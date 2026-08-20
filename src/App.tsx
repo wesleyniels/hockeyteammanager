@@ -4,7 +4,7 @@ import { upload as uploadToBlob } from '@vercel/blob/client'
 // ── Types ───────────────────────────────────────────────────────────────────
 
 type AgeGroup = 'U7' | 'U8' | 'U9' | 'U10' | 'U11' | 'U12' | 'U14' | 'U16' | 'U18' | 'Senioren'
-type View = 'home' | 'setup' | 'game' | 'history' | 'profile' | 'messages' | 'matchDetail'
+type View = 'home' | 'setup' | 'game' | 'history' | 'profile' | 'messages' | 'matchDetail' | 'team' | 'playerProfile'
 
 interface Player {
   id: string
@@ -667,7 +667,7 @@ function extractDominantHue(imgSrc: string): Promise<number | null> {
 // rather than a client-bundled constant — a player's Blob photo lives at
 // players/{playerId}/photo.jpg and its URL is stored on the team_players row,
 // so a roster fetch returns everything needed in one call.
-interface RosterPlayer { id: string; name: string; photoUrl: string | null }
+interface RosterPlayer { id: string; name: string; photoUrl: string | null; position: string | null }
 
 async function fetchTeamNames(): Promise<string[]> {
   try {
@@ -1014,6 +1014,17 @@ function IconMail({ size = 22 }: { size?: number }) {
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="5.5" width="18" height="13" rx="2" />
       <path d="M3.5 6.5 12 13l8.5-6.5" />
+    </svg>
+  )
+}
+
+function IconUsers({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="9" cy="8" r="3.2" />
+      <path d="M3.5 20v-1.5a4.5 4.5 0 0 1 4.5-4.5h2a4.5 4.5 0 0 1 4.5 4.5V20" />
+      <circle cx="17" cy="8.5" r="2.4" />
+      <path d="M15.8 13.6A4 4 0 0 1 20.5 17.4V19" />
     </svg>
   )
 }
@@ -4553,7 +4564,7 @@ function MatchDetailView({ game, user, onEdit, onDelete }: {
 // whenever one is loaded, so changes made here show up in matches
 // automatically.
 
-function TeamPlayerPhotos({ team, canEditPhotos, canAddPlayer, canManageRoster }: { team: string; canEditPhotos: boolean; canAddPlayer: boolean; canManageRoster: boolean }) {
+function TeamPlayerPhotos({ team, canEditPhotos, canAddPlayer, canManageRoster, onSelectPlayer }: { team: string; canEditPhotos: boolean; canAddPlayer: boolean; canManageRoster: boolean; onSelectPlayer?: (id: string) => void }) {
   const [players, setPlayers] = useState<RosterPlayer[]>([])
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -4628,7 +4639,7 @@ function TeamPlayerPhotos({ team, canEditPhotos, canAddPlayer, canManageRoster }
       })
       if (!res.ok) throw new Error()
       const player = await res.json() as { id: string; name: string }
-      setPlayers(ps => [...ps, { id: player.id, name: player.name, photoUrl: null }])
+      setPlayers(ps => [...ps, { id: player.id, name: player.name, photoUrl: null, position: null }])
       setNewName('')
     } catch {
       setError('Kon speler niet toevoegen.')
@@ -4714,11 +4725,19 @@ function TeamPlayerPhotos({ team, canEditPhotos, canAddPlayer, canManageRoster }
                     value={editName} onChange={e => setEditName(e.target.value)}
                     onBlur={() => saveRename(p.id)}
                     onKeyDown={e => { if (e.key === 'Enter') saveRename(p.id); if (e.key === 'Escape') setEditId(null) }} />
+                ) : onSelectPlayer ? (
+                  <button className="flex-1 min-w-0 text-left" onClick={() => onSelectPlayer(p.id)}>
+                    <span className="text-sm font-semibold truncate block" style={{ color: 'var(--brand-1a2f6b)' }}>{p.name}</span>
+                    {p.position && <span className="text-xs truncate block" style={{ color: 'var(--brand-7b90c8)' }}>{p.position}</span>}
+                  </button>
                 ) : (
                   <span className="flex-1 text-sm font-semibold truncate" style={{ color: 'var(--brand-1a2f6b)', cursor: canManageRoster ? 'pointer' : 'default' }}
                     onClick={() => { if (canManageRoster) { setEditId(p.id); setEditName(p.name) } }}>
                     {p.name}
                   </span>
+                )}
+                {onSelectPlayer && canManageRoster && !busy && (
+                  <button onClick={() => { setEditId(p.id); setEditName(p.name) }} className="text-xs shrink-0" style={{ color: 'var(--brand-a8bef0)' }} title="Naam wijzigen">✎</button>
                 )}
                 {canEditPhotos && p.photoUrl && !busy && (
                   <button onClick={() => removePhoto(p.id, p.name)} className="font-bold text-sm" style={{ color: '#DC2626' }} title="Foto verwijderen">×</button>
@@ -4738,6 +4757,248 @@ function TeamPlayerPhotos({ team, canEditPhotos, canAddPlayer, canManageRoster }
             placeholder="Naam nieuwe speler"
             onKeyDown={e => e.key === 'Enter' && addPlayer()} />
           <button onClick={addPlayer} className="px-4 py-2 rounded-xl font-bold text-white text-lg" style={{ background: 'var(--brand-1a3fab)' }}>+</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Team View ─────────────────────────────────────────────────────────────────
+// Roster overview, relocated out of Profiel so it's its own bottom-nav
+// destination — tapping a player opens their profile/stats page.
+
+function TeamView({ user, onProfile, onSelectPlayer, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
+  user: AuthUser | null
+  onProfile: () => void
+  onSelectPlayer: (id: string) => void
+  unreadNotifications: number
+  notifications: AppNotification[]
+  onMarkRead: (id: string) => void
+  onMarkAllRead: () => void
+  onMarkUnread: (id: string) => void
+  onDeleteNotification: (id: string) => void
+}) {
+  const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL
+  // Coach/Trainer/Trainer & Coach/Manager can add a player to their own team
+  // and edit a player's photo — renaming or removing a player entirely is
+  // beheerder-only (see TeamPlayerPhotos' canManageRoster below). Same rule
+  // ProfileView used to compute before this section moved here.
+  const isRosterStaff = user?.role === 'Coach' || user?.role === 'Trainer' || user?.role === 'Trainer & Coach' || user?.role === 'Manager'
+
+  return (
+    <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
+      <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
+        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
+          <div className="flex items-center gap-3 justify-self-start">
+            {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
+            <div>
+              <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
+                {user?.defaultClub ?? 'Hockey One'}
+              </p>
+              <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
+                {user?.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
+              </p>
+            </div>
+          </div>
+          <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">TEAM</h1>
+          <div className="flex items-center gap-2 justify-self-end">
+            {user && (
+              <NotificationBell
+                unreadNotifications={unreadNotifications}
+                notifications={notifications}
+                onMarkRead={onMarkRead}
+                onMarkAllRead={onMarkAllRead}
+                onMarkUnread={onMarkUnread}
+                onDelete={onDeleteNotification}
+                onOpenHistory={() => {}}
+              />
+            )}
+            {!user && (
+              <button onClick={onProfile} className="text-sm px-3 py-1.5 rounded-lg font-semibold"
+                style={{ color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
+                Inloggen
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-2xl mx-auto px-4 py-8">
+        {!user ? (
+          <div className="text-center py-20">
+            <div className="text-5xl mb-4">🔒</div>
+            <p className="font-display text-xl font-bold uppercase mb-3" style={{ color: 'var(--brand-a8bef0)' }}>Log in om je team te zien</p>
+            <button onClick={onProfile}
+              className="px-4 py-2.5 rounded-xl font-bold text-sm text-white"
+              style={{ background: 'var(--brand-1a3fab)' }}>
+              Naar profiel →
+            </button>
+          </div>
+        ) : !user.defaultTeam ? (
+          <p className="text-sm text-center py-20" style={{ color: 'var(--brand-a8bef0)' }}>Stel eerst een team in via je profiel.</p>
+        ) : (
+          <div className="bg-white rounded-2xl p-6 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-1" style={{ color: 'var(--brand-0d2b7a)' }}>
+              Spelers — {user.defaultTeam}
+            </h2>
+            <p className="text-xs mb-4" style={{ color: 'var(--brand-7b90c8)' }}>
+              Tik op een speler voor hun profiel en statistieken.
+            </p>
+            <TeamPlayerPhotos team={user.defaultTeam}
+              canEditPhotos={isRosterStaff}
+              canAddPlayer={isRosterStaff}
+              canManageRoster={isAdmin}
+              onSelectPlayer={onSelectPlayer} />
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Player Profile View ──────────────────────────────────────────────────────
+// Stats are derived by reducing over the same `games` array Wedstrijden
+// already loads — no new fetch for match history. Only name/photo/position
+// come from a roster fetch, the same way TeamPlayerPhotos already does it.
+
+function PlayerProfileView({ playerId, team, games, user, onBack }: {
+  playerId: string
+  team: string
+  games: SavedGame[]
+  user: AuthUser | null
+  onBack: () => void
+}) {
+  const [players, setPlayers] = useState<RosterPlayer[] | null>(null)
+  const [savingPosition, setSavingPosition] = useState(false)
+  const [editingPosition, setEditingPosition] = useState(false)
+  const [positionDraft, setPositionDraft] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    fetchTeamRoster(team).then(p => { if (!cancelled) setPlayers(p) })
+    return () => { cancelled = true }
+  }, [team])
+
+  const player = players?.find(p => p.id === playerId) ?? null
+
+  const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL
+  const isRosterStaff = user?.role === 'Coach' || user?.role === 'Trainer' || user?.role === 'Trainer & Coach' || user?.role === 'Manager'
+  const canEditPosition = isAdmin || (isRosterStaff && (user?.defaultTeam ?? '').toLowerCase() === team.toLowerCase())
+
+  const savePosition = async () => {
+    const position = positionDraft.trim()
+    setSavingPosition(true)
+    try {
+      const res = await fetch('/api/teams/set-player-position', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: playerId, position }),
+      })
+      if (res.ok) setPlayers(ps => ps ? ps.map(p => p.id === playerId ? { ...p, position: position || null } : p) : ps)
+    } finally {
+      setSavingPosition(false)
+      setEditingPosition(false)
+    }
+  }
+
+  // "Matches" = games where the player actually got game time, not merely
+  // squad membership — a bench-only appearance shouldn't count as a match.
+  const playerGames = games.filter(g => ((g.playedSeconds ?? {})[playerId] ?? 0) > 0)
+  const totalGoals = games.reduce((n, g) => n + (g.goals ?? []).filter(x => x.playerId === playerId).length, 0)
+  const totalCards = games.reduce((n, g) => n + (g.cards ?? []).filter(x => x.playerId === playerId).length, 0)
+  // "Amount of subs" = every time this player was part of a substitution,
+  // coming on or going off — there's no separate "assist" concept tracked
+  // anywhere in the app to attribute more precisely than that.
+  const totalSubs = games.reduce((n, g) => n + (g.subs ?? []).filter(s => s.playerInId === playerId || s.playerOutId === playerId).length, 0)
+  const totalPlaytimeSec = games.reduce((n, g) => n + ((g.playedSeconds ?? {})[playerId] ?? 0), 0)
+  const lastGameWithPlaytime = [...playerGames].sort((a, b) => b.date.localeCompare(a.date))[0] ?? null
+  const secLastGame = lastGameWithPlaytime ? ((lastGameWithPlaytime.playedSeconds ?? {})[playerId] ?? 0) : 0
+  const last5 = [...playerGames].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5).reverse()
+  const maxLast5Minutes = Math.max(...last5.map(g => Math.round(((g.playedSeconds ?? {})[playerId] ?? 0) / 60)), 1)
+
+  const stat = (label: string, value: React.ReactNode) => (
+    <div>
+      <p className="text-xs font-semibold" style={{ color: 'var(--brand-7b90c8)' }}>{label}</p>
+      <p className="font-display text-2xl font-bold" style={{ color: 'var(--brand-0d2b7a)' }}>{value}</p>
+    </div>
+  )
+
+  return (
+    <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
+      <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
+        <div className="max-w-2xl mx-auto px-4 py-3">
+          <button onClick={onBack} className="text-sm font-semibold" style={{ color: 'var(--brand-7b9de0)' }}>
+            ← Terug
+          </button>
+        </div>
+      </header>
+
+      {!player ? (
+        <p className="text-sm text-center py-20" style={{ color: 'var(--brand-a8bef0)' }}>
+          {players === null ? 'Laden…' : 'Speler niet gevonden.'}
+        </p>
+      ) : (
+        <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
+          <div className="flex flex-col items-center text-center">
+            {player.photoUrl ? (
+              <img src={mediaSrc(player.photoUrl)} alt={player.name} className="w-24 h-24 rounded-full object-cover" />
+            ) : (
+              <div className="w-24 h-24 rounded-full flex items-center justify-center text-white font-bold text-2xl" style={{ background: 'var(--brand-1a3fab)' }}>
+                {initials(player.name)}
+              </div>
+            )}
+            <h1 className="font-display text-2xl font-bold mt-3" style={{ color: 'var(--brand-0d2b7a)' }}>{player.name}</h1>
+            {editingPosition ? (
+              <input autoFocus className="text-sm text-center mt-1 rounded-lg px-2 py-1 w-full max-w-xs"
+                style={{ border: '1.5px solid var(--brand-d0dcfa)' }}
+                value={positionDraft} onChange={e => setPositionDraft(e.target.value)}
+                placeholder="bijv. Middenvelder, Verdediger"
+                onBlur={savePosition}
+                onKeyDown={e => { if (e.key === 'Enter') savePosition(); if (e.key === 'Escape') setEditingPosition(false) }} />
+            ) : (
+              <button onClick={() => { if (canEditPosition) { setPositionDraft(player.position ?? ''); setEditingPosition(true) } }}
+                className="text-sm mt-1"
+                style={{ color: player.position ? 'var(--brand-7b90c8)' : 'var(--brand-a8bef0)', cursor: canEditPosition ? 'pointer' : 'default' }}>
+                {savingPosition ? 'Opslaan…' : player.position || (canEditPosition ? 'Positie instellen →' : 'Positie niet ingesteld')}
+              </button>
+            )}
+          </div>
+
+          <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <h2 className="font-display text-sm font-bold uppercase mb-4" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
+              Seizoensoverzicht
+            </h2>
+            <div className="grid grid-cols-3 gap-4">
+              {stat('Wedstrijden', playerGames.length)}
+              {stat('Doelpunten', totalGoals)}
+              {stat('Totale speeltijd', fmtHM(totalPlaytimeSec))}
+              {stat('Min. laatste wedstrijd', Math.round(secLastGame / 60))}
+              {stat('Kaarten', totalCards)}
+              {stat('Aantal wissels', totalSubs)}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <h2 className="font-display text-sm font-bold uppercase mb-4" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
+              Minuten gespeeld — laatste 5 wedstrijden
+            </h2>
+            {last5.length === 0 ? (
+              <p className="text-sm" style={{ color: 'var(--brand-a8bef0)' }}>Nog geen speeltijd geregistreerd.</p>
+            ) : (
+              <div className="flex items-end justify-between gap-2" style={{ height: 96 }}>
+                {last5.map(g => {
+                  const minutes = Math.round(((g.playedSeconds ?? {})[playerId] ?? 0) / 60)
+                  const heightPct = Math.max((minutes / maxLast5Minutes) * 100, 4)
+                  return (
+                    <div key={g.id} className="flex-1 flex flex-col items-center justify-end h-full">
+                      <div className="w-full rounded-t-md" style={{ height: `${heightPct}%`, background: 'var(--brand-1a3fab)' }} />
+                      <span className="text-xs font-bold mt-1" style={{ color: 'var(--brand-7b90c8)' }}>{minutes}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -4830,10 +5091,6 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   }
 
   const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL
-  // Coach/Trainer/Trainer & Coach/Manager can add a player to their own team
-  // and edit a player's photo — renaming or removing a player entirely is
-  // beheerder-only (see TeamPlayerPhotos' canManageRoster below).
-  const isRosterStaff = user?.role === 'Coach' || user?.role === 'Trainer' || user?.role === 'Trainer & Coach' || user?.role === 'Manager'
   const { users: adminUsers, loading: adminLoading, error: adminError, deleteUser, setAdmin } = useAdminUsers(isAdmin)
   const { teams: adminTeams, loading: adminTeamsLoading, error: adminTeamsError, createTeam, renameTeam, deleteTeam } = useAdminTeams(isAdmin)
   const [newTeamName, setNewTeamName] = useState('')
@@ -5053,21 +5310,6 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
             </div>
           )}
         </section>
-
-        {user && user.defaultTeam && (
-          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
-            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-1" style={{ color: 'var(--brand-0d2b7a)' }}>
-              Spelers — {user.defaultTeam}
-            </h2>
-            <p className="text-xs mb-4" style={{ color: 'var(--brand-7b90c8)' }}>
-              Foto's per speler verschijnen tijdens wedstrijden op het veld en de bank.
-            </p>
-            <TeamPlayerPhotos team={user.defaultTeam}
-              canEditPhotos={isRosterStaff}
-              canAddPlayer={isRosterStaff}
-              canManageRoster={isAdmin} />
-          </section>
-        )}
 
         {isAdmin && (
           <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
@@ -6029,7 +6271,7 @@ function SplashScreen({ onContinue }: { onContinue: () => void }) {
 // threads need real space; Meldingen lives in the main page's topbar instead
 // (see NotificationBell) since there's only room for four destinations here.
 
-function BottomBar({ view, user, unreadMessages, onMessages, onOpenHistory, onHome, onProfile }: {
+function BottomBar({ view, user, unreadMessages, onMessages, onOpenHistory, onHome, onProfile, onTeam }: {
   view: View
   user: AuthUser
   unreadMessages: number
@@ -6037,6 +6279,7 @@ function BottomBar({ view, user, unreadMessages, onMessages, onOpenHistory, onHo
   onOpenHistory: () => void
   onHome: () => void
   onProfile: () => void
+  onTeam: () => void
 }) {
   const badge = (n: number) => n > 0 && (
     <span className="absolute -top-1.5 -right-2.5 text-[10px] font-bold rounded-full px-1.5 py-0.5 text-white leading-tight" style={{ background: '#DC2626' }}>
@@ -6062,9 +6305,10 @@ function BottomBar({ view, user, unreadMessages, onMessages, onOpenHistory, onHo
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-30 shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
-      <div className="max-w-2xl mx-auto grid grid-cols-4">
+      <div className="max-w-2xl mx-auto grid grid-cols-5">
         {tab(view === 'home', onHome, <IconHome size={20} />, 'Thuis')}
         {tab(view === 'history', onOpenHistory, <IconCalendar size={20} />, 'Wedstrijden')}
+        {tab(view === 'team', onTeam, <IconUsers size={20} />, 'Team')}
         {tab(view === 'messages', onMessages, <IconMail size={20} />, 'Berichten', badge(unreadMessages))}
         {tab(view === 'profile', onProfile, <ProfileAvatar user={user} size={26} />, 'Profiel')}
       </div>
@@ -6342,6 +6586,7 @@ export default function App() {
   const [gameParams, setGameParams] = useState<GameParams | null>(null)
   const [editingGame, setEditingGame] = useState<SavedGame | null>(null)
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null)
+  const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null)
   const { user, loading: authLoading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, forgotPassword, resetPassword, logout, updateProfile } = useAuth()
   const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user, user?.defaultTeam ?? null)
   const notif = useNotificationCenter(!!user)
@@ -6364,6 +6609,7 @@ export default function App() {
             onOpenHistory={() => setView('history')}
             onHome={() => setView('home')}
             onProfile={() => setView('profile')}
+            onTeam={() => setView('team')}
           />
         </>
       )}
@@ -6464,6 +6710,32 @@ export default function App() {
         user={user}
         onEdit={startEdit}
         onDelete={deleteGame}
+      />
+    )
+  }
+  if (view === 'team')
+    return withBottomBar(
+      <TeamView
+        user={user}
+        onProfile={() => setView('profile')}
+        onSelectPlayer={id => { setSelectedPlayerId(id); setView('playerProfile') }}
+        unreadNotifications={notif.unreadNotifications}
+        notifications={notif.notifications}
+        onMarkRead={notif.markRead}
+        onMarkAllRead={notif.markAllRead}
+        onMarkUnread={notif.markUnread}
+        onDeleteNotification={notif.remove}
+      />
+    )
+  if (view === 'playerProfile') {
+    if (!selectedPlayerId || !user?.defaultTeam) { setView('team'); return null }
+    return withBottomBar(
+      <PlayerProfileView
+        playerId={selectedPlayerId}
+        team={user.defaultTeam}
+        games={games}
+        user={user}
+        onBack={() => setView('team')}
       />
     )
   }

@@ -43,12 +43,12 @@ async function handleRoster(req: VercelRequest, res: VercelResponse) {
   const team = typeof req.query.team === 'string' ? req.query.team : ''
   if (!team) { res.status(400).json({ error: 'Missing team' }); return }
   const rows = await sql`
-    SELECT tp.id, tp.name, tp.photo_url FROM team_players tp
+    SELECT tp.id, tp.name, tp.photo_url, tp.position FROM team_players tp
     JOIN teams t ON t.id = tp.team_id
     WHERE lower(t.name) = lower(${team})
     ORDER BY tp.sort_order, tp.name
   `
-  res.status(200).json({ players: rows.map(r => ({ id: r.id, name: r.name, photoUrl: r.photo_url })) })
+  res.status(200).json({ players: rows.map(r => ({ id: r.id, name: r.name, photoUrl: r.photo_url, position: r.position })) })
 }
 
 async function handleAddPlayer(req: VercelRequest, res: VercelResponse, user: SessionUser) {
@@ -101,6 +101,19 @@ async function handleSetPlayerPhoto(req: VercelRequest, res: VercelResponse, use
   if (!id || !url) { res.status(400).json({ error: 'Missing id or url' }); return }
   if (!(await isPhotoEditorForPlayer(user, id)) && !(await isAdmin(user))) { res.status(403).json({ error: 'Forbidden' }); return }
   await sql`UPDATE team_players SET photo_url = ${url} WHERE id = ${id}`
+  res.status(200).json({ ok: true })
+}
+
+// Free text, editable by the same roster-staff-of-this-player's-team-or-admin
+// rule as the photo — coaches/trainers/managers requested this specifically
+// so a player with more than one favorite position isn't forced into one.
+async function handleSetPlayerPosition(req: VercelRequest, res: VercelResponse, user: SessionUser) {
+  if (req.method !== 'PATCH') { res.status(405).json({ error: 'Method not allowed' }); return }
+  const id = String(req.body?.id ?? '')
+  if (!id) { res.status(400).json({ error: 'Missing id' }); return }
+  const position = String(req.body?.position ?? '').trim() || null
+  if (!(await isPhotoEditorForPlayer(user, id)) && !(await isAdmin(user))) { res.status(403).json({ error: 'Forbidden' }); return }
+  await sql`UPDATE team_players SET position = ${position} WHERE id = ${id}`
   res.status(200).json({ ok: true })
 }
 
@@ -168,6 +181,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     case 'rename-player': return handleRenamePlayer(req, res, user)
     case 'remove-player': return handleRemovePlayer(req, res, user)
     case 'set-player-photo': return handleSetPlayerPhoto(req, res, user)
+    case 'set-player-position': return handleSetPlayerPosition(req, res, user)
     case 'remove-player-photo': return handleRemovePlayerPhoto(req, res, user)
     case 'create-team': return handleCreateTeam(req, res, user)
     case 'rename-team': return handleRenameTeam(req, res, user)

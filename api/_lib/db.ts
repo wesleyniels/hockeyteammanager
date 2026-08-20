@@ -225,6 +225,10 @@ export function ensureSchema() {
       )
     `
     await sql`CREATE INDEX IF NOT EXISTS team_players_team_idx ON team_players (team_id)`
+    // Free text, not a fixed set of position codes — a player can list more
+    // than one favorite position (e.g. "Middenvelder, Verdediger"), which a
+    // single-select or a single point on a formation doesn't accommodate.
+    await sql`ALTER TABLE team_players ADD COLUMN IF NOT EXISTS position TEXT`
     // Reference-only lookup ("is this name really a trainer/coach/manager of
     // this team") used to gate self-selecting an elevated Rol in Profile —
     // see team-staff.ts and team-staff-roster.ts. Not linked to `users` at
