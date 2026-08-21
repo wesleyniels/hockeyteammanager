@@ -4,7 +4,7 @@ import { upload as uploadToBlob } from '@vercel/blob/client'
 // ── Types ───────────────────────────────────────────────────────────────────
 
 type AgeGroup = 'U7' | 'U8' | 'U9' | 'U10' | 'U11' | 'U12' | 'U14' | 'U16' | 'U18' | 'Senioren'
-type View = 'setup' | 'game' | 'history' | 'profile' | 'messages'
+type View = 'home' | 'setup' | 'game' | 'history' | 'profile' | 'messages' | 'matchDetail' | 'team' | 'playerProfile' | 'staffProfile'
 
 interface Player {
   id: string
@@ -45,12 +45,18 @@ interface OppMarker {
 interface Goal {
   id: string
   playerId: string
+  // Match-clock time the goal was recorded at. Optional because it was only
+  // ever added once the Timeline tab needed a time to sort by — matches
+  // saved before that show up without one (see MatchTimeline).
+  gameTimeSec?: number
 }
 
 interface Card {
   id: string
   playerId: string
   color: 'green' | 'yellow' | 'red'
+  // See Goal.gameTimeSec.
+  gameTimeSec?: number
 }
 
 interface MediaItem {
@@ -661,7 +667,7 @@ function extractDominantHue(imgSrc: string): Promise<number | null> {
 // rather than a client-bundled constant — a player's Blob photo lives at
 // players/{playerId}/photo.jpg and its URL is stored on the team_players row,
 // so a roster fetch returns everything needed in one call.
-interface RosterPlayer { id: string; name: string; photoUrl: string | null }
+interface RosterPlayer { id: string; name: string; photoUrl: string | null; position: string | null }
 
 async function fetchTeamNames(): Promise<string[]> {
   try {
@@ -696,6 +702,22 @@ async function fetchTeamRoster(team: string): Promise<RosterPlayer[]> {
     if (!res.ok) return []
     const { players } = await res.json() as { players: RosterPlayer[] }
     return players
+  } catch {
+    return []
+  }
+}
+
+// Coaches/trainers/managers of a team — real accounts (users.role +
+// users.default_team), not team_players rows. No email included; this is a
+// broadly-viewable list, unlike the messaging contact picker.
+interface TeamStaffMember { id: string; name: string | null; firstName: string | null; lastName: string | null; picture: string | null; role: string | null }
+
+async function fetchTeamStaff(team: string): Promise<TeamStaffMember[]> {
+  try {
+    const res = await fetch(`/api/teams/staff?team=${encodeURIComponent(team)}`)
+    if (!res.ok) return []
+    const { staff } = await res.json() as { staff: TeamStaffMember[] }
+    return staff
   } catch {
     return []
   }
@@ -939,15 +961,6 @@ function benchColor(sec: number) {
   return '#DC2626'
 }
 
-// ── SC Muiden Logo ───────────────────────────────────────────────────────────
-
-function SCMuidenLogo({ size = 48 }: { size?: number }) {
-  return (
-    <img src="/sc-muiden-logo.webp" alt="SC Muiden" width={size} height={size}
-      style={{ width: size, height: size, objectFit: 'contain' }} />
-  )
-}
-
 function H1Logo({ height = 28 }: { height?: number }) {
   return <img src="/h1-logo.png" alt="Hockey One" style={{ height, width: 'auto' }} />
 }
@@ -978,6 +991,183 @@ function HockeyBallIcon({ size = 13 }: { size?: number }) {
   )
 }
 
+// ── Nav icons ────────────────────────────────────────────────────────────────
+// A small hand-rolled set (same pattern as HockeyBallIcon above — plain inline
+// SVG, no icon-library dependency) used only for navigation chrome (bottom
+// bar, notification bell). Stroke-based on currentColor so active/inactive
+// tinting is just a CSS color change, not a second asset per state.
+
+function IconHome({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 11.5 12 4l9 7.5" />
+      <path d="M5.5 10v9a1 1 0 0 0 1 1H9a1 1 0 0 0 1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 0 1 1h2.5a1 1 0 0 0 1-1v-9" />
+    </svg>
+  )
+}
+
+function IconCalendar({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3.5" y="5" width="17" height="15.5" rx="2" />
+      <path d="M3.5 9.5h17" />
+      <path d="M8 3v4M16 3v4" />
+    </svg>
+  )
+}
+
+function IconMail({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="5.5" width="18" height="13" rx="2" />
+      <path d="M3.5 6.5 12 13l8.5-6.5" />
+    </svg>
+  )
+}
+
+function IconUsers({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="9" cy="8" r="3.2" />
+      <path d="M3.5 20v-1.5a4.5 4.5 0 0 1 4.5-4.5h2a4.5 4.5 0 0 1 4.5 4.5V20" />
+      <circle cx="17" cy="8.5" r="2.4" />
+      <path d="M15.8 13.6A4 4 0 0 1 20.5 17.4V19" />
+    </svg>
+  )
+}
+
+function IconClock({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3.5 2" />
+    </svg>
+  )
+}
+
+function IconChevronLeft({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M15 5 8 12l7 7" />
+    </svg>
+  )
+}
+
+function IconChevronRight({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 5l7 7-7 7" />
+    </svg>
+  )
+}
+
+function IconMore({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <circle cx="5" cy="12" r="2" />
+      <circle cx="12" cy="12" r="2" />
+      <circle cx="19" cy="12" r="2" />
+    </svg>
+  )
+}
+
+function IconUndo({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 10h9a5 5 0 0 1 0 10h-3" />
+      <path d="M8 6 4 10l4 4" />
+    </svg>
+  )
+}
+
+function IconPlay({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M7 5v14l12-7z" />
+    </svg>
+  )
+}
+
+function IconPause({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <rect x="6" y="5" width="4" height="14" rx="1" />
+      <rect x="14" y="5" width="4" height="14" rx="1" />
+    </svg>
+  )
+}
+
+function IconPitch({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3.5" y="4" width="17" height="16" rx="1.5" />
+      <path d="M3.5 12h17" />
+      <circle cx="12" cy="12" r="2.5" />
+    </svg>
+  )
+}
+
+function IconSwap({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 8h13l-3-3" />
+      <path d="M20 16H7l3 3" />
+    </svg>
+  )
+}
+
+function IconGoal({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 4v14M20 4v14M4 4h16" strokeWidth={2} />
+      <path d="M4 9h16M4 14h16M9 4v14M15 4v14" opacity={0.55} />
+    </svg>
+  )
+}
+
+function IconTactics({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3.5" y="4" width="17" height="16" rx="1.5" />
+      <path d="M9.5 10 14.5 14" strokeDasharray="1.8 1.8" />
+      <circle cx="8.5" cy="9" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="15" r="1.4" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
+function IconCamera({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z" />
+      <circle cx="12" cy="13" r="3.2" />
+    </svg>
+  )
+}
+
+function IconBell({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 10a6 6 0 0 1 12 0c0 3.2 1 4.8 1.6 5.6a.8.8 0 0 1-.6 1.4H5a.8.8 0 0 1-.6-1.4C5 14.8 6 13.2 6 10Z" />
+      <path d="M10 19.5a2 2 0 0 0 4 0" />
+    </svg>
+  )
+}
+
+// Avatar shown for the signed-in user (photo, or initials-on-brand-blue
+// fallback) — the same markup used to be duplicated across every header;
+// factored out here since it's now also used in BottomBar's Profiel tab.
+function ProfileAvatar({ user, size = 32 }: { user: AuthUser; size?: number }) {
+  return user.picture ? (
+    <img src={user.picture} alt="Profiel" width={size} height={size} className="rounded-full" style={{ width: size, height: size }} referrerPolicy="no-referrer" />
+  ) : (
+    <span className="rounded-full flex items-center justify-center font-bold text-white shrink-0"
+      style={{ width: size, height: size, fontSize: size * 0.35, background: 'var(--brand-1a3fab)' }}>
+      {initials(user.name ?? user.email)}
+    </span>
+  )
+}
+
 // ── Field Hockey Field SVG (standard portrait) ───────────────────────────────
 // viewBox="0 0 62 97" — field lines from y=4.5 to y=92.5, goals at y=0-4.5 and y=92.5-97
 
@@ -999,7 +1189,7 @@ function FieldSVG({ half }: { half?: 'top' | 'bottom' } = {}) {
 
   const stripes = Array.from({ length: 14 }, (_, i) => (
     <rect key={i} x="0" y={i * 6.93} width="62" height="6.93"
-      fill={i % 2 === 0 ? '#1C6B38' : '#217040'} />
+      fill={i % 2 === 0 ? 'url(#turfA)' : 'url(#turfB)'} />
   ))
 
   // Crop the same drawing to one half by panning the viewBox — every element
@@ -1008,52 +1198,75 @@ function FieldSVG({ half }: { half?: 'top' | 'bottom' } = {}) {
 
   return (
     <svg className="absolute inset-0 w-full h-full" viewBox={viewBox} preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <linearGradient id="turfA" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#1E8049" />
+          <stop offset="100%" stopColor="#146132" />
+        </linearGradient>
+        <linearGradient id="turfB" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#24824F" />
+          <stop offset="100%" stopColor="#1A7040" />
+        </linearGradient>
+        <radialGradient id="turfVignette" cx="50%" cy="42%" r="75%">
+          <stop offset="55%" stopColor="#000" stopOpacity="0" />
+          <stop offset="100%" stopColor="#000" stopOpacity="0.3" />
+        </radialGradient>
+        <filter id="lineGlow" x="-30%" y="-30%" width="160%" height="160%">
+          <feGaussianBlur stdDeviation="0.35" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+
       {stripes}
+      <rect x="0" y="0" width="62" height="97" fill="url(#turfVignette)" />
 
       {/* Goals (behind backlines) */}
       <rect x={goalX1} y="1" width={goalW} height="3.8" rx="0.3"
-        fill="#14472A" stroke="white" strokeWidth="0.7" strokeOpacity="0.9"/>
+        fill="#0C3A21" stroke="white" strokeWidth="0.7"/>
       <rect x={goalX1} y={botY} width={goalW} height="3.8" rx="0.3"
-        fill="#14472A" stroke="white" strokeWidth="0.7" strokeOpacity="0.9"/>
+        fill="#0C3A21" stroke="white" strokeWidth="0.7"/>
 
       {/* Field boundary */}
       <rect x="1" y={topY} width="60" height={botY - topY}
-        fill="none" stroke="white" strokeWidth="0.9" strokeOpacity="0.9"/>
+        fill="none" stroke="white" strokeWidth="0.9" filter="url(#lineGlow)"/>
 
       {/* 23m lines */}
       <line x1="1" y1={top23} x2="61" y2={top23}
-        stroke="white" strokeWidth="0.55" strokeOpacity="0.65"/>
+        stroke="white" strokeWidth="0.5" strokeOpacity="0.75"/>
       <line x1="1" y1={bot23} x2="61" y2={bot23}
-        stroke="white" strokeWidth="0.55" strokeOpacity="0.65"/>
+        stroke="white" strokeWidth="0.5" strokeOpacity="0.75"/>
 
       {/* Center line */}
       <line x1="1" y1="48.5" x2="61" y2="48.5"
-        stroke="white" strokeWidth="0.65" strokeOpacity="0.7"/>
+        stroke="white" strokeWidth="0.6" strokeOpacity="0.8"/>
 
       {/* Shooting circles (D) — semicircles projecting INTO the field */}
       {/* Top D: arc from (cx-dR, topY) to (cx+dR, topY) bowing downward, into the field */}
       <path d={`M ${cx - dR} ${topY} A ${dR} ${dR} 0 0 0 ${cx + dR} ${topY}`}
-        fill="none" stroke="white" strokeWidth="0.8" strokeOpacity="0.85"/>
+        fill="none" stroke="white" strokeWidth="0.75" filter="url(#lineGlow)"/>
       {/* Bottom D: arc from (cx-dR, botY) to (cx+dR, botY) bowing upward, into the field */}
       <path d={`M ${cx - dR} ${botY} A ${dR} ${dR} 0 0 1 ${cx + dR} ${botY}`}
-        fill="none" stroke="white" strokeWidth="0.8" strokeOpacity="0.85"/>
+        fill="none" stroke="white" strokeWidth="0.75" filter="url(#lineGlow)"/>
 
       {/* Penalty spots */}
-      <circle cx={cx} cy={topPen} r="0.65" fill="white" fillOpacity="0.8"/>
-      <circle cx={cx} cy={botPen} r="0.65" fill="white" fillOpacity="0.8"/>
+      <circle cx={cx} cy={topPen} r="0.65" fill="white" fillOpacity="0.9"/>
+      <circle cx={cx} cy={botPen} r="0.65" fill="white" fillOpacity="0.9"/>
 
       {/* Center spot */}
-      <circle cx={cx} cy="48.5" r="0.5" fill="white" fillOpacity="0.55"/>
+      <circle cx={cx} cy="48.5" r="0.5" fill="white" fillOpacity="0.65"/>
 
       {/* Corner arcs (r=0.9m, struck from corner flags) */}
       <path d={`M 1.9 ${topY} A 0.9 0.9 0 0 1 1 ${topY + 0.9}`}
-        fill="none" stroke="white" strokeWidth="0.55" strokeOpacity="0.6"/>
+        fill="none" stroke="white" strokeWidth="0.5" strokeOpacity="0.7"/>
       <path d={`M 61 ${topY + 0.9} A 0.9 0.9 0 0 1 60.1 ${topY}`}
-        fill="none" stroke="white" strokeWidth="0.55" strokeOpacity="0.6"/>
+        fill="none" stroke="white" strokeWidth="0.5" strokeOpacity="0.7"/>
       <path d={`M 1 ${botY - 0.9} A 0.9 0.9 0 0 1 1.9 ${botY}`}
-        fill="none" stroke="white" strokeWidth="0.55" strokeOpacity="0.6"/>
+        fill="none" stroke="white" strokeWidth="0.5" strokeOpacity="0.7"/>
       <path d={`M 60.1 ${botY} A 0.9 0.9 0 0 1 61 ${botY - 0.9}`}
-        fill="none" stroke="white" strokeWidth="0.55" strokeOpacity="0.6"/>
+        fill="none" stroke="white" strokeWidth="0.5" strokeOpacity="0.7"/>
     </svg>
   )
 }
@@ -1077,30 +1290,30 @@ function DualFieldSVG() {
 
   const stripes = Array.from({ length: 14 }, (_, i) => (
     <rect key={i} x="0" y={i * 6.93} width="140" height="6.93"
-      fill={i % 2 === 0 ? '#1C6B38' : '#217040'} />
+      fill={i % 2 === 0 ? 'url(#turfA2)' : 'url(#turfB2)'} />
   ))
 
   const miniField = (x: number, cx: number, label: string) => (
     <g key={label}>
       {/* Goals */}
       <rect x={cx - goalW / 2} y="1" width={goalW} height="3.8" rx="0.3"
-        fill="#14472A" stroke="white" strokeWidth="0.7" strokeOpacity="0.9"/>
+        fill="#0C3A21" stroke="white" strokeWidth="0.7"/>
       <rect x={cx - goalW / 2} y={gBot} width={goalW} height="3.8" rx="0.3"
-        fill="#14472A" stroke="white" strokeWidth="0.7" strokeOpacity="0.9"/>
+        fill="#0C3A21" stroke="white" strokeWidth="0.7"/>
       {/* Boundary */}
       <rect x={x} y={gy} width={fW} height={fH}
-        fill="none" stroke="white" strokeWidth="0.85" strokeOpacity="0.9"/>
+        fill="none" stroke="white" strokeWidth="0.85" filter="url(#lineGlow2)"/>
       {/* Center line */}
       <line x1={x} y1={centerY} x2={x + fW} y2={centerY}
-        stroke="white" strokeWidth="0.55" strokeOpacity="0.6"/>
+        stroke="white" strokeWidth="0.5" strokeOpacity="0.7"/>
       {/* D circles — bow into the field, not out behind the goal */}
       <path d={`M ${cx - dR} ${gy} A ${dR} ${dR} 0 0 0 ${cx + dR} ${gy}`}
-        fill="none" stroke="white" strokeWidth="0.75" strokeOpacity="0.85"/>
+        fill="none" stroke="white" strokeWidth="0.7" filter="url(#lineGlow2)"/>
       <path d={`M ${cx - dR} ${gBot} A ${dR} ${dR} 0 0 1 ${cx + dR} ${gBot}`}
-        fill="none" stroke="white" strokeWidth="0.75" strokeOpacity="0.85"/>
+        fill="none" stroke="white" strokeWidth="0.7" filter="url(#lineGlow2)"/>
       {/* Penalty spots */}
-      <circle cx={cx} cy={gy + 5.5} r="0.6" fill="white" fillOpacity="0.75"/>
-      <circle cx={cx} cy={gBot - 5.5} r="0.6" fill="white" fillOpacity="0.75"/>
+      <circle cx={cx} cy={gy + 5.5} r="0.6" fill="white" fillOpacity="0.85"/>
+      <circle cx={cx} cy={gBot - 5.5} r="0.6" fill="white" fillOpacity="0.85"/>
       {/* Field label */}
       <text x={cx} y="96.5" textAnchor="middle" fill="white" fontSize="5.5"
         fontWeight="800" fillOpacity="0.9" fontFamily="'Barlow Condensed',sans-serif"
@@ -1111,9 +1324,32 @@ function DualFieldSVG() {
   return (
     <svg className="absolute inset-0 w-full h-full" viewBox="0 0 140 97"
       preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <linearGradient id="turfA2" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#1E8049" />
+          <stop offset="100%" stopColor="#146132" />
+        </linearGradient>
+        <linearGradient id="turfB2" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#24824F" />
+          <stop offset="100%" stopColor="#1A7040" />
+        </linearGradient>
+        <radialGradient id="turfVignette2" cx="50%" cy="42%" r="80%">
+          <stop offset="55%" stopColor="#000" stopOpacity="0" />
+          <stop offset="100%" stopColor="#000" stopOpacity="0.3" />
+        </radialGradient>
+        <filter id="lineGlow2" x="-30%" y="-30%" width="160%" height="160%">
+          <feGaussianBlur stdDeviation="0.35" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+
       {stripes}
+      <rect x="0" y="0" width="140" height="97" fill="url(#turfVignette2)"/>
       {/* Gap between fields */}
-      <rect x={aX + fW} y="0" width={gap} height="97" fill="#173523" fillOpacity="0.7"/>
+      <rect x={aX + fW} y="0" width={gap} height="97" fill="#173523" fillOpacity="0.75"/>
       {miniField(aX, aCx, 'VELD A')}
       {miniField(bX, bCx, 'VELD B')}
     </svg>
@@ -1322,6 +1558,73 @@ function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, 
           }} />
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Read-only field (match-detail Line-up tab) ───────────────────────────────
+// A static rendering of a saved game's final formation — same field SVG and
+// percentage-positioned markers as FieldView, with every drag/click/selection
+// affordance stripped out since nothing here is editable.
+
+function ReadOnlyFieldView({ ageGroup, slots, squad }: { ageGroup: AgeGroup; slots: PositionSlot[]; squad: Player[] }) {
+  const isDual = ageGroup === 'U7' || ageGroup === 'U8'
+  const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
+  // Width-driven sizing (never an explicit height) so the aspect-ratio always
+  // resolves cleanly: capped at 100% of the card so it never overflows a
+  // narrow phone, and at (100dvh - chrome)-worth-of-width so the field fills
+  // the space between the header and the local tab bar without needing to
+  // scroll, on any screen size. 260px approximates the header + tab-bar +
+  // card/page padding that isn't available to the field itself.
+  const ratio = isDual ? 140 / 97 : 62 / 97
+
+  return (
+    <div className="flex justify-center">
+      <div className="relative" style={{ width: `min(100%, calc((100dvh - 260px) * ${ratio}))`, aspectRatio: isDual ? '140/97' : '62/97' }}>
+      {isDual ? <DualFieldSVG /> : <FieldSVG />}
+
+      {slots.map(slot => {
+        const player = getPlayer(slot.playerId)
+        const isGK = slot.posId === 'gk'
+
+        return (
+          <div key={slot.posId} className="absolute transform -translate-x-1/2 -translate-y-1/2"
+            style={{ left: `${slot.x}%`, top: `${slot.y}%`, zIndex: 10 }}>
+            <div style={{
+              width: player ? '46px' : '36px',
+              height: player ? '46px' : '36px',
+              background: isGK ? '#FBBF24' : player ? '#fff' : 'rgba(255,255,255,0.18)',
+              border: player ? '2px solid rgba(255,255,255,0.85)' : '1.5px dashed rgba(255,255,255,0.45)',
+              borderRadius: '50%',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: player ? '0 2px 8px rgba(0,0,0,0.3)' : 'none',
+            }}>
+              {player ? (
+                player.photoUrl ? (
+                  <img src={mediaSrc(player.photoUrl)} alt={player.name} className="w-full h-full rounded-full object-cover" />
+                ) : (
+                  <>
+                    <span style={{ fontSize: '12px', fontWeight: 800, lineHeight: 1, color: '#111' }}>
+                      {player.number ?? initials(player.name)}
+                    </span>
+                    <span style={{ fontSize: '8px', fontWeight: 600, color: '#333', marginTop: '1px', maxWidth: '42px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '0 2px' }}>
+                      {firstName(player.name)}
+                    </span>
+                  </>
+                )
+              ) : (
+                <span style={{ fontSize: '8px', fontWeight: 700, color: 'rgba(255,255,255,0.6)' }}>
+                  {slot.label}
+                </span>
+              )}
+            </div>
+          </div>
+        )
+      })}
+      </div>
     </div>
   )
 }
@@ -1816,8 +2119,8 @@ function NotificationBell({ unreadNotifications, notifications, onMarkRead, onMa
 
   return (
     <div className="relative">
-      <button onClick={() => setOpen(o => !o)} className="relative w-8 h-8 flex items-center justify-center text-lg" aria-label="Meldingen">
-        🔔
+      <button onClick={() => setOpen(o => !o)} className="relative w-8 h-8 flex items-center justify-center" style={{ color: 'var(--brand-a8bef0)' }} aria-label="Meldingen">
+        <IconBell />
         {unreadNotifications > 0 && (
           <span className="absolute -top-1 -right-1 text-[10px] font-bold rounded-full px-1.5 py-0.5 text-white leading-tight" style={{ background: '#DC2626' }}>
             {unreadNotifications > 9 ? '9+' : unreadNotifications}
@@ -1865,6 +2168,135 @@ function NotificationBell({ unreadNotifications, notifications, onMarkRead, onMa
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Home / dashboard ─────────────────────────────────────────────────────────
+// The main landing screen once logged in — a real dashboard (next match,
+// last result) instead of always showing the match-creation form. Creating a
+// match now lives entirely under Wedstrijden ("Wedstrijd aanmaken"); a
+// logged-out visitor has no games/dashboard data to show at all, so App()
+// routes them straight to SetupView's form instead of this component.
+
+function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreateMatch, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
+  user: AuthUser
+  games: SavedGame[]
+  onEditGame: (g: SavedGame) => void
+  onOpenHistory: () => void
+  onOpenMatch: (id: string) => void
+  onCreateMatch: () => void
+  unreadNotifications: number
+  notifications: AppNotification[]
+  onMarkRead: (id: string) => void
+  onMarkAllRead: () => void
+  onMarkUnread: (id: string) => void
+  onDeleteNotification: (id: string) => void
+}) {
+  // Same "not yet played" signal HistoryView's upcoming list uses — the
+  // clock hasn't run yet, regardless of whether a squad's already built.
+  const nextMatch = [...games].filter(g => g.finalTime === 0).sort((a, b) => a.date.localeCompare(b.date))[0] ?? null
+  // A played match's clock should read > 0, but not every recorded result
+  // necessarily ran through the live timer for its full duration — a match
+  // dated in the past is a more forgiving fallback signal than finalTime
+  // alone, so a real result isn't missed here just because it's 0.
+  const lastPlayed = [...games]
+    .filter(g => g.finalTime > 0 || g.date < todayStr())
+    .sort((a, b) => b.date.localeCompare(a.date))[0] ?? null
+
+  return (
+    <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
+      <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
+        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
+          <div className="flex items-center gap-3 justify-self-start">
+            {user.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
+            <div>
+              <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
+                {user.defaultClub ?? 'Hockey One'}
+              </p>
+              <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
+                {user.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
+              </p>
+            </div>
+          </div>
+          <div className="flex justify-center">
+            <H1Logo height={26} />
+          </div>
+          <div className="flex items-center gap-2 justify-self-end">
+            <NotificationBell
+              unreadNotifications={unreadNotifications}
+              notifications={notifications}
+              onMarkRead={onMarkRead}
+              onMarkAllRead={onMarkAllRead}
+              onMarkUnread={onMarkUnread}
+              onDelete={onDeleteNotification}
+              onOpenHistory={onOpenHistory}
+            />
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
+        {nextMatch && (
+          <section className="rounded-2xl p-6 text-white shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
+            <h2 className="font-display text-xs font-bold uppercase mb-3" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.14em' }}>
+              Volgende wedstrijd
+            </h2>
+            <div className="flex items-center gap-3">
+              <ClubLogo club={nextMatch.club} size={40} />
+              <span className="font-display text-lg font-bold uppercase" style={{ color: 'var(--brand-a8bef0)' }}>
+                {nextMatch.homeAway === 'Thuis' ? 'Thuis' : 'Uit'}
+              </span>
+              <ClubLogo club={matchKnhbClub(nextMatch.opponent)} size={40} />
+            </div>
+            <p className="font-display text-xl font-bold mt-3 leading-tight">
+              {nextMatch.club} {nextMatch.team} <span style={{ color: 'var(--brand-a8bef0)', fontWeight: 400 }}>vs</span> {nextMatch.opponent}
+            </p>
+            <p className="text-sm mt-1" style={{ color: 'var(--brand-a8bef0)' }}>
+              {new Date(nextMatch.date).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })}
+            </p>
+            <button onClick={() => onEditGame(nextMatch)}
+              className="w-full mt-4 py-3 rounded-xl font-display font-bold uppercase tracking-wide text-sm"
+              style={{ background: '#fff', color: 'var(--brand-0d2b7a)' }}>
+              Wedstrijd voorbereiden →
+            </button>
+          </section>
+        )}
+
+        <section className="bg-white rounded-2xl p-6 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+          <h2 className="font-display text-xs font-bold uppercase mb-3" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.14em' }}>
+            Laatste resultaat
+          </h2>
+          {lastPlayed ? (
+            <>
+              <div className="flex items-center gap-3">
+                <ClubLogo club={lastPlayed.club} size={36} />
+                <span className="font-display text-2xl font-bold" style={{ color: 'var(--brand-0d2b7a)' }}>
+                  {lastPlayed.scoreOwn} - {lastPlayed.scoreOpp}
+                </span>
+                <ClubLogo club={matchKnhbClub(lastPlayed.opponent)} size={36} />
+              </div>
+              <p className="text-sm font-semibold mt-3" style={{ color: 'var(--brand-1a2f6b)' }}>
+                {lastPlayed.club} {lastPlayed.team} <span style={{ color: 'var(--brand-a8bef0)', fontWeight: 400 }}>vs</span> {lastPlayed.opponent}
+              </p>
+              <p className="text-xs mt-1" style={{ color: 'var(--brand-a8bef0)' }}>
+                {new Date(lastPlayed.date).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })}
+              </p>
+              <button onClick={() => onOpenMatch(lastPlayed.id)} className="text-sm font-bold mt-3" style={{ color: 'var(--brand-1a3fab)' }}>
+                Bekijk wedstrijd →
+              </button>
+            </>
+          ) : (
+            <p className="text-sm py-2" style={{ color: 'var(--brand-a8bef0)' }}>Geen resultaten beschikbaar</p>
+          )}
+        </section>
+
+        <button onClick={onCreateMatch}
+          className="w-full py-3.5 rounded-xl font-display font-bold uppercase tracking-widest text-sm text-white"
+          style={{ background: 'var(--brand-1a3fab)' }}>
+          Wedstrijd aanmaken
+        </button>
+      </div>
     </div>
   )
 }
@@ -2012,7 +2444,7 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
   const teamFull = user ? team : [team, teamSuffix.trim()].filter(Boolean).join('-')
   const canStart = club && team && (opponent || opponentTeamFull)
 
-  const inputStyle = { border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }
+  const inputStyle = { border: '2px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }
 
   if (showFormationEditor) {
     return <FormationEditorView ageGroup={ageGroup} onBack={() => setShowFormationEditor(false)} />
@@ -2022,21 +2454,19 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 justify-self-start">
             {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
             <div>
-              <h1 className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
+              <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
                 {user?.defaultClub ?? 'Hockey One'}
-              </h1>
+              </p>
               <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
                 {user?.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
               </p>
             </div>
           </div>
-          <div className="flex justify-center">
-            {user && <H1Logo height={26} />}
-          </div>
-          <div className="flex items-center gap-2 justify-end">
+          <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">Nieuwe wedstrijd</h1>
+          <div className="flex items-center gap-2 justify-self-end">
             {user && (
               <NotificationBell
                 unreadNotifications={unreadNotifications}
@@ -2048,24 +2478,12 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
                 onOpenHistory={onOpenHistory}
               />
             )}
-            <button onClick={onProfile}
-              className={user ? 'rounded-full' : 'text-sm px-3 py-1.5 rounded-lg font-semibold'}
-              style={user
-                ? {}
-                : { color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
-              {user ? (
-                user.picture ? (
-                  <img src={user.picture} alt="Profiel" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
-                ) : (
-                  <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                    style={{ background: 'var(--brand-1a3fab)' }}>
-                    {initials(user.name ?? user.email)}
-                  </span>
-                )
-              ) : (
-                'Inloggen'
-              )}
-            </button>
+            {!user && (
+              <button onClick={onProfile} className="text-sm px-3 py-1.5 rounded-lg font-semibold"
+                style={{ color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
+                Inloggen
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -2153,8 +2571,15 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
           </div>
           <div>
             <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Datum</label>
-            <input type="date" className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle}
-              value={matchDate} onChange={e => setMatchDate(e.target.value)} />
+            {/* Native date-picker controls can render wider than the CSS box on
+                some mobile browsers (their internal segments/icon ignore
+                width:100%) — clipping on this wrapper, with the input itself
+                borderless/transparent, keeps the visible box the same size as
+                every other field regardless of that native overflow. */}
+            <div className="w-full rounded-xl overflow-hidden" style={inputStyle}>
+              <input type="date" className="w-full block px-3 py-2.5 text-sm bg-transparent border-0 outline-none"
+                value={matchDate} onChange={e => setMatchDate(e.target.value)} />
+            </div>
           </div>
         </section>
 
@@ -2362,8 +2787,12 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   }
   const [running, setRunning] = useState(false)
   const [selected, setSelected] = useState<Selected>(null)
-  const [activeTab, setActiveTab] = useState<'bench' | 'subs' | 'notes' | 'tactics' | 'media'>('bench')
-  const [panelCollapsed, setPanelCollapsed] = useLS('fh_panel_collapsed', false)
+  // Bottom tab bar — replaces the old side panel entirely. Wedstrijd is the
+  // default/home tab (the full pitch); Bank/Score/Tactiek/Media are each a
+  // full-screen view now, not a column squeezed beside the field.
+  const [gameTab, setGameTab] = useState<'wedstrijd' | 'bank' | 'score' | 'tactiek' | 'media'>('wedstrijd')
+  const [bankView, setBankView] = useState<'field' | 'list'>('field')
+  const [showSettings, setShowSettings] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // ── Autosave + Herstel (undo) ────────────────────────────────────────────
@@ -2798,7 +3227,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
       setSelected(null)
     } else {
       setSelected({ type: 'field', posId })
-      setActiveTab('bench')
+      setGameTab('bank')
     }
   }
 
@@ -2943,109 +3372,490 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
     <div className="flex flex-col" style={{ height: '100dvh', background: 'var(--brand-eef3ff)' }}
       onClick={() => setSelected(null)}>
 
-      {/* Header */}
-      <div className="shrink-0 text-white px-3 py-2" style={{ background: 'var(--brand-0d2b7a)' }}>
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <button onClick={() => { flushSave(); onBack() }} className="text-xs shrink-0 font-semibold" style={{ color: 'var(--brand-7b9de0)' }}>← Terug</button>
-            <SCMuidenLogo size={30} />
-            <div className="min-w-0">
-              <div className="font-display font-bold text-sm leading-none truncate">{club} {team}</div>
-              <div className="text-xs leading-none mt-0.5 truncate" style={{ color: 'var(--brand-7b9de0)' }}>
-                {homeAway === 'Thuis' ? 'vs' : '@'} {opponent} · {ageGroupLabel(ageGroup)}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <div className="font-mono font-bold text-sm tabular-nums px-2 py-1 rounded-lg" style={{ background: 'rgba(255,255,255,0.08)' }}>
-              {scoreOwn} - {scoreOpp}
-            </div>
-            <div className="flex flex-col items-center leading-none">
-              <div className="font-mono font-bold text-xl tabular-nums" style={{ color: remainingInPeriod === 0 ? '#F87171' : undefined }}>
-                {fmtSec(remainingInPeriod)}
-              </div>
-              <div className="text-[9px] font-bold uppercase tracking-wide mt-0.5" style={{ color: 'var(--brand-7b9de0)' }}>
-                {periodLabel} {currentPeriod}/{totalPeriods}
-              </div>
-            </div>
+      {/* Header — kept compact so it doesn't eat the screen: crests+score on
+          one line, then period-nav flanking the clock (with the period label
+          stacked under the clock so the clock itself lands centered under
+          the score). The chevrons stay visible but greyed out at the ends of
+          the match instead of disappearing, so the row never reflows. */}
+      <div className="shrink-0 text-white" style={{ background: 'var(--brand-0d2b7a)' }}>
+        <div className="flex items-center justify-center gap-2 px-3 pt-2 pb-0.5 relative">
+          <button onClick={() => { flushSave(); onBack() }} aria-label="Terug"
+            className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-lg flex items-center justify-center" style={{ color: 'var(--brand-7b9de0)' }}>
+            <IconChevronLeft size={20} />
+          </button>
+          <ClubLogo club={club} size={30} />
+          <span className="font-mono font-bold text-lg tabular-nums px-1">{scoreOwn} - {scoreOpp}</span>
+          <ClubLogo club={matchKnhbClub(opponent)} size={30} />
+          <button onClick={e => { e.stopPropagation(); setShowSettings(true) }} aria-label="Notities en instellingen"
+            className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-lg flex items-center justify-center" style={{ color: 'var(--brand-7b9de0)' }}>
+            <IconMore size={18} />
+          </button>
+        </div>
+        <div className="flex items-center justify-center gap-2 px-3 pb-2">
+          <div className="flex items-center justify-center" style={{ width: '30px' }}>
             {!readOnly && (
-              <button onClick={e => { e.stopPropagation(); setRunning(r => !r) }}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold"
-                style={{ background: running ? '#D97706' : '#16A34A', color: '#fff' }}>
-                {running ? '⏸' : '▶'}
+              <button onClick={() => regressPeriod()} disabled={currentPeriod <= 1}
+                aria-label={`Vorige ${periodLabel.toLowerCase()}`} title={`Vorige ${periodLabel.toLowerCase()}`}
+                className="w-7 h-7 rounded-lg flex items-center justify-center disabled:opacity-30" style={{ color: 'var(--brand-7b9de0)' }}>
+                <IconChevronLeft size={17} />
               </button>
             )}
-            {!readOnly && currentPeriod > 1 && (
-              <button onClick={e => { e.stopPropagation(); regressPeriod() }}
-                title={`Vorige ${periodLabel.toLowerCase()}`}
-                className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-white"
-                style={{ background: 'var(--brand-1a3fab)' }}>
-                ⏮
-              </button>
-            )}
-            {!readOnly && currentPeriod < totalPeriods && (
-              <button onClick={e => { e.stopPropagation(); advancePeriod() }}
-                title={`Volgende ${periodLabel.toLowerCase()}`}
-                className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-white"
-                style={{ background: 'var(--brand-1a3fab)' }}>
-                ⏭
-              </button>
-            )}
-            {readOnly ? (
-              <span className="px-3 py-1.5 rounded-lg text-xs font-bold" style={{ background: 'rgba(255,255,255,0.12)', color: 'var(--brand-a8bef0)' }}>
-                Alleen-lezen
-              </span>
-            ) : (
-              <button onClick={e => { e.stopPropagation(); herstel() }}
-                disabled={historyLen === 0}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-40"
-                style={{ background: 'var(--brand-1a3fab)' }}>
-                Herstel
+          </div>
+          <div className="flex flex-col items-center leading-none px-1">
+            <span className="font-mono font-bold text-sm tabular-nums" style={{ color: remainingInPeriod === 0 ? '#F87171' : undefined }}>
+              {fmtSec(remainingInPeriod)}
+            </span>
+            <span className="text-[9px] font-bold uppercase mt-0.5" style={{ color: 'var(--brand-7b9de0)' }}>
+              {periodLabel} {currentPeriod}/{totalPeriods}
+            </span>
+          </div>
+          <div className="flex items-center justify-center" style={{ width: '30px' }}>
+            {!readOnly && (
+              <button onClick={() => advancePeriod()} disabled={currentPeriod >= totalPeriods}
+                aria-label={`Volgende ${periodLabel.toLowerCase()}`} title={`Volgende ${periodLabel.toLowerCase()}`}
+                className="w-7 h-7 rounded-lg flex items-center justify-center disabled:opacity-30" style={{ color: 'var(--brand-7b9de0)' }}>
+                <IconChevronRight size={17} />
               </button>
             )}
           </div>
         </div>
+        {readOnly && (
+          <div className="flex justify-center pb-1.5">
+            <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold" style={{ background: 'rgba(255,255,255,0.12)', color: 'var(--brand-a8bef0)' }}>
+              Alleen-lezen
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* Body */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Field column */}
-        <div className="flex flex-col flex-1 overflow-hidden p-3 items-center"
-          onClick={e => e.stopPropagation()}>
-          <div className="flex items-center justify-between w-full mb-2 gap-2"
-            style={{ maxWidth: isDual ? (panelCollapsed ? '820px' : '600px') : (panelCollapsed ? '460px' : '330px') }}>
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="text-xs font-bold shrink-0" style={{ color: 'var(--brand-6b82b8)' }}>
-                Op veld:&nbsp;
-                <span style={{ color: onFieldCount < targetCount ? '#DC2626' : '#16A34A' }}>
-                  {onFieldCount}/{targetCount}
+      {/* Body — back now lives in the header, so this is just the scrollable
+          tab content (Wedstrijd's play/pause button sits beside the pitch). */}
+      <div className="flex-1 overflow-y-auto" onClick={e => e.stopPropagation()}>
+        {gameTab === 'wedstrijd' && (
+          <div className="flex flex-col items-center p-3">
+            <div className="flex items-center justify-between w-full mb-2 gap-2"
+              style={{ maxWidth: isDual ? '820px' : '460px' }}>
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-xs font-bold shrink-0" style={{ color: 'var(--brand-6b82b8)' }}>
+                  Op veld:&nbsp;
+                  <span style={{ color: onFieldCount < targetCount ? '#DC2626' : '#16A34A' }}>
+                    {onFieldCount}/{targetCount}
+                  </span>
                 </span>
+                {!readOnly && formationVariants.length > 1 && (
+                  <select value={variantId} onChange={e => switchFormation(e.target.value)}
+                    className="text-xs font-semibold rounded-lg px-1.5 py-1 min-w-0"
+                    style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: 'var(--brand-1a3fab)', outline: 'none' }}>
+                    {formationVariants.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  </select>
+                )}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {selected && (
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-full"
+                    style={{ background: 'var(--brand-dbeafe)', color: 'var(--brand-1a3fab)' }}>
+                    {selected.type === 'bench'
+                      ? `Kies positie voor ${getPlayer(selected.playerId)?.name.split(' ')[0]}`
+                      : selected.type === 'opp-pool' || selected.type === 'opp-marker'
+                        ? 'Tik op het veld om de tegenstander te plaatsen'
+                        : selectedFieldPlayer ? `${selectedFieldPlayer.name.split(' ')[0]} geselecteerd` : 'Positie geselecteerd'}
+                  </span>
+                )}
+                {!readOnly && (
+                  <button onClick={() => setRunning(r => !r)}
+                    className="flex items-center gap-1 rounded-lg text-xs font-bold px-1.5 py-1 shrink-0"
+                    style={{ background: running ? '#D97706' : '#16A34A', color: '#fff' }}>
+                    {running ? <IconPause size={12} /> : <IconPlay size={12} />}
+                    {running ? 'Pauzeer' : 'Start'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-center w-full" style={{ maxWidth: isDual ? '820px' : '460px' }}>
+              <FieldView
+                ageGroup={ageGroup}
+                slots={slots}
+                squad={squad}
+                oppMarkers={oppMarkers}
+                selected={selected}
+                dragOverPos={dragOverPos}
+                dragPreview={dragPreview}
+                fieldRef={fieldRef}
+                onFieldClick={handleFieldClick}
+                onBackgroundClick={handleBackgroundClick}
+                onMarkerPointerDown={(posId, e) => beginDrag('field', posId, e)}
+                onOppMarkerPointerDown={(id, e) => beginDrag('opp-marker', id, e)}
+                onOppMarkerClick={handleOppMarkerClick}
+              />
+            </div>
+
+            {!user && (
+              <p className="text-xs text-center mt-2" style={{ color: 'var(--brand-a8bef0)' }}>
+                Log in om deze wedstrijd te kunnen opslaan.
+              </p>
+            )}
+
+            {selectedFieldPos && (
+              <div className="flex gap-2 mt-2" onClick={e => e.stopPropagation()}>
+                {slots.find(s => s.posId === selectedFieldPos)?.playerId && (
+                  <button onClick={() => sendToBench(selectedFieldPos)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
+                    style={{ background: '#4B5563' }}>
+                    → Bank
+                  </button>
+                )}
+                <button onClick={() => setSelected(null)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+                  style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>
+                  Annuleer
+                </button>
+              </div>
+            )}
+
+            {selected?.type === 'opp-marker' && (
+              <div className="flex gap-2 mt-2" onClick={e => e.stopPropagation()}>
+                <button onClick={() => removeOppMarker(selected.id)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
+                  style={{ background: '#4B5563' }}>
+                  Verwijder
+                </button>
+                <button onClick={() => setSelected(null)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+                  style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>
+                  Annuleer
+                </button>
+              </div>
+            )}
+
+            {/* Opponent marker pool lives here (not Bank) — it's about the live
+                pitch picture, not the coach's own roster rotation. */}
+            <div className="w-full mt-4 pt-3" style={{ maxWidth: isDual ? '820px' : '460px', borderTop: '1px solid var(--brand-d0dcfa)' }}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
+                  Tegenstander ({oppAvailable} beschikbaar)
+                </span>
+                {oppMarkers.length > 0 && !readOnly && (
+                  <button onClick={() => setOppMarkers([])} className="text-xs font-bold" style={{ color: '#DC2626' }}>
+                    Wis
+                  </button>
+                )}
+              </div>
+              <p className="text-xs mb-2" style={{ color: selected?.type === 'opp-pool' ? 'var(--brand-1a3fab)' : 'var(--brand-a8bef0)' }}>
+                {selected?.type === 'opp-pool'
+                  ? 'Tik op het veld om te plaatsen…'
+                  : 'Sleep naar het veld, of tik en tik daarna op het veld.'}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {Array.from({ length: oppAvailable }).map((_, i) => (
+                  <div key={i}
+                    className="w-8 h-8 rounded-full cursor-grab touch-none select-none shrink-0"
+                    style={{
+                      background: '#DC2626',
+                      border: selected?.type === 'opp-pool' ? '2.5px solid var(--brand-1a3fab)' : '2px solid #fff',
+                      boxShadow: selected?.type === 'opp-pool' ? '0 0 0 3px rgba(26,63,171,0.35)' : '0 2px 6px rgba(0,0,0,0.25)',
+                    }}
+                    onPointerDown={e => beginDrag('opp-pool', 'new', e)}
+                    onClick={handleOppPoolClick} />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {gameTab === 'bank' && (
+          <div className="p-3">
+            <div className="flex gap-2 mb-4 mx-auto" style={{ maxWidth: '280px' }}>
+              {(['field', 'list'] as const).map(v => (
+                <button key={v} onClick={() => setBankView(v)}
+                  className="flex-1 py-2 rounded-full text-xs font-bold uppercase transition-colors"
+                  style={bankView === v
+                    ? { background: 'var(--brand-1a3fab)', color: '#fff' }
+                    : { background: '#fff', color: 'var(--brand-3b5299)', border: '1px solid var(--brand-d0dcfa)' }}>
+                  {v === 'field' ? 'Veld' : 'Lijst'}
+                </button>
+              ))}
+            </div>
+
+            {bankView === 'field' ? (
+              <div className="flex items-center justify-center w-full mb-4 mx-auto" style={{ maxWidth: isDual ? '600px' : '330px' }}>
+                <FieldView
+                  ageGroup={ageGroup}
+                  slots={slots}
+                  squad={squad}
+                  oppMarkers={oppMarkers}
+                  selected={selected}
+                  dragOverPos={dragOverPos}
+                  dragPreview={dragPreview}
+                  fieldRef={fieldRef}
+                  onFieldClick={handleFieldClick}
+                  onBackgroundClick={handleBackgroundClick}
+                  onMarkerPointerDown={(posId, e) => beginDrag('field', posId, e)}
+                  onOppMarkerPointerDown={(id, e) => beginDrag('opp-marker', id, e)}
+                  onOppMarkerClick={handleOppMarkerClick}
+                />
+              </div>
+            ) : (
+              <div className="space-y-1.5 mb-4 mx-auto" style={{ maxWidth: '420px' }}>
+                {slots.filter(s => s.playerId).length === 0 ? (
+                  <p className="text-xs text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Nog niemand op het veld</p>
+                ) : (
+                  slots.filter(s => s.playerId).map(s => {
+                    const p = getPlayer(s.playerId)
+                    if (!p) return null
+                    return (
+                      <div key={s.posId} className="flex items-center gap-2.5 p-2.5 rounded-xl"
+                        style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                        <span className="text-xs font-bold w-9 shrink-0 text-center" style={{ color: 'var(--brand-1a3fab)' }}>{s.label}</span>
+                        <span className="text-sm font-semibold flex-1 truncate" style={{ color: 'var(--brand-1a2f6b)' }}>
+                          {p.number != null ? `#${p.number} ` : ''}{p.name}
+                        </span>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            )}
+
+            <div className="mx-auto" style={{ maxWidth: '420px' }}>
+              <span className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
+                Bank ({benchPlayers.length})
               </span>
-              {!readOnly && formationVariants.length > 1 && (
-                <select value={variantId} onChange={e => switchFormation(e.target.value)}
-                  className="text-xs font-semibold rounded-lg px-1.5 py-1 min-w-0"
-                  style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: 'var(--brand-1a3fab)', outline: 'none' }}>
-                  {formationVariants.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                </select>
+              {benchPlayers.length === 0 ? (
+                <div className="text-xs text-center py-6 rounded-xl border-2 border-dashed mt-2"
+                  style={{ color: 'var(--brand-a8bef0)', borderColor: 'var(--brand-d0dcfa)' }}>
+                  Alle spelers staan op het veld
+                </div>
+              ) : (
+                <div className="flex gap-3 overflow-x-auto mt-2 pb-1">
+                  {[...benchPlayers].sort((a, b) => (a.player.number ?? Infinity) - (b.player.number ?? Infinity) || a.player.name.localeCompare(b.player.name)).map(({ playerId, sinceGameSec, player }) => {
+                    const elapsed = Math.max(0, gameSec - sinceGameSec)
+                    const isSel = selected?.type === 'bench' && selected.playerId === playerId
+                    const isBeingDragged = dragPreview?.type === 'bench' && dragPreview.id === playerId
+                    const isRedCarded = redCardedIds.has(playerId)
+                    return (
+                      <div key={playerId}
+                        className={`flex flex-col items-center gap-1 shrink-0 w-16 touch-none select-none ${isRedCarded ? 'cursor-not-allowed' : 'cursor-grab'}`}
+                        style={{ opacity: isBeingDragged ? 0.35 : isRedCarded ? 0.6 : 1 }}
+                        onPointerDown={e => beginDrag('bench', playerId, e)}
+                        onClick={() => handleBenchClick(playerId)}>
+                        <div className="relative w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden"
+                          style={{ background: 'var(--brand-1a3fab)', border: isSel ? '2.5px solid var(--brand-0d2b7a)' : '2px solid transparent' }}>
+                          {player.photoUrl ? (
+                            <img src={mediaSrc(player.photoUrl)} alt={player.name} className="w-full h-full object-cover" />
+                          ) : (
+                            player.number ?? initials(player.name)
+                          )}
+                          {isRedCarded && (
+                            <span className="absolute bottom-0 right-0 inline-block w-2.5 h-3.5 rounded-sm" style={{ background: '#DC2626' }} title="Rode kaart — kan niet meer meedoen" />
+                          )}
+                        </div>
+                        <span className="text-xs font-semibold truncate w-full text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{firstName(player.name)}</span>
+                        <span className="font-mono text-[10px] font-bold"
+                          style={{ color: gameSec > 0 ? benchColor(elapsed) : 'var(--brand-a8bef0)' }}>
+                          {gameSec > 0 ? fmtSec(elapsed) : '—:—'}
+                        </span>
+                        {isSel && <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>↔</span>}
+                      </div>
+                    )
+                  })}
+                </div>
               )}
             </div>
-            {selected ? (
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full"
-                style={{ background: 'var(--brand-dbeafe)', color: 'var(--brand-1a3fab)' }}>
-                {selected.type === 'bench'
-                  ? `Kies positie voor ${getPlayer(selected.playerId)?.name.split(' ')[0]}`
-                  : selected.type === 'opp-pool' || selected.type === 'opp-marker'
-                    ? 'Tik op het veld om de tegenstander te plaatsen'
-                    : selectedFieldPlayer ? `${selectedFieldPlayer.name.split(' ')[0]} geselecteerd` : 'Positie geselecteerd'}
-              </span>
-            ) : (
-              <span className="text-xs" style={{ color: 'var(--brand-a8bef0)' }}>Sleep of klik om te wisselen</span>
-            )}
-          </div>
 
-          <div className="flex-1 flex items-center justify-center w-full"
-            style={{ maxWidth: isDual ? (panelCollapsed ? '820px' : '600px') : (panelCollapsed ? '460px' : '330px') }}>
-            {activeTab === 'tactics' ? (
+            <div className="mt-5 pt-3 mx-auto" style={{ maxWidth: '420px', borderTop: '1px solid var(--brand-e8effd)' }}>
+              <span className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
+                Wissels ({subs.length})
+              </span>
+              {subs.length === 0 ? (
+                <p className="text-xs text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Nog geen wissels</p>
+              ) : (
+                <div className="space-y-2 mt-2">
+                  {subs.map((s, i) => {
+                    const pIn = getPlayer(s.playerInId)
+                    const pOut = getPlayer(s.playerOutId)
+                    return (
+                      <div key={i} className="py-2.5 rounded-xl px-3"
+                        style={{ background: 'var(--brand-f0f5ff)', border: '1px solid var(--brand-e4ecfe)' }}>
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span className="font-mono text-xs font-bold" style={{ color: 'var(--brand-7b90c8)' }}>{fmtSec(s.gameTimeSec)}</span>
+                          {s.posLabel && (
+                            <span className="text-xs font-bold px-1.5 rounded" style={{ color: 'var(--brand-1a3fab)', background: 'var(--brand-e4ecfe)' }}>{s.posLabel}</span>
+                          )}
+                        </div>
+                        <div className="text-xs font-semibold" style={{ color: '#16A34A' }}>↑ {pIn?.number ? `#${pIn.number} ` : ''}{pIn?.name}</div>
+                        <div className="text-xs font-semibold" style={{ color: '#DC2626' }}>↓ {pOut?.number ? `#${pOut.number} ` : ''}{pOut?.name}</div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5 pt-3 mx-auto" style={{ maxWidth: '420px', borderTop: '1px solid var(--brand-e8effd)' }}>
+              <span className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
+                Speeltijd
+              </span>
+              <div className="space-y-1 mt-2">
+                {sortPlayers(squad).map(p => {
+                  const onField = slots.some(s => s.playerId === p.id)
+                  return (
+                    <div key={p.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
+                      style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                      <span style={{ color: 'var(--brand-1a2f6b)' }}>
+                        {onField && <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5" style={{ background: '#16A34A' }} />}
+                        {p.number ? `#${p.number} ` : ''}{p.name}
+                      </span>
+                      <span className="font-mono font-bold" style={{ color: 'var(--brand-3b5299)' }}>{fmtSec(playedSeconds[p.id] ?? 0)}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {gameTab === 'score' && (
+          <div className="p-3 space-y-3 mx-auto" style={{ maxWidth: '420px' }}>
+            <div>
+              <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Scorebord</label>
+              <div className="flex items-center justify-between gap-2 rounded-xl px-3 py-2.5"
+                style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)' }}>
+                <div className="flex-1 text-center min-w-0">
+                  <div className="text-xs font-semibold truncate" style={{ color: 'var(--brand-6b82b8)' }}>{team || 'Eigen team'}</div>
+                  <div className="flex items-center justify-center gap-2.5 mt-1">
+                    <button onClick={() => setScoreOwn(s => Math.max(0, s - 1))} disabled={readOnly}
+                      className="w-7 h-7 rounded-lg font-bold text-sm disabled:opacity-50" style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>−</button>
+                    <span className="font-mono font-bold text-xl w-6 text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{scoreOwn}</span>
+                    <button onClick={() => setScoreOwn(s => s + 1)} disabled={readOnly}
+                      className="w-7 h-7 rounded-lg font-bold text-sm text-white disabled:opacity-50" style={{ background: 'var(--brand-1a3fab)' }}>+</button>
+                  </div>
+                </div>
+                <div className="font-bold text-sm shrink-0" style={{ color: 'var(--brand-a8bef0)' }}>–</div>
+                <div className="flex-1 text-center min-w-0">
+                  <div className="text-xs font-semibold truncate" style={{ color: 'var(--brand-6b82b8)' }}>{opponent || 'Tegenstander'}</div>
+                  <div className="flex items-center justify-center gap-2.5 mt-1">
+                    <button onClick={() => setScoreOpp(s => Math.max(0, s - 1))} disabled={readOnly}
+                      className="w-7 h-7 rounded-lg font-bold text-sm disabled:opacity-50" style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>−</button>
+                    <span className="font-mono font-bold text-xl w-6 text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{scoreOpp}</span>
+                    <button onClick={() => setScoreOpp(s => s + 1)} disabled={readOnly}
+                      className="w-7 h-7 rounded-lg font-bold text-sm text-white disabled:opacity-50" style={{ background: 'var(--brand-1a3fab)' }}>+</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Doelpuntenmakers</label>
+              <div className="flex gap-2">
+                <select className="flex-1 rounded-xl px-3 py-2 text-sm" disabled={readOnly}
+                  style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: goalPlayerId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', outline: 'none' }}
+                  value={goalPlayerId} onChange={e => setGoalPlayerId(e.target.value)}>
+                  <option value="">Kies speler…</option>
+                  {sortPlayers(squad).map(p => (
+                    <option key={p.id} value={p.id}>{p.number ? `#${p.number} ` : ''}{p.name}</option>
+                  ))}
+                </select>
+                <button onClick={() => {
+                  if (readOnly || !goalPlayerId) return
+                  setGoals(g => [...g, { id: uid(), playerId: goalPlayerId, gameTimeSec: gameSec }])
+                }}
+                  disabled={readOnly}
+                  className="px-4 py-2 rounded-xl font-bold text-white text-lg shrink-0 disabled:opacity-50"
+                  style={{ background: 'var(--brand-1a3fab)' }}>
+                  +
+                </button>
+              </div>
+              {goals.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {goals.map(g => {
+                    const p = getPlayer(g.playerId)
+                    return (
+                      <div key={g.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
+                        style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                        <span style={{ color: 'var(--brand-1a2f6b)' }}><HockeyBallIcon /> {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}</span>
+                        {!readOnly && (
+                          <button onClick={() => setGoals(gs => gs.filter(x => x.id !== g.id))}
+                            className="font-bold" style={{ color: '#DC2626' }}>
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              <p className="text-xs mt-1.5" style={{ color: goals.length === scoreOwn ? 'var(--brand-7b90c8)' : '#D97706' }}>
+                {goals.length} van de {scoreOwn} doelpunten toegewezen
+              </p>
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Kaarten</label>
+              <select className="w-full rounded-xl px-3 py-2 text-sm" disabled={readOnly}
+                style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: cardPlayerId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', outline: 'none' }}
+                value={cardPlayerId} onChange={e => setCardPlayerId(e.target.value)}>
+                <option value="">Kies speler…</option>
+                {sortPlayers(squad).map(p => (
+                  <option key={p.id} value={p.id}>{p.number ? `#${p.number} ` : ''}{p.name}</option>
+                ))}
+              </select>
+              <div className="flex gap-2 mt-2">
+                {(['green', 'yellow', 'red'] as const).map(c => (
+                  <button key={c} onClick={() => setCardColor(c)} disabled={readOnly}
+                    className="flex-1 h-8 rounded-lg disabled:opacity-50"
+                    style={{
+                      background: c === 'green' ? '#16A34A' : c === 'yellow' ? '#EAB308' : '#DC2626',
+                      border: cardColor === c ? '2px solid var(--brand-1a2f6b)' : '2px solid transparent',
+                    }}
+                    aria-label={c} />
+                ))}
+                <button onClick={() => {
+                  if (readOnly || !cardPlayerId) return
+                  setCards(c => [...c, { id: uid(), playerId: cardPlayerId, color: cardColor, gameTimeSec: gameSec }])
+                  // A red card ends the player's match — take them off the
+                  // field immediately rather than leaving it to be noticed
+                  // (and enforced) only the next time someone tries to sub
+                  // them back in.
+                  if (cardColor === 'red') {
+                    const onFieldSlot = slots.find(s => s.playerId === cardPlayerId)
+                    if (onFieldSlot) sendToBench(onFieldSlot.posId)
+                  }
+                }}
+                  disabled={readOnly}
+                  className="px-4 py-1 rounded-xl font-bold text-white text-lg shrink-0 disabled:opacity-50"
+                  style={{ background: 'var(--brand-1a3fab)' }}>
+                  +
+                </button>
+              </div>
+              {cards.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {cards.map(c => {
+                    const p = getPlayer(c.playerId)
+                    return (
+                      <div key={c.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
+                        style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                        <span style={{ color: 'var(--brand-1a2f6b)' }}>
+                          <span className="inline-block w-3 h-4 rounded-sm mr-1.5 align-middle"
+                            style={{ background: c.color === 'green' ? '#16A34A' : c.color === 'yellow' ? '#EAB308' : '#DC2626' }} />
+                          {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}
+                        </span>
+                        {!readOnly && (
+                          <button onClick={() => setCards(cs => cs.filter(x => x.id !== c.id))}
+                            className="font-bold" style={{ color: '#DC2626' }}>
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {gameTab === 'tactiek' && (
+          <div className="p-3">
+            <div className="flex items-center justify-center w-full mb-3 mx-auto" style={{ maxWidth: isDual ? '600px' : '330px' }}>
               <TacticsFieldEditor
                 isDual={isDual}
                 slots={slots}
@@ -3067,408 +3877,103 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                 onOppMarkerPointerDown={(id, e) => beginDrag('opp-marker', id, e)}
                 onOppMarkerClick={handleOppMarkerClick}
               />
-            ) : (
-              <FieldView
-                ageGroup={ageGroup}
-                slots={slots}
-                squad={squad}
-                oppMarkers={oppMarkers}
-                selected={selected}
-                dragOverPos={dragOverPos}
-                dragPreview={dragPreview}
-                fieldRef={fieldRef}
-                onFieldClick={handleFieldClick}
-                onBackgroundClick={handleBackgroundClick}
-                onMarkerPointerDown={(posId, e) => beginDrag('field', posId, e)}
-                onOppMarkerPointerDown={(id, e) => beginDrag('opp-marker', id, e)}
-                onOppMarkerClick={handleOppMarkerClick}
-              />
-            )}
-          </div>
+            </div>
 
-          {!user && (
-            <p className="text-xs text-center mt-2" style={{ color: 'var(--brand-a8bef0)' }}>
-              Log in om deze wedstrijd te kunnen opslaan.
-            </p>
-          )}
+            <div className="space-y-3 mx-auto" style={{ maxWidth: '420px' }}>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Opstellingen</label>
+                  {!readOnly && (
+                    <div className="flex gap-2">
+                      <button onClick={() => addBoard(false)} className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>
+                        + Opstelling
+                      </button>
+                      <button onClick={() => addBoard(true)} className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>
+                        + Strafcorner
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {tacticsBoards.map(b => (
+                    <div key={b.id} className="flex items-center gap-1">
+                      <button onClick={() => { setActiveBoardId(b.id); setSelectedTacticsMarker(null); setTacticsPlayerId('') }}
+                        className="text-xs font-bold px-2.5 py-1.5 rounded-lg"
+                        style={b.id === activeBoardId
+                          ? { background: 'var(--brand-1a3fab)', color: '#fff' }
+                          : { background: 'var(--brand-f8faff)', color: 'var(--brand-3b5299)', border: '1px solid var(--brand-d0dcfa)' }}>
+                        {b.name}
+                      </button>
+                      {!readOnly && tacticsBoards.length > 1 && (
+                        <button onClick={() => { if (confirm(`"${b.name}" verwijderen?`)) deleteBoard(b.id) }}
+                          className="font-bold text-xs" style={{ color: '#DC2626' }}>
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
 
-          {selectedFieldPos && (
-            <div className="flex gap-2 mt-2" onClick={e => e.stopPropagation()}>
-              {slots.find(s => s.posId === selectedFieldPos)?.playerId && (
-                <button onClick={() => sendToBench(selectedFieldPos)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
-                  style={{ background: '#4B5563' }}>
-                  → Bank
+              {!readOnly && (
+                <div>
+                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Gereedschap</label>
+                  <div className="flex gap-2">
+                    {([
+                      { key: 'select', label: 'Selecteer' },
+                      { key: 'marker', label: '+ Speler' },
+                      { key: 'arrow', label: '+ Pijl' },
+                    ] as const).map(t => (
+                      <button key={t.key} onClick={() => { setTacticsTool(t.key); setSelectedTacticsMarker(null); setTacticsPlayerId('') }}
+                        className="flex-1 py-2 rounded-lg text-xs font-bold"
+                        style={tacticsTool === t.key
+                          ? { background: 'var(--brand-1a3fab)', color: '#fff' }
+                          : { background: 'var(--brand-f8faff)', color: 'var(--brand-3b5299)', border: '1px solid var(--brand-d0dcfa)' }}>
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                  {tacticsTool === 'marker' ? (
+                    <div className="mt-2">
+                      <select className="w-full rounded-xl px-3 py-2 text-sm"
+                        style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: tacticsPlayerId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', outline: 'none' }}
+                        value={tacticsPlayerId} onChange={e => setTacticsPlayerId(e.target.value)}>
+                        <option value="">Kies speler…</option>
+                        {sortPlayers(squad.filter(p => !activeBoard.markers.some(m => m.playerId === p.id))).map(p => (
+                          <option key={p.id} value={p.id}>{p.number ? `#${p.number} ` : ''}{p.name}</option>
+                        ))}
+                      </select>
+                      <p className="text-xs mt-1.5" style={{ color: 'var(--brand-a8bef0)' }}>
+                        {tacticsPlayerId ? 'Tik op het veld om te plaatsen.' : 'Kies eerst een speler.'}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-xs mt-1.5" style={{ color: 'var(--brand-a8bef0)' }}>
+                      {tacticsTool === 'arrow'
+                        ? 'Sleep op het veld om een pijl te tekenen.'
+                        : 'Tik een speler, tik daarna waar die naartoe moet.'}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {selectedTacticsMarker && !readOnly && (
+                <button onClick={() => removeTacticsMarker(selectedTacticsMarker)}
+                  className="text-xs font-bold px-3 py-1.5 rounded-lg" style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
+                  Verwijder geselecteerde speler
                 </button>
               )}
-              <button onClick={() => setSelected(null)}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold"
-                style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>
-                Annuleer
-              </button>
-            </div>
-          )}
 
-          {selected?.type === 'opp-marker' && (
-            <div className="flex gap-2 mt-2" onClick={e => e.stopPropagation()}>
-              <button onClick={() => removeOppMarker(selected.id)}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
-                style={{ background: '#4B5563' }}>
-                Verwijder
-              </button>
-              <button onClick={() => setSelected(null)}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold"
-                style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>
-                Annuleer
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Right panel */}
-        {panelCollapsed ? (
-          <button
-            onClick={e => { e.stopPropagation(); setPanelCollapsed(false) }}
-            className="w-8 flex flex-col items-center gap-3 pt-3 bg-white shrink-0"
-            style={{ borderLeft: '1px solid var(--brand-d0dcfa)' }}>
-            <span style={{ color: 'var(--brand-1a3fab)', fontSize: '14px', fontWeight: 800, lineHeight: 1 }}>‹</span>
-            <span className="text-xs font-bold" style={{ color: 'var(--brand-7b90c8)', writingMode: 'vertical-rl' }}>
-              Bank ({benchPlayers.length})
-            </span>
-          </button>
-        ) : (
-        <div className="w-56 flex flex-col bg-white shrink-0 overflow-hidden"
-          style={{ borderLeft: '1px solid var(--brand-d0dcfa)' }}
-          onClick={e => e.stopPropagation()}>
-          {/* Tabs */}
-          <div className="flex shrink-0 items-stretch" style={{ borderBottom: '1px solid var(--brand-e8effd)' }}>
-            <button onClick={() => setPanelCollapsed(true)}
-              className="shrink-0 px-1.5 text-sm font-bold"
-              style={{ color: 'var(--brand-a8bef0)' }}>
-              ›
-            </button>
-            {(['bench', 'subs', 'notes', 'tactics', 'media'] as const).map(tab => (
-              <button key={tab} onClick={() => setActiveTab(tab)}
-                className="flex-1 min-w-0 py-2.5 px-0.5 text-[10px] font-bold uppercase transition-colors"
-                style={{
-                  color: activeTab === tab ? 'var(--brand-1a3fab)' : 'var(--brand-a8bef0)',
-                  borderBottom: activeTab === tab ? '2.5px solid var(--brand-1a3fab)' : '2.5px solid transparent',
-                }}>
-                {tab === 'bench' ? `Bank (${benchPlayers.length})` : tab === 'subs' ? `Wissel (${subs.length})` : tab === 'notes' ? 'Score' : tab === 'tactics' ? 'Tactiek' : 'Media'}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex-1 overflow-y-auto">
-            {activeTab === 'bench' && (
-              <div className="p-2 space-y-1.5">
-                {benchPlayers.length === 0 ? (
-                  <div className="text-xs text-center py-8 rounded-xl border-2 border-dashed m-2"
-                    style={{ color: 'var(--brand-a8bef0)', borderColor: 'var(--brand-d0dcfa)' }}>
-                    Alle spelers staan op het veld
-                  </div>
-                ) : (
-                  [...benchPlayers].sort((a, b) => (a.player.number ?? Infinity) - (b.player.number ?? Infinity) || a.player.name.localeCompare(b.player.name)).map(({ playerId, sinceGameSec, player }) => {
-                    const elapsed = Math.max(0, gameSec - sinceGameSec)
-                    const isSel = selected?.type === 'bench' && selected.playerId === playerId
-                    const isBeingDragged = dragPreview?.type === 'bench' && dragPreview.id === playerId
-                    const isRedCarded = redCardedIds.has(playerId)
-                    return (
-                      <div key={playerId}
-                        className={`flex items-center gap-2.5 p-2.5 rounded-xl transition-all touch-none select-none ${isRedCarded ? 'cursor-not-allowed' : 'cursor-grab'}`}
-                        style={{
-                          background: isSel ? 'var(--brand-eef3ff)' : isRedCarded ? 'var(--brand-f0f5ff)' : 'var(--brand-f8faff)',
-                          border: isSel ? '1.5px solid var(--brand-1a3fab)' : '1.5px solid var(--brand-e8effd)',
-                          opacity: isBeingDragged ? 0.35 : isRedCarded ? 0.6 : 1,
-                        }}
-                        onPointerDown={e => beginDrag('bench', playerId, e)}
-                        onClick={() => handleBenchClick(playerId)}>
-                        <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden"
-                          style={{ background: 'var(--brand-1a3fab)' }}>
-                          {player.photoUrl ? (
-                            <img src={mediaSrc(player.photoUrl)} alt={player.name} className="w-full h-full object-cover" />
-                          ) : (
-                            player.number ?? initials(player.name)
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-semibold truncate" style={{ color: 'var(--brand-1a2f6b)' }}>{player.name}</div>
-                          <div className="font-mono text-xs font-bold mt-0.5"
-                            style={{ color: gameSec > 0 ? benchColor(elapsed) : 'var(--brand-a8bef0)' }}>
-                            {gameSec > 0 ? fmtSec(elapsed) : '—:—'}
-                          </div>
-                        </div>
-                        {isRedCarded && (
-                          <span className="inline-block w-3 h-4 rounded-sm shrink-0" style={{ background: '#DC2626' }} title="Rode kaart — kan niet meer meedoen" />
-                        )}
-                        {isSel && <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>↔</span>}
-                      </div>
-                    )
-                  })
-                )}
-
-                <div className="mt-4 pt-3 px-1" style={{ borderTop: '1px solid var(--brand-e8effd)' }}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
-                      Tegenstander ({oppAvailable} beschikbaar)
-                    </span>
-                    {oppMarkers.length > 0 && !readOnly && (
-                      <button onClick={() => setOppMarkers([])} className="text-xs font-bold" style={{ color: '#DC2626' }}>
-                        Wis
-                      </button>
-                    )}
-                  </div>
-                  <p className="text-xs mb-2" style={{ color: selected?.type === 'opp-pool' ? 'var(--brand-1a3fab)' : 'var(--brand-a8bef0)' }}>
-                    {selected?.type === 'opp-pool'
-                      ? 'Tik op het veld om te plaatsen…'
-                      : 'Sleep naar het veld, of tik en tik daarna op het veld.'}
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {Array.from({ length: oppAvailable }).map((_, i) => (
-                      <div key={i}
-                        className="w-8 h-8 rounded-full cursor-grab touch-none select-none shrink-0"
-                        style={{
-                          background: '#DC2626',
-                          border: selected?.type === 'opp-pool' ? '2.5px solid var(--brand-1a3fab)' : '2px solid #fff',
-                          boxShadow: selected?.type === 'opp-pool' ? '0 0 0 3px rgba(26,63,171,0.35)' : '0 2px 6px rgba(0,0,0,0.25)',
-                        }}
-                        onPointerDown={e => beginDrag('opp-pool', 'new', e)}
-                        onClick={handleOppPoolClick} />
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'subs' && (
-              <div className="p-3 space-y-2">
-                {subs.length === 0 && (
-                  <p className="text-xs text-center py-8" style={{ color: 'var(--brand-a8bef0)' }}>Nog geen wissels</p>
-                )}
-                {subs.map((s, i) => {
-                  const pIn = getPlayer(s.playerInId)
-                  const pOut = getPlayer(s.playerOutId)
-                  return (
-                    <div key={i} className="py-2.5 rounded-xl px-3"
-                      style={{ background: 'var(--brand-f0f5ff)', border: '1px solid var(--brand-e4ecfe)' }}>
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <span className="font-mono text-xs font-bold" style={{ color: 'var(--brand-7b90c8)' }}>{fmtSec(s.gameTimeSec)}</span>
-                        {s.posLabel && (
-                          <span className="text-xs font-bold px-1.5 rounded" style={{ color: 'var(--brand-1a3fab)', background: 'var(--brand-e4ecfe)' }}>{s.posLabel}</span>
-                        )}
-                      </div>
-                      <div className="text-xs font-semibold" style={{ color: '#16A34A' }}>↑ {pIn?.number ? `#${pIn.number} ` : ''}{pIn?.name}</div>
-                      <div className="text-xs font-semibold" style={{ color: '#DC2626' }}>↓ {pOut?.number ? `#${pOut.number} ` : ''}{pOut?.name}</div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-
-            {activeTab === 'notes' && (
-              <div className="p-3 space-y-3">
+              {activeBoard.arrows.length > 0 && (
                 <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Scorebord</label>
-                  <div className="flex items-center justify-between gap-2 rounded-xl px-3 py-2.5"
-                    style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)' }}>
-                    <div className="flex-1 text-center min-w-0">
-                      <div className="text-xs font-semibold truncate" style={{ color: 'var(--brand-6b82b8)' }}>{team || 'Eigen team'}</div>
-                      <div className="flex items-center justify-center gap-2.5 mt-1">
-                        <button onClick={() => setScoreOwn(s => Math.max(0, s - 1))} disabled={readOnly}
-                          className="w-7 h-7 rounded-lg font-bold text-sm disabled:opacity-50" style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>−</button>
-                        <span className="font-mono font-bold text-xl w-6 text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{scoreOwn}</span>
-                        <button onClick={() => setScoreOwn(s => s + 1)} disabled={readOnly}
-                          className="w-7 h-7 rounded-lg font-bold text-sm text-white disabled:opacity-50" style={{ background: 'var(--brand-1a3fab)' }}>+</button>
-                      </div>
-                    </div>
-                    <div className="font-bold text-sm shrink-0" style={{ color: 'var(--brand-a8bef0)' }}>–</div>
-                    <div className="flex-1 text-center min-w-0">
-                      <div className="text-xs font-semibold truncate" style={{ color: 'var(--brand-6b82b8)' }}>{opponent || 'Tegenstander'}</div>
-                      <div className="flex items-center justify-center gap-2.5 mt-1">
-                        <button onClick={() => setScoreOpp(s => Math.max(0, s - 1))} disabled={readOnly}
-                          className="w-7 h-7 rounded-lg font-bold text-sm disabled:opacity-50" style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>−</button>
-                        <span className="font-mono font-bold text-xl w-6 text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{scoreOpp}</span>
-                        <button onClick={() => setScoreOpp(s => s + 1)} disabled={readOnly}
-                          className="w-7 h-7 rounded-lg font-bold text-sm text-white disabled:opacity-50" style={{ background: 'var(--brand-1a3fab)' }}>+</button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Doelpuntenmakers</label>
-                  <div className="flex gap-2">
-                    <select className="flex-1 rounded-xl px-3 py-2 text-sm" disabled={readOnly}
-                      style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: goalPlayerId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', outline: 'none' }}
-                      value={goalPlayerId} onChange={e => setGoalPlayerId(e.target.value)}>
-                      <option value="">Kies speler…</option>
-                      {sortPlayers(squad).map(p => (
-                        <option key={p.id} value={p.id}>{p.number ? `#${p.number} ` : ''}{p.name}</option>
-                      ))}
-                    </select>
-                    <button onClick={() => {
-                      if (readOnly || !goalPlayerId) return
-                      setGoals(g => [...g, { id: uid(), playerId: goalPlayerId }])
-                    }}
-                      disabled={readOnly}
-                      className="px-4 py-2 rounded-xl font-bold text-white text-lg shrink-0 disabled:opacity-50"
-                      style={{ background: 'var(--brand-1a3fab)' }}>
-                      +
-                    </button>
-                  </div>
-                  {goals.length > 0 && (
-                    <div className="mt-2 space-y-1">
-                      {goals.map(g => {
-                        const p = getPlayer(g.playerId)
-                        return (
-                          <div key={g.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-                            style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
-                            <span style={{ color: 'var(--brand-1a2f6b)' }}><HockeyBallIcon /> {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}</span>
-                            {!readOnly && (
-                              <button onClick={() => setGoals(gs => gs.filter(x => x.id !== g.id))}
-                                className="font-bold" style={{ color: '#DC2626' }}>
-                                ×
-                              </button>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                  <p className="text-xs mt-1.5" style={{ color: goals.length === scoreOwn ? 'var(--brand-7b90c8)' : '#D97706' }}>
-                    {goals.length} van de {scoreOwn} doelpunten toegewezen
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Kaarten</label>
-                  <select className="w-full rounded-xl px-3 py-2 text-sm" disabled={readOnly}
-                    style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: cardPlayerId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', outline: 'none' }}
-                    value={cardPlayerId} onChange={e => setCardPlayerId(e.target.value)}>
-                    <option value="">Kies speler…</option>
-                    {sortPlayers(squad).map(p => (
-                      <option key={p.id} value={p.id}>{p.number ? `#${p.number} ` : ''}{p.name}</option>
-                    ))}
-                  </select>
-                  <div className="flex gap-2 mt-2">
-                    {(['green', 'yellow', 'red'] as const).map(c => (
-                      <button key={c} onClick={() => setCardColor(c)} disabled={readOnly}
-                        className="flex-1 h-8 rounded-lg disabled:opacity-50"
-                        style={{
-                          background: c === 'green' ? '#16A34A' : c === 'yellow' ? '#EAB308' : '#DC2626',
-                          border: cardColor === c ? '2px solid var(--brand-1a2f6b)' : '2px solid transparent',
-                        }}
-                        aria-label={c} />
-                    ))}
-                    <button onClick={() => {
-                      if (readOnly || !cardPlayerId) return
-                      setCards(c => [...c, { id: uid(), playerId: cardPlayerId, color: cardColor }])
-                      // A red card ends the player's match — take them off the
-                      // field immediately rather than leaving it to be noticed
-                      // (and enforced) only the next time someone tries to sub
-                      // them back in.
-                      if (cardColor === 'red') {
-                        const onFieldSlot = slots.find(s => s.playerId === cardPlayerId)
-                        if (onFieldSlot) sendToBench(onFieldSlot.posId)
-                      }
-                    }}
-                      disabled={readOnly}
-                      className="px-4 py-1 rounded-xl font-bold text-white text-lg shrink-0 disabled:opacity-50"
-                      style={{ background: 'var(--brand-1a3fab)' }}>
-                      +
-                    </button>
-                  </div>
-                  {cards.length > 0 && (
-                    <div className="mt-2 space-y-1">
-                      {cards.map(c => {
-                        const p = getPlayer(c.playerId)
-                        return (
-                          <div key={c.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-                            style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
-                            <span style={{ color: 'var(--brand-1a2f6b)' }}>
-                              <span className="inline-block w-3 h-4 rounded-sm mr-1.5 align-middle"
-                                style={{ background: c.color === 'green' ? '#16A34A' : c.color === 'yellow' ? '#EAB308' : '#DC2626' }} />
-                              {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}
-                            </span>
-                            {!readOnly && (
-                              <button onClick={() => setCards(cs => cs.filter(x => x.id !== c.id))}
-                                className="font-bold" style={{ color: '#DC2626' }}>
-                                ×
-                              </button>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Speeltijd</label>
+                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Pijlen</label>
                   <div className="space-y-1">
-                    {sortPlayers(squad).map(p => {
-                      const onField = slots.some(s => s.playerId === p.id)
-                      return (
-                        <div key={p.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-                          style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
-                          <span style={{ color: 'var(--brand-1a2f6b)' }}>
-                            {onField && <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5" style={{ background: '#16A34A' }} />}
-                            {p.number ? `#${p.number} ` : ''}{p.name}
-                          </span>
-                          <span className="font-mono font-bold" style={{ color: 'var(--brand-3b5299)' }}>{fmtSec(playedSeconds[p.id] ?? 0)}</span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Notities</label>
-                  <textarea className="w-full rounded-xl px-3 py-2 text-sm resize-none"
-                    style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: 'var(--brand-1a2f6b)', outline: 'none' }}
-                    rows={8} value={notes} onChange={e => setNotes(e.target.value)} readOnly={readOnly}
-                    placeholder="Tactische notities, bijzonderheden…" />
-                </div>
-                {!readOnly && canReset && (
-                  <div className="pt-2" style={{ borderTop: '1px solid var(--brand-e8effd)' }}>
-                    <button onClick={resetGame}
-                      className="w-full px-4 py-2.5 rounded-xl font-bold text-sm"
-                      style={{ background: '#FEE2E2', color: '#DC2626' }}>
-                      Wedstrijd resetten
-                    </button>
-                    <p className="text-xs mt-1.5 text-center" style={{ color: 'var(--brand-7b90c8)' }}>
-                      Zet score, opstelling, doelpunten, kaarten en klok terug naar het begin.
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'tactics' && (
-              <div className="p-3 space-y-3">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Opstellingen</label>
-                    {!readOnly && (
-                      <div className="flex gap-2">
-                        <button onClick={() => addBoard(false)} className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>
-                          + Opstelling
-                        </button>
-                        <button onClick={() => addBoard(true)} className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>
-                          + Strafcorner
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {tacticsBoards.map(b => (
-                      <div key={b.id} className="flex items-center gap-1">
-                        <button onClick={() => { setActiveBoardId(b.id); setSelectedTacticsMarker(null); setTacticsPlayerId('') }}
-                          className="text-xs font-bold px-2.5 py-1.5 rounded-lg"
-                          style={b.id === activeBoardId
-                            ? { background: 'var(--brand-1a3fab)', color: '#fff' }
-                            : { background: 'var(--brand-f8faff)', color: 'var(--brand-3b5299)', border: '1px solid var(--brand-d0dcfa)' }}>
-                          {b.name}
-                        </button>
-                        {!readOnly && tacticsBoards.length > 1 && (
-                          <button onClick={() => { if (confirm(`"${b.name}" verwijderen?`)) deleteBoard(b.id) }}
-                            className="font-bold text-xs" style={{ color: '#DC2626' }}>
+                    {activeBoard.arrows.map((a, i) => (
+                      <div key={a.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
+                        style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                        <span style={{ color: 'var(--brand-1a2f6b)' }}>Pijl {i + 1}</span>
+                        {!readOnly && (
+                          <button onClick={() => removeTacticsArrow(a.id)} className="font-bold" style={{ color: '#DC2626' }}>
                             ×
                           </button>
                         )}
@@ -3476,123 +3981,123 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                     ))}
                   </div>
                 </div>
+              )}
 
+              {!readOnly && (activeBoard.markers.length > 0 || activeBoard.arrows.length > 0) && (
+                <button onClick={() => { if (confirm('Alles op deze opstelling wissen?')) clearBoard() }}
+                  className="text-xs font-bold" style={{ color: '#DC2626' }}>
+                  Wis opstelling
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {gameTab === 'media' && (
+          <div className="p-3 space-y-3 mx-auto" style={{ maxWidth: '480px' }}>
+            {!readOnly && (
+              <input ref={mediaFileInputRef} type="file" accept="image/*,video/*" multiple
+                className="hidden" onChange={e => { handleMediaUpload(e.target.files); e.target.value = '' }} />
+            )}
+            {readOnly && media.length === 0 ? (
+              <div className="text-xs text-center py-8 rounded-xl border-2 border-dashed"
+                style={{ color: 'var(--brand-a8bef0)', borderColor: 'var(--brand-d0dcfa)' }}>
+                Geen foto's of video's
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-2">
                 {!readOnly && (
-                  <div>
-                    <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Gereedschap</label>
-                    <div className="flex gap-2">
-                      {([
-                        { key: 'select', label: 'Selecteer' },
-                        { key: 'marker', label: '+ Speler' },
-                        { key: 'arrow', label: '+ Pijl' },
-                      ] as const).map(t => (
-                        <button key={t.key} onClick={() => { setTacticsTool(t.key); setSelectedTacticsMarker(null); setTacticsPlayerId('') }}
-                          className="flex-1 py-2 rounded-lg text-xs font-bold"
-                          style={tacticsTool === t.key
-                            ? { background: 'var(--brand-1a3fab)', color: '#fff' }
-                            : { background: 'var(--brand-f8faff)', color: 'var(--brand-3b5299)', border: '1px solid var(--brand-d0dcfa)' }}>
-                          {t.label}
-                        </button>
-                      ))}
-                    </div>
-                    {tacticsTool === 'marker' ? (
-                      <div className="mt-2">
-                        <select className="w-full rounded-xl px-3 py-2 text-sm"
-                          style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: tacticsPlayerId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', outline: 'none' }}
-                          value={tacticsPlayerId} onChange={e => setTacticsPlayerId(e.target.value)}>
-                          <option value="">Kies speler…</option>
-                          {sortPlayers(squad.filter(p => !activeBoard.markers.some(m => m.playerId === p.id))).map(p => (
-                            <option key={p.id} value={p.id}>{p.number ? `#${p.number} ` : ''}{p.name}</option>
-                          ))}
-                        </select>
-                        <p className="text-xs mt-1.5" style={{ color: 'var(--brand-a8bef0)' }}>
-                          {tacticsPlayerId ? 'Tik op het veld om te plaatsen.' : 'Kies eerst een speler.'}
-                        </p>
-                      </div>
+                  <button onClick={() => mediaFileInputRef.current?.click()} disabled={uploading}
+                    className="flex flex-col items-center justify-center gap-1 h-24 rounded-xl border-2 border-dashed disabled:opacity-50"
+                    style={{ borderColor: 'var(--brand-d0dcfa)', color: 'var(--brand-7b90c8)' }}>
+                    <span className="text-2xl leading-none font-bold">+</span>
+                    <span className="text-xs font-bold">{uploading ? 'Uploaden…' : 'Toevoegen'}</span>
+                  </button>
+                )}
+                {media.map(item => (
+                  <button key={item.id} onClick={() => setPreviewMedia(item)}
+                    className="relative rounded-xl overflow-hidden h-24" style={{ border: '1px solid var(--brand-d0dcfa)', background: 'var(--brand-0d2b7a)' }}>
+                    {item.type === 'image' ? (
+                      <img src={mediaSrc(item.url)} alt={item.name} className="w-full h-24 object-cover" />
                     ) : (
-                      <p className="text-xs mt-1.5" style={{ color: 'var(--brand-a8bef0)' }}>
-                        {tacticsTool === 'arrow'
-                          ? 'Sleep op het veld om een pijl te tekenen.'
-                          : 'Tik een speler, tik daarna waar die naartoe moet.'}
-                      </p>
+                      <video src={mediaSrc(item.url)} className="w-full h-24 object-cover" />
                     )}
-                  </div>
-                )}
-
-                {selectedTacticsMarker && !readOnly && (
-                  <button onClick={() => removeTacticsMarker(selectedTacticsMarker)}
-                    className="text-xs font-bold px-3 py-1.5 rounded-lg" style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
-                    Verwijder geselecteerde speler
                   </button>
-                )}
-
-                {activeBoard.arrows.length > 0 && (
-                  <div>
-                    <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Pijlen</label>
-                    <div className="space-y-1">
-                      {activeBoard.arrows.map((a, i) => (
-                        <div key={a.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-                          style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
-                          <span style={{ color: 'var(--brand-1a2f6b)' }}>Pijl {i + 1}</span>
-                          {!readOnly && (
-                            <button onClick={() => removeTacticsArrow(a.id)} className="font-bold" style={{ color: '#DC2626' }}>
-                              ×
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {!readOnly && (activeBoard.markers.length > 0 || activeBoard.arrows.length > 0) && (
-                  <button onClick={() => { if (confirm('Alles op deze opstelling wissen?')) clearBoard() }}
-                    className="text-xs font-bold" style={{ color: '#DC2626' }}>
-                    Wis opstelling
-                  </button>
-                )}
+                ))}
               </div>
             )}
+          </div>
+        )}
+      </div>
 
-            {activeTab === 'media' && (
-              <div className="p-3 space-y-3">
-                {!readOnly && (
-                  <input ref={mediaFileInputRef} type="file" accept="image/*,video/*" multiple
-                    className="hidden" onChange={e => { handleMediaUpload(e.target.files); e.target.value = '' }} />
+      {/* Bottom tab bar — replaces the old side panel */}
+      <div className="shrink-0 shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }} onClick={e => e.stopPropagation()}>
+        <div className="grid grid-cols-5 mx-auto" style={{ maxWidth: '380px' }}>
+          {([
+            ['wedstrijd', 'Wedstrijd'],
+            ['bank', 'Bank'],
+            ['score', 'Score'],
+            ['tactiek', 'Tactiek'],
+            ['media', 'Media'],
+          ] as const).map(([key, label]) => (
+            <button key={key} onClick={() => setGameTab(key)}
+              className="flex flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-bold"
+              style={{ color: gameTab === key ? '#fff' : 'var(--brand-7b9de0)' }}>
+              <span className="relative w-8 h-7 rounded-full flex items-center justify-center transition-colors"
+                style={{ background: gameTab === key ? 'var(--brand-1a3fab)' : 'transparent' }}>
+                {key === 'wedstrijd' && <IconPitch size={19} />}
+                {key === 'bank' && <IconSwap size={19} />}
+                {key === 'score' && <IconGoal size={19} />}
+                {key === 'tactiek' && <IconTactics size={19} />}
+                {key === 'media' && <IconCamera size={19} />}
+                {key === 'bank' && benchPlayers.length > 0 && (
+                  <span className="absolute -top-1 -right-1.5 text-[9px] font-bold rounded-full px-1 text-white leading-tight" style={{ background: '#DC2626' }}>
+                    {benchPlayers.length}
+                  </span>
                 )}
-                {readOnly && media.length === 0 ? (
-                  <div className="text-xs text-center py-8 rounded-xl border-2 border-dashed"
-                    style={{ color: 'var(--brand-a8bef0)', borderColor: 'var(--brand-d0dcfa)' }}>
-                    Geen foto's of video's
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-2">
-                    {!readOnly && (
-                      <button onClick={() => mediaFileInputRef.current?.click()} disabled={uploading}
-                        className="flex flex-col items-center justify-center gap-1 h-24 rounded-xl border-2 border-dashed disabled:opacity-50"
-                        style={{ borderColor: 'var(--brand-d0dcfa)', color: 'var(--brand-7b90c8)' }}>
-                        <span className="text-2xl leading-none font-bold">+</span>
-                        <span className="text-xs font-bold">{uploading ? 'Uploaden…' : 'Toevoegen'}</span>
-                      </button>
-                    )}
-                    {media.map(item => (
-                      <button key={item.id} onClick={() => setPreviewMedia(item)}
-                        className="relative rounded-xl overflow-hidden h-24" style={{ border: '1px solid var(--brand-d0dcfa)', background: 'var(--brand-0d2b7a)' }}>
-                        {item.type === 'image' ? (
-                          <img src={mediaSrc(item.url)} alt={item.name} className="w-full h-24 object-cover" />
-                        ) : (
-                          <video src={mediaSrc(item.url)} className="w-full h-24 object-cover" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                )}
+              </span>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Settings sheet — notes + reset, moved out of the old catch-all Score tab */}
+      {showSettings && (
+        <div className="fixed inset-0 z-50 flex items-end" style={{ background: 'rgba(13,20,43,0.5)' }}
+          onClick={() => setShowSettings(false)}>
+          <div className="w-full bg-white rounded-t-2xl p-4 space-y-3" style={{ maxHeight: '80vh', overflowY: 'auto' }}
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="font-display text-lg font-bold" style={{ color: 'var(--brand-0d2b7a)' }}>Notities</h3>
+              <button onClick={() => setShowSettings(false)} className="text-2xl leading-none px-2" style={{ color: 'var(--brand-a8bef0)' }}>×</button>
+            </div>
+            {!readOnly && (
+              <button onClick={herstel} disabled={historyLen === 0}
+                className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold disabled:opacity-40"
+                style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
+                <IconUndo size={16} /> Herstel
+              </button>
+            )}
+            <textarea className="w-full rounded-xl px-3 py-2 text-sm resize-none"
+              style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: 'var(--brand-1a2f6b)', outline: 'none' }}
+              rows={8} value={notes} onChange={e => setNotes(e.target.value)} readOnly={readOnly}
+              placeholder="Tactische notities, bijzonderheden…" />
+            {!readOnly && canReset && (
+              <div className="pt-2" style={{ borderTop: '1px solid var(--brand-e8effd)' }}>
+                <button onClick={resetGame}
+                  className="w-full px-4 py-2.5 rounded-xl font-bold text-sm"
+                  style={{ background: '#FEE2E2', color: '#DC2626' }}>
+                  Wedstrijd resetten
+                </button>
+                <p className="text-xs mt-1.5 text-center" style={{ color: 'var(--brand-7b90c8)' }}>
+                  Zet score, opstelling, doelpunten, kaarten en klok terug naar het begin.
+                </p>
               </div>
             )}
           </div>
         </div>
-        )}
-      </div>
+      )}
 
       {previewMedia && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6"
@@ -3622,13 +4127,175 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
 
 // ── History View ─────────────────────────────────────────────────────────────
 
-function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
+// Shared between HistoryView's expand-in-place row and the "Match" tab of
+// MatchDetailView — every section that isn't Stats/Line-up/Timeline lives
+// here so the two surfaces can't drift out of sync.
+function MatchDetailSections({ g, user, getPlayer, canManageSharing, shares, addShare, removeShare, onEdit, onDelete }: {
+  g: SavedGame
+  user: AuthUser | null
+  getPlayer: (g: SavedGame, id: string) => Player | undefined
+  canManageSharing: boolean
+  shares: GameShare[]
+  addShare: (email: string, permission: 'view' | 'edit') => Promise<{ ok: true } | { ok: false; error: string }>
+  removeShare: (userId: string) => void
+  onEdit: (game: SavedGame) => void
+  onDelete: (id: string) => void
+}) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>
+          Selectie ({g.squad.length})
+        </h4>
+        <div className="flex flex-wrap gap-1.5">
+          {sortPlayers(g.squad).map(p => (
+            <span key={p.id} className="text-xs px-2 py-1 rounded-lg font-medium"
+              style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
+              {p.number != null && <span className="font-mono font-bold" style={{ color: 'var(--brand-1a3fab)' }}>#{p.number} </span>}{p.name}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {g.subs.length > 0 && (
+        <div>
+          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Wissels</h4>
+          <div className="space-y-1">
+            {g.subs.map((s, i) => {
+              const pIn = getPlayer(g, s.playerInId)
+              const pOut = getPlayer(g, s.playerOutId)
+              return (
+                <div key={i} className="flex items-center gap-2 text-xs">
+                  <span className="font-mono font-bold w-10 shrink-0" style={{ color: 'var(--brand-7b90c8)' }}>{fmtSec(s.gameTimeSec)}</span>
+                  {s.posLabel && (
+                    <span className="text-xs font-bold px-1.5 rounded shrink-0" style={{ color: 'var(--brand-1a3fab)', background: 'var(--brand-e4ecfe)' }}>{s.posLabel}</span>
+                  )}
+                  <span className="font-semibold" style={{ color: '#16A34A' }}>↑ {pIn?.name}</span>
+                  <span className="font-semibold" style={{ color: '#DC2626' }}>↓ {pOut?.name}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {g.goals && g.goals.length > 0 && (
+        <div>
+          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Doelpunten</h4>
+          <div className="flex flex-wrap gap-1.5">
+            {Object.entries(
+              g.goals.reduce<Record<string, number>>((acc, goal) => {
+                acc[goal.playerId] = (acc[goal.playerId] ?? 0) + 1
+                return acc
+              }, {})
+            ).map(([playerId, count]) => {
+              const p = getPlayer(g, playerId)
+              return (
+                <span key={playerId} className="text-xs px-2 py-1 rounded-lg font-medium"
+                  style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
+                  <HockeyBallIcon /> {p?.name ?? 'Onbekende speler'}{count > 1 ? ` ×${count}` : ''}
+                </span>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {g.cards && g.cards.length > 0 && (
+        <div>
+          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Kaarten</h4>
+          <div className="flex flex-wrap gap-1.5">
+            {g.cards.map(c => {
+              const p = getPlayer(g, c.playerId)
+              return (
+                <span key={c.id} className="text-xs px-2 py-1 rounded-lg font-medium"
+                  style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
+                  <span className="inline-block w-3 h-4 rounded-sm mr-1 align-middle"
+                    style={{ background: c.color === 'green' ? '#16A34A' : c.color === 'yellow' ? '#EAB308' : '#DC2626' }} />
+                  {p?.name ?? 'Onbekende speler'}
+                </span>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {g.playedSeconds && Object.keys(g.playedSeconds).length > 0 && (
+        <div>
+          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Speeltijd</h4>
+          <div className="flex flex-wrap gap-1.5">
+            {Object.entries(g.playedSeconds)
+              .map(([playerId, sec]) => ({ playerId, sec, player: getPlayer(g, playerId) }))
+              .filter((x): x is { playerId: string; sec: number; player: Player } => !!x.player)
+              .sort((a, b) => (a.player.number ?? Infinity) - (b.player.number ?? Infinity) || a.player.name.localeCompare(b.player.name))
+              .map(x => (
+                <span key={x.playerId} className="text-xs px-2 py-1 rounded-lg font-medium"
+                  style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
+                  {x.player.name} <span style={{ color: 'var(--brand-3b5299)' }}>· {fmtSec(x.sec)}</span>
+                </span>
+              ))}
+          </div>
+        </div>
+      )}
+
+      {g.media && g.media.length > 0 && (
+        <div>
+          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Media</h4>
+          <div className="grid grid-cols-4 gap-1.5">
+            {g.media.map(item => (
+              <a key={item.id} href={mediaSrc(item.url)} target="_blank" rel="noreferrer"
+                className="block rounded-lg overflow-hidden" style={{ border: '1px solid var(--brand-d0dcfa)', background: 'var(--brand-0d2b7a)' }}>
+                {item.type === 'image' ? (
+                  <img src={mediaSrc(item.url)} alt={item.name} className="w-full h-16 object-cover" />
+                ) : (
+                  <video src={mediaSrc(item.url)} className="w-full h-16 object-cover" />
+                )}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {g.notes && (
+        <div>
+          <h4 className="font-display text-sm font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)' }}>Notities</h4>
+          <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--brand-3b4f7a)' }}>{g.notes}</p>
+        </div>
+      )}
+
+      {canManageSharing && (
+        <div>
+          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Delen</h4>
+          <GameShareManager shares={shares} onAdd={addShare} onRemove={removeShare} />
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <button onClick={() => onEdit(g)}
+          className="text-xs font-bold px-3 py-1.5 rounded-lg text-white"
+          style={{ background: 'var(--brand-1a3fab)' }}>
+          {(g.permission ?? 'owner') === 'view' ? 'Bekijken' : 'Bewerken'}
+        </button>
+        {(!g.ownerId || g.ownerId === user?.id) && (
+          <button onClick={() => { if (confirm('Wedstrijd verwijderen?')) onDelete(g.id) }}
+            className="text-xs font-bold px-3 py-1.5 rounded-lg"
+            style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
+            Verwijder
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, onCreateMatch, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
   games: SavedGame[]
   user: AuthUser | null
   authLoading: boolean
   onDelete: (id: string) => void
   onEdit: (game: SavedGame) => void
   onProfile: () => void
+  onCreateMatch: () => void
   unreadNotifications: number
   notifications: AppNotification[]
   onMarkRead: (id: string) => void
@@ -3637,25 +4304,8 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, un
   onDeleteNotification: (id: string) => void
 }) {
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [filter, setFilter] = useState<'all' | 'upcoming' | 'played'>('upcoming')
   const getPlayer = (g: SavedGame, id: string) => g.squad.find(p => p.id === id)
-
-  // Sum minutes played across every saved match — `games` is already ordered
-  // oldest-first (per the API), so overwriting on each pass keeps the most
-  // recent name/number for a player whose squad entry changed over time.
-  const seasonPlaytime = (() => {
-    const totals: Record<string, number> = {}
-    const info: Record<string, { name: string; number?: number }> = {}
-    for (const g of games) {
-      for (const p of g.squad) info[p.id] = { name: p.name, number: p.number }
-      for (const [pid, sec] of Object.entries(g.playedSeconds ?? {})) {
-        totals[pid] = (totals[pid] ?? 0) + sec
-      }
-    }
-    return Object.entries(totals)
-      .map(([id, sec]) => ({ id, sec, ...info[id] }))
-      .filter(p => p.name)
-      .sort((a, b) => (a.number ?? Infinity) - (b.number ?? Infinity) || a.name.localeCompare(b.name))
-  })()
 
   const expandedGame = games.find(g => g.id === expanded) ?? null
   const canManageSharing = !!expandedGame && (expandedGame.ownerId ?? user?.id) === user?.id
@@ -3668,56 +4318,72 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, un
   // existing newest-first order.
   const upcomingGames = games.filter(g => g.finalTime === 0).sort((a, b) => a.date.localeCompare(b.date))
   const playedGames = [...games.filter(g => g.finalTime > 0)].reverse()
+  const filteredGames = filter === 'upcoming' ? upcomingGames : filter === 'played' ? playedGames : [...upcomingGames, ...playedGames]
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
-      <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
-        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
-          <div className="flex items-center gap-3 justify-self-start">
-            {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
-            <div>
-              <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
-                {user?.defaultClub ?? 'Hockey One'}
-              </p>
-              <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
-                {user?.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
-              </p>
+      {/* Header + filter/create bar stick together as one unit — only the
+          match list below them scrolls. */}
+      <div className="sticky top-0 z-20">
+        <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white shadow-lg">
+          <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
+            <div className="flex items-center gap-3 justify-self-start">
+              {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
+              <div>
+                <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
+                  {user?.defaultClub ?? 'Hockey One'}
+                </p>
+                <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
+                  {user?.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-center">
+              <H1Logo height={26} />
+            </div>
+            <div className="flex items-center gap-2 justify-self-end">
+              {user && (
+                <NotificationBell
+                  unreadNotifications={unreadNotifications}
+                  notifications={notifications}
+                  onMarkRead={onMarkRead}
+                  onMarkAllRead={onMarkAllRead}
+                  onMarkUnread={onMarkUnread}
+                  onDelete={onDeleteNotification}
+                  onOpenHistory={() => {}}
+                />
+              )}
+              {!user && (
+                <button onClick={onProfile} className="text-sm px-3 py-1.5 rounded-lg font-semibold"
+                  style={{ color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
+                  Inloggen
+                </button>
+              )}
             </div>
           </div>
-          <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">WEDSTRIJDEN</h1>
-          <div className="flex items-center gap-2 justify-self-end">
-            {user && (
-              <NotificationBell
-                unreadNotifications={unreadNotifications}
-                notifications={notifications}
-                onMarkRead={onMarkRead}
-                onMarkAllRead={onMarkAllRead}
-                onMarkUnread={onMarkUnread}
-                onDelete={onDeleteNotification}
-                onOpenHistory={() => {}}
-              />
-            )}
-            <button onClick={onProfile}
-              className={user ? 'rounded-full' : 'text-sm px-3 py-1.5 rounded-lg font-semibold'}
-              style={user
-                ? {}
-                : { color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
-              {user ? (
-                user.picture ? (
-                  <img src={user.picture} alt="Profiel" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
-                ) : (
-                  <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                    style={{ background: 'var(--brand-1a3fab)' }}>
-                    {initials(user.name ?? user.email)}
-                  </span>
-                )
-              ) : (
-                'Inloggen'
-              )}
+        </header>
+
+        <div className="shadow-sm" style={{ background: 'var(--brand-eef3ff)' }}>
+          <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-2">
+            <div className="flex gap-1.5 flex-1">
+              {([['all', 'Alles'], ['upcoming', 'Aankomend'], ['played', 'Gespeeld']] as const).map(([key, label]) => (
+                <button key={key} onClick={() => setFilter(key)}
+                  className="text-xs font-bold px-3 py-1.5 rounded-full transition-colors"
+                  style={filter === key
+                    ? { background: 'var(--brand-1a3fab)', color: '#fff' }
+                    : { background: '#fff', color: 'var(--brand-3b5299)', border: '1px solid var(--brand-d0dcfa)' }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <button onClick={onCreateMatch}
+              className="text-xs font-bold px-3 py-1.5 rounded-full shrink-0 text-white"
+              style={{ background: 'var(--brand-1a3fab)' }}>
+              Wedstrijd aanmaken
             </button>
           </div>
         </div>
-      </header>
+      </div>
 
       <div className="max-w-2xl mx-auto px-4 py-8">
         {!authLoading && !user ? (
@@ -3737,40 +4403,13 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, un
           </div>
         ) : (
           <div className="space-y-3">
-            {seasonPlaytime.length > 0 && (
-              <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
-                <h2 className="font-display text-sm font-bold uppercase mb-3" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
-                  Speeltijd — alle wedstrijden
-                </h2>
-                <div className="flex flex-wrap gap-1.5">
-                  {seasonPlaytime.map(p => (
-                    <span key={p.id} className="text-xs px-2 py-1 rounded-lg font-medium"
-                      style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
-                      {p.number != null && <span className="font-mono font-bold" style={{ color: 'var(--brand-1a3fab)' }}>#{p.number} </span>}
-                      {p.name} <span style={{ color: 'var(--brand-3b5299)' }}>· {fmtHM(p.sec)}</span>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {upcomingGames.length > 0 && (
-              <div>
-                <h2 className="font-display text-sm font-bold uppercase mb-3" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
-                  Aankomende Wedstrijden
-                </h2>
-                <div className="space-y-3">
-                  {upcomingGames.map(renderGame)}
-                </div>
-              </div>
-            )}
-            {playedGames.length > 0 && (
-              <div>
-                <h2 className="font-display text-sm font-bold uppercase mb-3" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
-                  Gespeelde Wedstrijden
-                </h2>
-                <div className="space-y-3">
-                  {playedGames.map(renderGame)}
-                </div>
+            {filteredGames.length === 0 ? (
+              <p className="text-sm text-center py-10" style={{ color: 'var(--brand-a8bef0)' }}>
+                {filter === 'upcoming' ? 'Geen aankomende wedstrijden' : 'Geen gespeelde wedstrijden'}
+              </p>
+            ) : (
+              <div className="bg-white rounded-2xl overflow-hidden shadow-sm divide-y" style={{ border: '1px solid var(--brand-d0dcfa)', borderColor: 'var(--brand-d0dcfa)' }}>
+                {filteredGames.map(renderGame)}
               </div>
             )}
           </div>
@@ -3781,189 +4420,302 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, un
 
   function renderGame(g: SavedGame) {
     return (
-              <div key={g.id} className="bg-white rounded-2xl overflow-hidden shadow-sm"
-                style={{ border: '1px solid var(--brand-d0dcfa)' }}>
-                <button className="w-full text-left px-5 py-4 flex items-center justify-between"
+              <div key={g.id}>
+                <button className="w-full text-left px-5 py-4"
                   onClick={() => setExpanded(expanded === g.id ? null : g.id)}>
-                  <div className="min-w-0">
-                    <div className="font-display text-lg font-bold leading-tight flex items-center flex-wrap gap-x-1.5" style={{ color: 'var(--brand-0d2b7a)' }}>
-                      <ClubLogo club={g.club} size={20} />
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold" style={{ color: 'var(--brand-7b90c8)' }}>
+                      {new Date(g.date).toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' })}
+                    </span>
+                    <span className="text-xs font-bold uppercase" style={{ color: 'var(--brand-a8bef0)' }}>
+                      {g.homeAway === 'Thuis' ? 'Thuis' : 'Uit'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex items-center gap-1.5 flex-wrap font-display text-base font-bold" style={{ color: 'var(--brand-0d2b7a)' }}>
+                      <ClubLogo club={g.club} size={22} />
                       <span>{g.club} {g.team}</span>
-                      <span style={{ color: 'var(--brand-7b90c8)', fontWeight: 400 }}>{g.homeAway === 'Thuis' ? 'Thuis' : 'Uit'}</span>
-                      <ClubLogo club={matchKnhbClub(g.opponent)} size={20} />
+                      <span className="font-normal text-xs" style={{ color: 'var(--brand-a8bef0)' }}>vs</span>
+                      <ClubLogo club={matchKnhbClub(g.opponent)} size={22} />
                       <span>{g.opponent}</span>
                     </div>
-                    <div className="flex flex-wrap gap-3 mt-0.5">
-                      <span className="text-xs font-medium" style={{ color: 'var(--brand-7b90c8)' }}>{g.date}</span>
-                      <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>{ageGroupLabel(g.ageGroup)}</span>
-                      {typeof g.scoreOwn === 'number' && typeof g.scoreOpp === 'number' ? (
-                        <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>{g.scoreOwn} - {g.scoreOpp}</span>
-                      ) : g.result ? (
-                        <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>{g.result}</span>
-                      ) : null}
-                      <span className="text-xs font-mono" style={{ color: 'var(--brand-a8bef0)' }}>{fmtSec(g.finalTime)}</span>
-                      {g.ownerId && user && g.ownerId !== user.id && (
-                        <span className="text-xs font-bold px-1.5 rounded" style={{ color: '#6D28D9', background: '#EDE9FE' }}>
-                          {g.ownerId === 'hockey-one' ? 'Officiële wedstrijd' : 'Gedeeld'} · {g.permission === 'edit' ? 'Bewerken' : 'Bekijken'}
-                        </span>
-                      )}
-                    </div>
+                    <span className="text-xs shrink-0" style={{ color: 'var(--brand-c8d5f5)' }}>
+                      {expanded === g.id ? '▲' : '▼'}
+                    </span>
                   </div>
-                  <span className="text-xs ml-4 shrink-0" style={{ color: 'var(--brand-c8d5f5)' }}>
-                    {expanded === g.id ? '▲' : '▼'}
-                  </span>
+                  <div className="flex flex-wrap gap-3 mt-1.5">
+                    <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>{ageGroupLabel(g.ageGroup)}</span>
+                    {typeof g.scoreOwn === 'number' && typeof g.scoreOpp === 'number' ? (
+                      <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>{g.scoreOwn} - {g.scoreOpp}</span>
+                    ) : g.result ? (
+                      <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>{g.result}</span>
+                    ) : null}
+                    <span className="text-xs font-mono" style={{ color: 'var(--brand-a8bef0)' }}>{fmtSec(g.finalTime)}</span>
+                    {g.ownerId && user && g.ownerId !== user.id && (
+                      <span className="text-xs font-bold px-1.5 rounded" style={{ color: '#6D28D9', background: '#EDE9FE' }}>
+                        {g.ownerId === 'hockey-one' ? 'Officiële wedstrijd' : 'Gedeeld'} · {g.permission === 'edit' ? 'Bewerken' : 'Bekijken'}
+                      </span>
+                    )}
+                  </div>
                 </button>
 
                 {expanded === g.id && (
                   <div className="px-5 pb-5" style={{ borderTop: '1px solid var(--brand-eef3ff)' }}>
-                    <div className="pt-4 space-y-4">
-                      <div>
-                        <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>
-                          Selectie ({g.squad.length})
-                        </h4>
-                        <div className="flex flex-wrap gap-1.5">
-                          {sortPlayers(g.squad).map(p => (
-                            <span key={p.id} className="text-xs px-2 py-1 rounded-lg font-medium"
-                              style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
-                              {p.number != null && <span className="font-mono font-bold" style={{ color: 'var(--brand-1a3fab)' }}>#{p.number} </span>}{p.name}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-
-                      {g.subs.length > 0 && (
-                        <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Wissels</h4>
-                          <div className="space-y-1">
-                            {g.subs.map((s, i) => {
-                              const pIn = getPlayer(g, s.playerInId)
-                              const pOut = getPlayer(g, s.playerOutId)
-                              return (
-                                <div key={i} className="flex items-center gap-2 text-xs">
-                                  <span className="font-mono font-bold w-10 shrink-0" style={{ color: 'var(--brand-7b90c8)' }}>{fmtSec(s.gameTimeSec)}</span>
-                                  {s.posLabel && (
-                                    <span className="text-xs font-bold px-1.5 rounded shrink-0" style={{ color: 'var(--brand-1a3fab)', background: 'var(--brand-e4ecfe)' }}>{s.posLabel}</span>
-                                  )}
-                                  <span className="font-semibold" style={{ color: '#16A34A' }}>↑ {pIn?.name}</span>
-                                  <span className="font-semibold" style={{ color: '#DC2626' }}>↓ {pOut?.name}</span>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {g.goals && g.goals.length > 0 && (
-                        <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Doelpunten</h4>
-                          <div className="flex flex-wrap gap-1.5">
-                            {Object.entries(
-                              g.goals.reduce<Record<string, number>>((acc, goal) => {
-                                acc[goal.playerId] = (acc[goal.playerId] ?? 0) + 1
-                                return acc
-                              }, {})
-                            ).map(([playerId, count]) => {
-                              const p = getPlayer(g, playerId)
-                              return (
-                                <span key={playerId} className="text-xs px-2 py-1 rounded-lg font-medium"
-                                  style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
-                                  <HockeyBallIcon /> {p?.name ?? 'Onbekende speler'}{count > 1 ? ` ×${count}` : ''}
-                                </span>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {g.cards && g.cards.length > 0 && (
-                        <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Kaarten</h4>
-                          <div className="flex flex-wrap gap-1.5">
-                            {g.cards.map(c => {
-                              const p = getPlayer(g, c.playerId)
-                              return (
-                                <span key={c.id} className="text-xs px-2 py-1 rounded-lg font-medium"
-                                  style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
-                                  <span className="inline-block w-3 h-4 rounded-sm mr-1 align-middle"
-                                    style={{ background: c.color === 'green' ? '#16A34A' : c.color === 'yellow' ? '#EAB308' : '#DC2626' }} />
-                                  {p?.name ?? 'Onbekende speler'}
-                                </span>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {g.playedSeconds && Object.keys(g.playedSeconds).length > 0 && (
-                        <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Speeltijd</h4>
-                          <div className="flex flex-wrap gap-1.5">
-                            {Object.entries(g.playedSeconds)
-                              .map(([playerId, sec]) => ({ playerId, sec, player: getPlayer(g, playerId) }))
-                              .filter((x): x is { playerId: string; sec: number; player: Player } => !!x.player)
-                              .sort((a, b) => (a.player.number ?? Infinity) - (b.player.number ?? Infinity) || a.player.name.localeCompare(b.player.name))
-                              .map(x => (
-                                <span key={x.playerId} className="text-xs px-2 py-1 rounded-lg font-medium"
-                                  style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a2f6b)', border: '1px solid var(--brand-d0dcfa)' }}>
-                                  {x.player.name} <span style={{ color: 'var(--brand-3b5299)' }}>· {fmtSec(x.sec)}</span>
-                                </span>
-                              ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {g.media && g.media.length > 0 && (
-                        <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Media</h4>
-                          <div className="grid grid-cols-4 gap-1.5">
-                            {g.media.map(item => (
-                              <a key={item.id} href={mediaSrc(item.url)} target="_blank" rel="noreferrer"
-                                className="block rounded-lg overflow-hidden" style={{ border: '1px solid var(--brand-d0dcfa)', background: 'var(--brand-0d2b7a)' }}>
-                                {item.type === 'image' ? (
-                                  <img src={mediaSrc(item.url)} alt={item.name} className="w-full h-16 object-cover" />
-                                ) : (
-                                  <video src={mediaSrc(item.url)} className="w-full h-16 object-cover" />
-                                )}
-                              </a>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {g.notes && (
-                        <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)' }}>Notities</h4>
-                          <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--brand-3b4f7a)' }}>{g.notes}</p>
-                        </div>
-                      )}
-
-                      {canManageSharing && (
-                        <div>
-                          <h4 className="font-display text-sm font-bold uppercase mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Delen</h4>
-                          <GameShareManager shares={shares} onAdd={addShare} onRemove={removeShare} />
-                        </div>
-                      )}
-
-                      <div className="flex gap-2">
-                        <button onClick={() => onEdit(g)}
-                          className="text-xs font-bold px-3 py-1.5 rounded-lg text-white"
-                          style={{ background: 'var(--brand-1a3fab)' }}>
-                          {(g.permission ?? 'owner') === 'view' ? 'Bekijken' : 'Bewerken'}
-                        </button>
-                        {(!g.ownerId || g.ownerId === user?.id) && (
-                          <button onClick={() => { if (confirm('Wedstrijd verwijderen?')) onDelete(g.id) }}
-                            className="text-xs font-bold px-3 py-1.5 rounded-lg"
-                            style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
-                            Verwijder
-                          </button>
-                        )}
-                      </div>
+                    <div className="pt-4">
+                      <MatchDetailSections g={g} user={user} getPlayer={getPlayer}
+                        canManageSharing={canManageSharing} shares={shares} addShare={addShare} removeShare={removeShare}
+                        onEdit={onEdit} onDelete={onDelete} />
                     </div>
                   </div>
                 )}
               </div>
     )
   }
+}
+
+// ── Match Detail View (Stats / Line-up / Timeline / Match) ──────────────────
+// Opened from HomeView's "Laatste resultaat" card. Subs/cards are only ever
+// recorded for the tracked team (there's no opponent roster), so their
+// opponent side is shown as 0 rather than a real comparison.
+
+function StatBar({ label, own, opp }: { label: string; own: number; opp: number }) {
+  const total = Math.max(own + opp, 1)
+  const ownPct = (own / total) * 100
+  const oppPct = (opp / total) * 100
+
+  return (
+    <div>
+      <div className="flex items-center justify-between text-sm font-bold mb-1.5">
+        <span style={{ color: 'var(--brand-1a3fab)' }}>{own}</span>
+        <span className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>{label}</span>
+        <span style={{ color: 'var(--brand-7b90c8)' }}>{opp}</span>
+      </div>
+      <div className="flex w-full h-2.5 rounded-full overflow-hidden" style={{ background: 'var(--brand-eef3ff)' }}>
+        <div style={{ width: `${ownPct}%`, background: 'var(--brand-1a3fab)' }} />
+        <div style={{ width: `${oppPct}%`, background: 'var(--brand-a8bef0)' }} />
+      </div>
+    </div>
+  )
+}
+
+function MatchStats({ game }: { game: SavedGame }) {
+  return (
+    <div className="bg-white rounded-2xl p-5 shadow-sm space-y-5" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+      <div className="flex items-center justify-between">
+        <div className="flex flex-col items-center gap-1.5 flex-1 min-w-0">
+          <ClubLogo club={game.club} size={40} />
+          <span className="text-xs font-bold uppercase text-center truncate w-full" style={{ color: 'var(--brand-1a2f6b)' }}>{game.club} {game.team}</span>
+        </div>
+        <span className="text-xs font-bold uppercase px-2 shrink-0" style={{ color: 'var(--brand-a8bef0)' }}>vs</span>
+        <div className="flex flex-col items-center gap-1.5 flex-1 min-w-0">
+          <ClubLogo club={matchKnhbClub(game.opponent)} size={40} />
+          <span className="text-xs font-bold uppercase text-center truncate w-full" style={{ color: 'var(--brand-1a2f6b)' }}>{game.opponent}</span>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <StatBar label="Doelpunten" own={game.scoreOwn} opp={game.scoreOpp} />
+        <StatBar label="Wissels" own={game.subs.length} opp={0} />
+        <StatBar label="Kaarten" own={game.cards.length} opp={0} />
+      </div>
+    </div>
+  )
+}
+
+function MatchTimeline({ game, getPlayer }: { game: SavedGame; getPlayer: (id: string) => Player | undefined }) {
+  const timed: { time: number; node: React.ReactNode }[] = []
+  const untimed: React.ReactNode[] = []
+  const untimedRow = "flex items-center gap-2 text-xs py-2"
+  const untimedRowStyle = { borderBottom: '1px solid var(--brand-eef3ff)' }
+
+  const timePill = (time: number) => (
+    <span className="relative z-10 shrink-0 text-[11px] font-bold font-mono px-2 py-1 rounded-full text-white"
+      style={{ background: 'var(--brand-1a3fab)' }}>
+      {fmtSec(time)}
+    </span>
+  )
+
+  // Every tracked goal/card/sub belongs to our own squad — there's no
+  // opponent roster to attribute events to — so the whole timeline renders
+  // on our side of the center spine; the opponent column stays empty rather
+  // than showing fabricated events.
+  const ownRow = (key: string, time: number, content: React.ReactNode) => (
+    <div key={key} className="grid grid-cols-[1fr_auto_1fr] items-start gap-3 py-2">
+      <div className="text-right">{content}</div>
+      {timePill(time)}
+      <div />
+    </div>
+  )
+
+  game.subs.forEach((s, i) => {
+    const pIn = getPlayer(s.playerInId)
+    const pOut = getPlayer(s.playerOutId)
+    timed.push({
+      time: s.gameTimeSec,
+      node: ownRow(`sub-${i}`, s.gameTimeSec, (
+        <div className="text-xs">
+          {s.posLabel && <div className="font-bold mb-0.5" style={{ color: 'var(--brand-1a3fab)' }}>{s.posLabel}</div>}
+          <div className="font-semibold" style={{ color: '#16A34A' }}>↑ {pIn?.name}</div>
+          <div className="font-semibold" style={{ color: '#DC2626' }}>↓ {pOut?.name}</div>
+        </div>
+      )),
+    })
+  })
+
+  game.goals.forEach(g => {
+    const p = getPlayer(g.playerId)
+    const content = (
+      <span className="text-xs font-semibold inline-flex items-center justify-end gap-1" style={{ color: 'var(--brand-1a2f6b)' }}>
+        {p?.name ?? 'Onbekende speler'} <HockeyBallIcon />
+      </span>
+    )
+    if (g.gameTimeSec != null) {
+      timed.push({ time: g.gameTimeSec, node: ownRow(`goal-${g.id}`, g.gameTimeSec, content) })
+    } else {
+      untimed.push(
+        <div key={`goal-${g.id}`} className={untimedRow} style={untimedRowStyle}>
+          <HockeyBallIcon /> {p?.name ?? 'Onbekende speler'}
+        </div>
+      )
+    }
+  })
+
+  game.cards.forEach(c => {
+    const p = getPlayer(c.playerId)
+    const swatch = (
+      <span className="inline-block w-3 h-4 rounded-sm shrink-0"
+        style={{ background: c.color === 'green' ? '#16A34A' : c.color === 'yellow' ? '#EAB308' : '#DC2626' }} />
+    )
+    const content = (
+      <span className="text-xs font-semibold inline-flex items-center justify-end gap-1.5" style={{ color: 'var(--brand-1a2f6b)' }}>
+        {p?.name ?? 'Onbekende speler'} {swatch}
+      </span>
+    )
+    if (c.gameTimeSec != null) {
+      timed.push({ time: c.gameTimeSec, node: ownRow(`card-${c.id}`, c.gameTimeSec, content) })
+    } else {
+      untimed.push(
+        <div key={`card-${c.id}`} className={untimedRow} style={untimedRowStyle}>
+          {swatch} {p?.name ?? 'Onbekende speler'}
+        </div>
+      )
+    }
+  })
+
+  timed.sort((a, b) => a.time - b.time)
+
+  return (
+    <div>
+      {/* Crests + score, left/right of the center line — establishes the
+          two-sided split even when one side (the opponent) has no events. */}
+      <div className="flex items-center justify-between mb-4 pb-3" style={{ borderBottom: '1px solid var(--brand-eef3ff)' }}>
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <ClubLogo club={game.club} size={28} />
+          <span className="text-xs font-bold uppercase truncate" style={{ color: 'var(--brand-1a2f6b)' }}>{game.club} {game.team}</span>
+        </div>
+        <span className="text-sm font-display font-bold shrink-0 px-2" style={{ color: 'var(--brand-1a3fab)' }}>{game.scoreOwn} - {game.scoreOpp}</span>
+        <div className="flex items-center gap-2 min-w-0 flex-1 justify-end">
+          <span className="text-xs font-bold uppercase truncate" style={{ color: 'var(--brand-a8bef0)' }}>{game.opponent}</span>
+          <ClubLogo club={matchKnhbClub(game.opponent)} size={28} />
+        </div>
+      </div>
+
+      {timed.length === 0 && untimed.length === 0 ? (
+        <p className="text-sm text-center py-10" style={{ color: 'var(--brand-a8bef0)' }}>Geen gebeurtenissen vastgelegd</p>
+      ) : (
+        <>
+          {timed.length > 0 && (
+            <div className="relative">
+              <div className="absolute left-1/2 top-0 bottom-0 w-px" style={{ background: 'var(--brand-d0dcfa)' }} />
+              {timed.map(t => t.node)}
+            </div>
+          )}
+
+          {untimed.length > 0 && (
+            <div className="mt-4">
+              <h4 className="font-display text-sm font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)' }}>
+                Overig (geen tijd vastgelegd)
+              </h4>
+              {untimed}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function MatchDetailView({ game, user, onEdit, onDelete }: {
+  game: SavedGame
+  user: AuthUser | null
+  onEdit: (game: SavedGame) => void
+  onDelete: (id: string) => void
+}) {
+  const [tab, setTab] = useState<'stats' | 'lineup' | 'timeline' | 'match'>('stats')
+  const getPlayer = (id: string) => game.squad.find(p => p.id === id)
+  const getPlayerFromGame = (g: SavedGame, id: string) => g.squad.find(p => p.id === id)
+  const canManageSharing = (game.ownerId ?? user?.id) === user?.id
+  const { shares, addShare, removeShare } = useGameShares(canManageSharing ? game.id : null)
+
+  return (
+    <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
+      <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-center gap-3">
+          <ClubLogo club={game.club} size={32} />
+          <div className="text-center min-w-0">
+            <p className="font-display text-base font-bold truncate">
+              {game.club} {game.team} <span style={{ color: 'var(--brand-a8bef0)', fontWeight: 400 }}>vs</span> {game.opponent}
+            </p>
+            <p className="text-xs leading-tight mt-0.5" style={{ color: 'var(--brand-a8bef0)' }}>
+              {new Date(game.date).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })} · {game.homeAway === 'Thuis' ? 'Thuis' : 'Uit'} · {game.scoreOwn} - {game.scoreOpp}
+            </p>
+          </div>
+          <ClubLogo club={matchKnhbClub(game.opponent)} size={32} />
+        </div>
+      </header>
+
+      <div className="max-w-2xl mx-auto px-4 py-6">
+        {tab === 'stats' && <MatchStats game={game} />}
+        {tab === 'lineup' && (
+          <div className="bg-white rounded-2xl p-4 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <ReadOnlyFieldView ageGroup={game.ageGroup} slots={game.slots} squad={game.squad} />
+          </div>
+        )}
+        {tab === 'timeline' && (
+          <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <MatchTimeline game={game} getPlayer={getPlayer} />
+          </div>
+        )}
+        {tab === 'match' && (
+          <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <MatchDetailSections g={game} user={user} getPlayer={getPlayerFromGame}
+              canManageSharing={canManageSharing} shares={shares} addShare={addShare} removeShare={removeShare}
+              onEdit={onEdit} onDelete={onDelete} />
+          </div>
+        )}
+        <div style={{ height: tab === 'lineup' ? 16 : 128 }} />
+      </div>
+
+      <div className="fixed bottom-16 left-0 right-0 z-20 shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
+        <div className="max-w-2xl mx-auto grid grid-cols-4 px-2 py-1.5 gap-1">
+          {([
+            ['stats', 'Stats'],
+            ['lineup', 'Line-up'],
+            ['timeline', 'Timeline'],
+            ['match', 'Match'],
+          ] as const).map(([key, label]) => (
+            <button key={key} onClick={() => setTab(key)}
+              className="py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-colors"
+              style={tab === key
+                ? { background: 'var(--brand-1a3fab)', color: '#fff' }
+                : { color: 'var(--brand-7b9de0)' }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ── Profile View ─────────────────────────────────────────────────────────────
@@ -3976,7 +4728,7 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, un
 // whenever one is loaded, so changes made here show up in matches
 // automatically.
 
-function TeamPlayerPhotos({ team, canEditPhotos, canAddPlayer, canManageRoster }: { team: string; canEditPhotos: boolean; canAddPlayer: boolean; canManageRoster: boolean }) {
+function TeamPlayerPhotos({ team, canEditPhotos, canAddPlayer, canManageRoster, onSelectPlayer, compact }: { team: string; canEditPhotos: boolean; canAddPlayer: boolean; canManageRoster: boolean; onSelectPlayer?: (id: string) => void; compact?: boolean }) {
   const [players, setPlayers] = useState<RosterPlayer[]>([])
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -4051,7 +4803,7 @@ function TeamPlayerPhotos({ team, canEditPhotos, canAddPlayer, canManageRoster }
       })
       if (!res.ok) throw new Error()
       const player = await res.json() as { id: string; name: string }
-      setPlayers(ps => [...ps, { id: player.id, name: player.name, photoUrl: null }])
+      setPlayers(ps => [...ps, { id: player.id, name: player.name, photoUrl: null, position: null }])
       setNewName('')
     } catch {
       setError('Kon speler niet toevoegen.')
@@ -4107,22 +4859,23 @@ function TeamPlayerPhotos({ team, canEditPhotos, canAddPlayer, canManageRoster }
       {players.length === 0 ? (
         <p className="text-sm" style={{ color: 'var(--brand-7b90c8)' }}>Geen spelers gevonden voor dit team.</p>
       ) : (
-        <div className="space-y-2">
+        <div className={compact ? 'space-y-1' : 'space-y-2'}>
           {players.map(p => {
             const busy = busyId === p.id
+            const avatarSize = compact ? 'w-8 h-8' : 'w-11 h-11'
             const avatar = p.photoUrl ? (
-              <img src={mediaSrc(p.photoUrl)} alt={p.name} className="w-11 h-11 rounded-full object-cover" />
+              <img src={mediaSrc(p.photoUrl)} alt={p.name} className={`${avatarSize} rounded-full object-cover`} />
             ) : (
-              <div className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-sm" style={{ background: 'var(--brand-1a3fab)' }}>
+              <div className={`${avatarSize} rounded-full flex items-center justify-center text-white font-bold ${compact ? 'text-xs' : 'text-sm'}`} style={{ background: 'var(--brand-1a3fab)' }}>
                 {initials(p.name)}
               </div>
             )
             return (
-              <div key={p.id} className="flex items-center gap-3 p-2.5 rounded-xl"
+              <div key={p.id} className={`flex items-center rounded-xl ${compact ? 'gap-2 p-1.5' : 'gap-3 p-2.5'}`}
                 style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
                 {canEditPhotos ? (
                   <button onClick={() => triggerUpload(p.id)} disabled={busy}
-                    className="relative w-11 h-11 rounded-full shrink-0 group overflow-hidden disabled:opacity-50" title="Foto wijzigen">
+                    className={`relative ${avatarSize} rounded-full shrink-0 group overflow-hidden disabled:opacity-50`} title="Foto wijzigen">
                     {avatar}
                     <span className="absolute inset-0 rounded-full flex items-center justify-center text-white text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity"
                       style={{ background: 'rgba(13,43,122,0.55)' }}>
@@ -4130,18 +4883,26 @@ function TeamPlayerPhotos({ team, canEditPhotos, canAddPlayer, canManageRoster }
                     </span>
                   </button>
                 ) : (
-                  <div className="w-11 h-11 rounded-full shrink-0 overflow-hidden">{avatar}</div>
+                  <div className={`${avatarSize} rounded-full shrink-0 overflow-hidden`}>{avatar}</div>
                 )}
                 {editId === p.id ? (
                   <input autoFocus className="flex-1 text-sm font-semibold rounded-lg px-2 py-1" style={{ border: '1.5px solid var(--brand-d0dcfa)' }}
                     value={editName} onChange={e => setEditName(e.target.value)}
                     onBlur={() => saveRename(p.id)}
                     onKeyDown={e => { if (e.key === 'Enter') saveRename(p.id); if (e.key === 'Escape') setEditId(null) }} />
+                ) : onSelectPlayer ? (
+                  <button className="flex-1 min-w-0 text-left" onClick={() => onSelectPlayer(p.id)}>
+                    <span className={`font-semibold truncate block ${compact ? 'text-sm' : 'text-sm'}`} style={{ color: 'var(--brand-1a2f6b)' }}>{p.name}</span>
+                    {p.position && !compact && <span className="text-xs truncate block" style={{ color: 'var(--brand-7b90c8)' }}>{p.position}</span>}
+                  </button>
                 ) : (
                   <span className="flex-1 text-sm font-semibold truncate" style={{ color: 'var(--brand-1a2f6b)', cursor: canManageRoster ? 'pointer' : 'default' }}
                     onClick={() => { if (canManageRoster) { setEditId(p.id); setEditName(p.name) } }}>
                     {p.name}
                   </span>
+                )}
+                {onSelectPlayer && canManageRoster && !busy && (
+                  <button onClick={() => { setEditId(p.id); setEditName(p.name) }} className="text-xs shrink-0" style={{ color: 'var(--brand-a8bef0)' }} title="Naam wijzigen">✎</button>
                 )}
                 {canEditPhotos && p.photoUrl && !busy && (
                   <button onClick={() => removePhoto(p.id, p.name)} className="font-bold text-sm" style={{ color: '#DC2626' }} title="Foto verwijderen">×</button>
@@ -4167,7 +4928,404 @@ function TeamPlayerPhotos({ team, canEditPhotos, canAddPlayer, canManageRoster }
   )
 }
 
-function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword, onResendVerification, onForgotPassword, onLogout, onHistory, onUpdateProfile, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
+// ── Team View ─────────────────────────────────────────────────────────────────
+// Roster overview, relocated out of Profiel so it's its own bottom-nav
+// destination — tapping a player opens their profile/stats page.
+
+function TeamView({ user, games, onProfile, onSelectPlayer, onSelectStaff, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
+  user: AuthUser | null
+  games: SavedGame[]
+  onProfile: () => void
+  onSelectPlayer: (id: string) => void
+  onSelectStaff: (id: string) => void
+  unreadNotifications: number
+  notifications: AppNotification[]
+  onMarkRead: (id: string) => void
+  onMarkAllRead: () => void
+  onMarkUnread: (id: string) => void
+  onDeleteNotification: (id: string) => void
+}) {
+  const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL
+  // Coach/Trainer/Trainer & Coach/Manager can add a player to their own team
+  // and edit a player's photo — renaming or removing a player entirely is
+  // beheerder-only (see TeamPlayerPhotos' canManageRoster below). Same rule
+  // ProfileView used to compute before this section moved here.
+  const isRosterStaff = user?.role === 'Coach' || user?.role === 'Trainer' || user?.role === 'Trainer & Coach' || user?.role === 'Manager'
+
+  const [staff, setStaff] = useState<TeamStaffMember[]>([])
+  useEffect(() => {
+    if (!user?.defaultTeam) { setStaff([]); return }
+    let cancelled = false
+    fetchTeamStaff(user.defaultTeam).then(s => { if (!cancelled) setStaff(s) })
+    return () => { cancelled = true }
+  }, [user?.defaultTeam])
+
+  // Same "played" signal Wedstrijden uses (finalTime > 0) — a scheduled but
+  // not-yet-played match shouldn't count toward the team's record.
+  const playedGames = games.filter(g => g.finalTime > 0)
+  const wins = playedGames.filter(g => g.scoreOwn > g.scoreOpp).length
+  const losses = playedGames.filter(g => g.scoreOwn < g.scoreOpp).length
+  const draws = playedGames.filter(g => g.scoreOwn === g.scoreOpp).length
+  const totalMinutes = playedGames.reduce((n, g) => n + g.finalTime, 0)
+  const goalsFor = playedGames.reduce((n, g) => n + g.scoreOwn, 0)
+  const goalsAgainst = playedGames.reduce((n, g) => n + g.scoreOpp, 0)
+
+  const stat = (label: string, value: React.ReactNode) => (
+    <div>
+      <p className="text-xs font-semibold" style={{ color: 'var(--brand-7b90c8)' }}>{label}</p>
+      <p className="font-display text-2xl font-bold" style={{ color: 'var(--brand-0d2b7a)' }}>{value}</p>
+    </div>
+  )
+
+  return (
+    <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
+      <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
+        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
+          <div className="flex items-center gap-3 justify-self-start">
+            {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
+            <div>
+              <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
+                {user?.defaultClub ?? 'Hockey One'}
+              </p>
+              <p className="text-xs leading-none mt-0.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.12em' }}>
+                {user?.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
+              </p>
+            </div>
+          </div>
+          <div className="flex justify-center">
+            <H1Logo height={26} />
+          </div>
+          <div className="flex items-center gap-2 justify-self-end">
+            {user && (
+              <NotificationBell
+                unreadNotifications={unreadNotifications}
+                notifications={notifications}
+                onMarkRead={onMarkRead}
+                onMarkAllRead={onMarkAllRead}
+                onMarkUnread={onMarkUnread}
+                onDelete={onDeleteNotification}
+                onOpenHistory={() => {}}
+              />
+            )}
+            {!user && (
+              <button onClick={onProfile} className="text-sm px-3 py-1.5 rounded-lg font-semibold"
+                style={{ color: 'var(--brand-a8bef0)', border: '1px solid rgba(168,190,240,0.35)', background: 'rgba(255,255,255,0.08)' }}>
+                Inloggen
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-2xl mx-auto px-4 py-8">
+        {!user ? (
+          <div className="text-center py-20">
+            <div className="text-5xl mb-4">🔒</div>
+            <p className="font-display text-xl font-bold uppercase mb-3" style={{ color: 'var(--brand-a8bef0)' }}>Log in om je team te zien</p>
+            <button onClick={onProfile}
+              className="px-4 py-2.5 rounded-xl font-bold text-sm text-white"
+              style={{ background: 'var(--brand-1a3fab)' }}>
+              Naar profiel →
+            </button>
+          </div>
+        ) : !user.defaultTeam ? (
+          <p className="text-sm text-center py-20" style={{ color: 'var(--brand-a8bef0)' }}>Stel eerst een team in via je profiel.</p>
+        ) : (
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+              <h2 className="font-display text-sm font-bold uppercase mb-4" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
+                Teamoverzicht
+              </h2>
+              <div className="grid grid-cols-3 gap-4">
+                {stat('Wedstrijden', playedGames.length)}
+                {stat('Doelpunten voor', goalsFor)}
+                {stat('Doelpunten tegen', goalsAgainst)}
+                {stat('Gewonnen', wins)}
+                {stat('Verloren', losses)}
+                {stat('Gelijkgespeeld', draws)}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-5 shadow-sm flex items-center gap-4" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+              <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
+                <IconClock size={24} />
+              </div>
+              <div>
+                <p className="text-xs font-semibold" style={{ color: 'var(--brand-7b90c8)' }}>Minuten gespeeld</p>
+                <p className="font-display text-2xl font-bold" style={{ color: 'var(--brand-0d2b7a)' }}>{fmtHM(totalMinutes)}</p>
+              </div>
+            </div>
+
+            {staff.length > 0 && (
+              <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+                <h2 className="font-display text-sm font-bold uppercase mb-4" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
+                  Staf
+                </h2>
+                <div className="grid grid-cols-4 gap-3">
+                  {staff.map(s => {
+                    const displayName = s.firstName?.trim() || (s.name ? firstName(s.name) : 'Onbekend')
+                    const initialsName = (s.firstName && s.lastName) ? `${s.firstName} ${s.lastName}` : (s.name ?? displayName)
+                    return (
+                      <button key={s.id} onClick={() => onSelectStaff(s.id)} className="flex flex-col items-center gap-1.5">
+                        {s.picture ? (
+                          <img src={s.picture} alt={displayName} className="w-12 h-12 rounded-full object-cover" referrerPolicy="no-referrer" />
+                        ) : (
+                          <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-sm" style={{ background: 'var(--brand-1a3fab)' }}>
+                            {initials(initialsName)}
+                          </div>
+                        )}
+                        <span className="text-xs font-semibold truncate w-full text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{displayName}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+              <h2 className="font-display text-sm font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
+                Spelers — {user.defaultTeam}
+              </h2>
+              <p className="text-xs mb-3" style={{ color: 'var(--brand-a8bef0)' }}>
+                Tik op een speler voor hun profiel en statistieken.
+              </p>
+              <TeamPlayerPhotos team={user.defaultTeam}
+                canEditPhotos={isRosterStaff}
+                canAddPlayer={isRosterStaff}
+                canManageRoster={isAdmin}
+                onSelectPlayer={onSelectPlayer}
+                compact />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Player Profile View ──────────────────────────────────────────────────────
+// Stats are derived by reducing over the same `games` array Wedstrijden
+// already loads — no new fetch for match history. Only name/photo/position
+// come from a roster fetch, the same way TeamPlayerPhotos already does it.
+
+function PlayerProfileView({ playerId, team, games, user, onBack }: {
+  playerId: string
+  team: string
+  games: SavedGame[]
+  user: AuthUser | null
+  onBack: () => void
+}) {
+  const [players, setPlayers] = useState<RosterPlayer[] | null>(null)
+  const [savingPosition, setSavingPosition] = useState(false)
+  const [editingPosition, setEditingPosition] = useState(false)
+  const [positionDraft, setPositionDraft] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    fetchTeamRoster(team).then(p => { if (!cancelled) setPlayers(p) })
+    return () => { cancelled = true }
+  }, [team])
+
+  const player = players?.find(p => p.id === playerId) ?? null
+
+  const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL
+  const isRosterStaff = user?.role === 'Coach' || user?.role === 'Trainer' || user?.role === 'Trainer & Coach' || user?.role === 'Manager'
+  const canEditPosition = isAdmin || (isRosterStaff && (user?.defaultTeam ?? '').toLowerCase() === team.toLowerCase())
+
+  const savePosition = async () => {
+    const position = positionDraft.trim()
+    setSavingPosition(true)
+    try {
+      const res = await fetch('/api/teams/set-player-position', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: playerId, position }),
+      })
+      if (res.ok) setPlayers(ps => ps ? ps.map(p => p.id === playerId ? { ...p, position: position || null } : p) : ps)
+    } finally {
+      setSavingPosition(false)
+      setEditingPosition(false)
+    }
+  }
+
+  // "Matches" = games where the player actually got game time, not merely
+  // squad membership — a bench-only appearance shouldn't count as a match.
+  const playerGames = games.filter(g => ((g.playedSeconds ?? {})[playerId] ?? 0) > 0)
+  const totalGoals = games.reduce((n, g) => n + (g.goals ?? []).filter(x => x.playerId === playerId).length, 0)
+  const totalCards = games.reduce((n, g) => n + (g.cards ?? []).filter(x => x.playerId === playerId).length, 0)
+  // "Amount of subs" = every time this player was part of a substitution,
+  // coming on or going off — there's no separate "assist" concept tracked
+  // anywhere in the app to attribute more precisely than that.
+  const totalSubs = games.reduce((n, g) => n + (g.subs ?? []).filter(s => s.playerInId === playerId || s.playerOutId === playerId).length, 0)
+  const totalPlaytimeSec = games.reduce((n, g) => n + ((g.playedSeconds ?? {})[playerId] ?? 0), 0)
+  const lastGameWithPlaytime = [...playerGames].sort((a, b) => b.date.localeCompare(a.date))[0] ?? null
+  const secLastGame = lastGameWithPlaytime ? ((lastGameWithPlaytime.playedSeconds ?? {})[playerId] ?? 0) : 0
+  const last5 = [...playerGames].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5).reverse()
+  const maxLast5Minutes = Math.max(...last5.map(g => Math.round(((g.playedSeconds ?? {})[playerId] ?? 0) / 60)), 1)
+
+  const stat = (label: string, value: React.ReactNode) => (
+    <div>
+      <p className="text-xs font-semibold" style={{ color: 'var(--brand-7b90c8)' }}>{label}</p>
+      <p className="font-display text-2xl font-bold" style={{ color: 'var(--brand-0d2b7a)' }}>{value}</p>
+    </div>
+  )
+
+  return (
+    <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
+      <div style={{ background: 'var(--brand-0d2b7a)' }} className="text-white">
+        <div className="max-w-2xl mx-auto px-4 pt-3 pb-14">
+          <button onClick={onBack} className="text-sm font-semibold" style={{ color: 'var(--brand-7b9de0)' }}>
+            ← Terug
+          </button>
+          {player && (
+            <div className="flex flex-col items-center text-center mt-3">
+              {player.photoUrl ? (
+                <img src={mediaSrc(player.photoUrl)} alt={player.name}
+                  className="w-24 h-24 rounded-full object-cover" style={{ border: '3px solid rgba(255,255,255,0.85)' }} />
+              ) : (
+                <div className="w-24 h-24 rounded-full flex items-center justify-center font-bold text-2xl"
+                  style={{ background: '#fff', color: 'var(--brand-1a3fab)', border: '3px solid rgba(255,255,255,0.85)' }}>
+                  {initials(player.name)}
+                </div>
+              )}
+              <h1 className="font-display text-xl font-bold mt-3">{player.name}</h1>
+              {editingPosition ? (
+                <input autoFocus className="text-sm text-center mt-1 rounded-lg px-2 py-1 w-full max-w-xs"
+                  style={{ border: '1.5px solid var(--brand-d0dcfa)', color: 'var(--brand-1a2f6b)' }}
+                  value={positionDraft} onChange={e => setPositionDraft(e.target.value)}
+                  placeholder="bijv. Middenvelder, Verdediger"
+                  onBlur={savePosition}
+                  onKeyDown={e => { if (e.key === 'Enter') savePosition(); if (e.key === 'Escape') setEditingPosition(false) }} />
+              ) : (
+                <button onClick={() => { if (canEditPosition) { setPositionDraft(player.position ?? ''); setEditingPosition(true) } }}
+                  className="text-sm mt-1"
+                  style={{ color: 'var(--brand-a8bef0)', cursor: canEditPosition ? 'pointer' : 'default' }}>
+                  {savingPosition ? 'Opslaan…' : player.position || (canEditPosition ? 'Positie instellen →' : 'Positie niet ingesteld')}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {!player ? (
+        <p className="text-sm text-center py-20" style={{ color: 'var(--brand-a8bef0)' }}>
+          {players === null ? 'Laden…' : 'Speler niet gevonden.'}
+        </p>
+      ) : (
+        <div className="max-w-2xl mx-auto px-4 -mt-8 pb-8 space-y-4">
+          <div className="bg-white rounded-2xl p-5 shadow-lg" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <h2 className="font-display text-sm font-bold uppercase mb-4" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
+              Seizoensoverzicht
+            </h2>
+            <div className="grid grid-cols-3 gap-4">
+              {stat('Wedstrijden', playerGames.length)}
+              {stat('Doelpunten', totalGoals)}
+              {stat('Totale speeltijd', fmtHM(totalPlaytimeSec))}
+              {stat('Min. laatste wedstrijd', Math.round(secLastGame / 60))}
+              {stat('Kaarten', totalCards)}
+              {stat('Aantal wissels', totalSubs)}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <h2 className="font-display text-sm font-bold uppercase mb-4" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
+              Minuten gespeeld — laatste 5 wedstrijden
+            </h2>
+            {last5.length === 0 ? (
+              <p className="text-sm" style={{ color: 'var(--brand-a8bef0)' }}>Nog geen speeltijd geregistreerd.</p>
+            ) : (
+              <div className="flex items-end justify-between gap-2" style={{ height: 96 }}>
+                {last5.map(g => {
+                  const minutes = Math.round(((g.playedSeconds ?? {})[playerId] ?? 0) / 60)
+                  const heightPct = Math.max((minutes / maxLast5Minutes) * 100, 4)
+                  return (
+                    <div key={g.id} className="flex-1 flex flex-col items-center justify-end h-full">
+                      <div className="w-full rounded-t-md" style={{ height: `${heightPct}%`, background: 'var(--brand-1a3fab)' }} />
+                      <span className="text-xs font-bold mt-1" style={{ color: 'var(--brand-7b90c8)' }}>{minutes}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Staff Profile View ───────────────────────────────────────────────────────
+// Same dark-hero-plus-overlap-card layout as PlayerProfileView, but a coach/
+// trainer/manager has no match stats to show — this just surfaces the
+// information they filled in on their own account profile (Profiel), not
+// anything derived from match history.
+
+function StaffProfileView({ staffId, team, onBack }: { staffId: string; team: string; onBack: () => void }) {
+  const [staff, setStaff] = useState<TeamStaffMember[] | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchTeamStaff(team).then(s => { if (!cancelled) setStaff(s) })
+    return () => { cancelled = true }
+  }, [team])
+
+  const member = staff?.find(s => s.id === staffId) ?? null
+  const fullName = member ? ((member.firstName && member.lastName) ? `${member.firstName} ${member.lastName}` : (member.name ?? 'Onbekend')) : ''
+
+  return (
+    <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
+      <div style={{ background: 'var(--brand-0d2b7a)' }} className="text-white">
+        <div className="max-w-2xl mx-auto px-4 pt-3 pb-14">
+          <button onClick={onBack} className="text-sm font-semibold" style={{ color: 'var(--brand-7b9de0)' }}>
+            ← Terug
+          </button>
+          {member && (
+            <div className="flex flex-col items-center text-center mt-3">
+              {member.picture ? (
+                <img src={member.picture} alt={fullName} referrerPolicy="no-referrer"
+                  className="w-24 h-24 rounded-full object-cover" style={{ border: '3px solid rgba(255,255,255,0.85)' }} />
+              ) : (
+                <div className="w-24 h-24 rounded-full flex items-center justify-center font-bold text-2xl"
+                  style={{ background: '#fff', color: 'var(--brand-1a3fab)', border: '3px solid rgba(255,255,255,0.85)' }}>
+                  {initials(fullName)}
+                </div>
+              )}
+              <h1 className="font-display text-xl font-bold mt-3">{fullName}</h1>
+              {member.role && <p className="text-sm mt-1" style={{ color: 'var(--brand-a8bef0)' }}>{member.role}</p>}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {!member ? (
+        <p className="text-sm text-center py-20" style={{ color: 'var(--brand-a8bef0)' }}>
+          {staff === null ? 'Laden…' : 'Niet gevonden.'}
+        </p>
+      ) : (
+        <div className="max-w-2xl mx-auto px-4 -mt-8 pb-8 space-y-4">
+          <div className="bg-white rounded-2xl p-5 shadow-lg" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <h2 className="font-display text-sm font-bold uppercase mb-4" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
+              Profiel
+            </h2>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs font-semibold" style={{ color: 'var(--brand-7b90c8)' }}>Rol</p>
+                <p className="font-display text-lg font-bold" style={{ color: 'var(--brand-0d2b7a)' }}>{member.role ?? '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold" style={{ color: 'var(--brand-7b90c8)' }}>Team</p>
+                <p className="font-display text-lg font-bold" style={{ color: 'var(--brand-0d2b7a)' }}>{team}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword, onResendVerification, onForgotPassword, onLogout, onBack, onHistory, onUpdateProfile, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
   user: AuthUser | null
   loading: boolean
   onCredential: (credential: string) => void
@@ -4176,6 +5334,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   onResendVerification: (email: string) => Promise<void>
   onForgotPassword: (email: string) => Promise<{ ok: true } | { ok: false; error: string }>
   onLogout: () => void
+  onBack: () => void
   onHistory: () => void
   onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => Promise<{ ok: true } | { ok: false; error: string }>
   unreadNotifications: number
@@ -4252,10 +5411,6 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   }
 
   const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL
-  // Coach/Trainer/Trainer & Coach/Manager can add a player to their own team
-  // and edit a player's photo — renaming or removing a player entirely is
-  // beheerder-only (see TeamPlayerPhotos' canManageRoster below).
-  const isRosterStaff = user?.role === 'Coach' || user?.role === 'Trainer' || user?.role === 'Trainer & Coach' || user?.role === 'Manager'
   const { users: adminUsers, loading: adminLoading, error: adminError, deleteUser, setAdmin } = useAdminUsers(isAdmin)
   const { teams: adminTeams, loading: adminTeamsLoading, error: adminTeamsError, createTeam, renameTeam, deleteTeam } = useAdminTeams(isAdmin)
   const [newTeamName, setNewTeamName] = useState('')
@@ -4346,17 +5501,13 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                 onOpenHistory={onHistory}
               />
             )}
-            {user && (
-              <span className="rounded-full shrink-0">
-                {user.picture ? (
-                  <img src={user.picture} alt="Profiel" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
-                ) : (
-                  <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                    style={{ background: 'var(--brand-1a3fab)' }}>
-                    {initials(user.name ?? user.email)}
-                  </span>
-                )}
-              </span>
+            {/* Logged-out visitors have no bottom bar at all (it only shows
+                once signed in) — without this, landing here (e.g. via the
+                "Log in" link in Team setup) was a dead end. */}
+            {!user && (
+              <button onClick={onBack} className="text-sm font-semibold" style={{ color: 'var(--brand-7b9de0)' }}>
+                ← Terug
+              </button>
             )}
           </div>
         </div>
@@ -4479,21 +5630,6 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
             </div>
           )}
         </section>
-
-        {user && user.defaultTeam && (
-          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
-            <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-1" style={{ color: 'var(--brand-0d2b7a)' }}>
-              Spelers — {user.defaultTeam}
-            </h2>
-            <p className="text-xs mb-4" style={{ color: 'var(--brand-7b90c8)' }}>
-              Foto's per speler verschijnen tijdens wedstrijden op het veld en de bank.
-            </p>
-            <TeamPlayerPhotos team={user.defaultTeam}
-              canEditPhotos={isRosterStaff}
-              canAddPlayer={isRosterStaff}
-              canManageRoster={isAdmin} />
-          </section>
-        )}
 
         {isAdmin && (
           <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
@@ -5453,13 +6589,17 @@ function SplashScreen({ onContinue }: { onContinue: () => void }) {
 // Persistent across every logged-in view except the live match (GameView
 // wants the full screen). Messages navigates to its own full view since
 // threads need real space; Meldingen lives in the main page's topbar instead
-// (see NotificationBell) since there's only room for three destinations here.
+// (see NotificationBell) since there's only room for four destinations here.
 
-function BottomBar({ unreadMessages, onMessages, onOpenHistory, onHome }: {
+function BottomBar({ view, user, unreadMessages, onMessages, onOpenHistory, onHome, onProfile, onTeam }: {
+  view: View
+  user: AuthUser
   unreadMessages: number
   onMessages: () => void
   onOpenHistory: () => void
   onHome: () => void
+  onProfile: () => void
+  onTeam: () => void
 }) {
   const badge = (n: number) => n > 0 && (
     <span className="absolute -top-1.5 -right-2.5 text-[10px] font-bold rounded-full px-1.5 py-0.5 text-white leading-tight" style={{ background: '#DC2626' }}>
@@ -5467,21 +6607,30 @@ function BottomBar({ unreadMessages, onMessages, onOpenHistory, onHome }: {
     </span>
   )
 
+  // Icon-over-label tabs with a filled pill behind the active icon — the old
+  // row of plain text+emoji buttons gave no sense of "where am I", which read
+  // as flat/unfinished next to the rest of the app's active/inactive styling
+  // (e.g. the Thuis/Uit toggle already uses this same filled-pill language).
+  const tab = (active: boolean, onClick: () => void, icon: React.ReactNode, label: string, badgeEl?: React.ReactNode) => (
+    <button onClick={onClick} className="flex flex-col items-center justify-center gap-1 py-2.5 text-[11px] font-bold"
+      style={{ color: active ? '#fff' : 'var(--brand-7b9de0)' }}>
+      <span className="relative w-9 h-7 rounded-full flex items-center justify-center transition-colors"
+        style={{ background: active ? 'var(--brand-1a3fab)' : 'transparent' }}>
+        {icon}
+        {badgeEl}
+      </span>
+      {label}
+    </button>
+  )
+
   return (
     <div className="fixed bottom-0 left-0 right-0 z-30 shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
-      <div className="max-w-2xl mx-auto grid grid-cols-3">
-        <button onClick={onHome} className="flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-white">
-          <span className="relative text-base">🏠</span>
-          Thuis
-        </button>
-        <button onClick={onOpenHistory} className="flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-white" style={{ borderLeft: '1px solid rgba(255,255,255,0.12)' }}>
-          <span className="relative text-base">🏑</span>
-          Wedstrijden
-        </button>
-        <button onClick={onMessages} className="flex items-center justify-center gap-2 py-3.5 text-sm font-bold text-white" style={{ borderLeft: '1px solid rgba(255,255,255,0.12)' }}>
-          <span className="relative text-base">✉️{badge(unreadMessages)}</span>
-          Berichten
-        </button>
+      <div className="max-w-2xl mx-auto grid grid-cols-5">
+        {tab(view === 'home', onHome, <IconHome size={20} />, 'Thuis')}
+        {tab(view === 'history', onOpenHistory, <IconCalendar size={20} />, 'Wedstrijden')}
+        {tab(view === 'team', onTeam, <IconUsers size={20} />, 'Team')}
+        {tab(view === 'messages', onMessages, <IconMail size={20} />, 'Berichten', badge(unreadMessages))}
+        {tab(view === 'profile', onProfile, <ProfileAvatar user={user} size={26} />, 'Profiel')}
       </div>
     </div>
   )
@@ -5591,9 +6740,13 @@ function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, n
               </p>
             </div>
           </div>
-          <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">
-            {activeId ? activeName : 'Berichten'}
-          </h1>
+          {activeId ? (
+            <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">{activeName}</h1>
+          ) : (
+            <div className="flex justify-center">
+              <H1Logo height={26} />
+            </div>
+          )}
           <div className="flex items-center gap-2 justify-self-end">
             {activeId && (
               <button onClick={closeThread} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>
@@ -5610,18 +6763,6 @@ function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, n
                 onDelete={onDeleteNotification}
                 onOpenHistory={onOpenHistory}
               />
-            )}
-            {!activeId && (
-              <button onClick={onProfile} className="rounded-full shrink-0">
-                {user.picture ? (
-                  <img src={user.picture} alt="Profiel" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
-                ) : (
-                  <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                    style={{ background: 'var(--brand-1a3fab)' }}>
-                    {initials(user.name ?? user.email)}
-                  </span>
-                )}
-              </button>
             )}
           </div>
         </div>
@@ -5765,9 +6906,12 @@ export default function App() {
     window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''))
   }
 
-  const [view, setView] = useState<View>('setup')
+  const [view, setView] = useState<View>('home')
   const [gameParams, setGameParams] = useState<GameParams | null>(null)
   const [editingGame, setEditingGame] = useState<SavedGame | null>(null)
+  const [selectedGameId, setSelectedGameId] = useState<string | null>(null)
+  const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null)
+  const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null)
   const { user, loading: authLoading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, forgotPassword, resetPassword, logout, updateProfile } = useAuth()
   const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user, user?.defaultTeam ?? null)
   const notif = useNotificationCenter(!!user)
@@ -5783,10 +6927,14 @@ export default function App() {
         <>
           <div style={{ height: 64 }} />
           <BottomBar
+            view={view}
+            user={user!}
             unreadMessages={notif.unreadMessages}
             onMessages={() => setView('messages')}
             onOpenHistory={() => setView('history')}
-            onHome={() => setView('setup')}
+            onHome={() => setView('home')}
+            onProfile={() => setView('profile')}
+            onTeam={() => setView('team')}
           />
         </>
       )}
@@ -5834,6 +6982,7 @@ export default function App() {
         onResendVerification={resendVerification}
         onForgotPassword={forgotPassword}
         onLogout={logout}
+        onBack={() => setView('home')}
         onHistory={() => setView('history')}
         onUpdateProfile={updateProfile}
         unreadNotifications={notif.unreadNotifications}
@@ -5853,6 +7002,7 @@ export default function App() {
         onDelete={deleteGame}
         onEdit={startEdit}
         onProfile={() => setView('profile')}
+        onCreateMatch={() => setView('setup')}
         unreadNotifications={notif.unreadNotifications}
         notifications={notif.notifications}
         onMarkRead={notif.markRead}
@@ -5876,6 +7026,56 @@ export default function App() {
         onOpenHistory={() => setView('history')}
       />
     )
+  if (view === 'matchDetail') {
+    const selectedGame = games.find(g => g.id === selectedGameId)
+    if (!selectedGame) { setView('home'); return null }
+    return withBottomBar(
+      <MatchDetailView
+        game={selectedGame}
+        user={user}
+        onEdit={startEdit}
+        onDelete={deleteGame}
+      />
+    )
+  }
+  if (view === 'team')
+    return withBottomBar(
+      <TeamView
+        user={user}
+        games={games}
+        onProfile={() => setView('profile')}
+        onSelectPlayer={id => { setSelectedPlayerId(id); setView('playerProfile') }}
+        onSelectStaff={id => { setSelectedStaffId(id); setView('staffProfile') }}
+        unreadNotifications={notif.unreadNotifications}
+        notifications={notif.notifications}
+        onMarkRead={notif.markRead}
+        onMarkAllRead={notif.markAllRead}
+        onMarkUnread={notif.markUnread}
+        onDeleteNotification={notif.remove}
+      />
+    )
+  if (view === 'playerProfile') {
+    if (!selectedPlayerId || !user?.defaultTeam) { setView('team'); return null }
+    return withBottomBar(
+      <PlayerProfileView
+        playerId={selectedPlayerId}
+        team={user.defaultTeam}
+        games={games}
+        user={user}
+        onBack={() => setView('team')}
+      />
+    )
+  }
+  if (view === 'staffProfile') {
+    if (!selectedStaffId || !user?.defaultTeam) { setView('team'); return null }
+    return withBottomBar(
+      <StaffProfileView
+        staffId={selectedStaffId}
+        team={user.defaultTeam}
+        onBack={() => setView('team')}
+      />
+    )
+  }
   if (view === 'game' && gameParams)
     return (
       <GameView
@@ -5883,11 +7083,15 @@ export default function App() {
         initial={editingGame ?? undefined}
         user={user}
         onSave={g => { if (games.some(x => x.id === g.id)) updateGame(g); else addGame(g) }}
-        onBack={() => { setEditingGame(null); setView('setup') }}
+        onBack={() => { setEditingGame(null); setView('home') }}
       />
     )
-  return withBottomBar(
-    <>
+  // A logged-out visitor has no games/dashboard data for HomeView to show —
+  // route them straight to the creation form instead (this is also where
+  // "Wedstrijd aanmaken" from Wedstrijden and Home itself send a logged-in
+  // coach).
+  if (view === 'setup' || (view === 'home' && !user))
+    return withBottomBar(
       <SetupView
         onStart={p => { setEditingGame(null); setGameParams(p); setView('game') }}
         onProfile={() => setView('profile')}
@@ -5900,6 +7104,23 @@ export default function App() {
         onMarkUnread={notif.markUnread}
         onDeleteNotification={notif.remove}
         onOpenHistory={() => setView('history')}
+      />
+    )
+  return withBottomBar(
+    <>
+      <HomeView
+        user={user!}
+        games={games}
+        onEditGame={startEdit}
+        onOpenHistory={() => setView('history')}
+        onOpenMatch={id => { setSelectedGameId(id); setView('matchDetail') }}
+        onCreateMatch={() => setView('setup')}
+        unreadNotifications={notif.unreadNotifications}
+        notifications={notif.notifications}
+        onMarkRead={notif.markRead}
+        onMarkAllRead={notif.markAllRead}
+        onMarkUnread={notif.markUnread}
+        onDeleteNotification={notif.remove}
       />
       {gamesError && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 text-xs font-semibold px-4 py-2 rounded-xl shadow-lg"

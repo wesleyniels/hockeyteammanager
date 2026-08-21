@@ -7,7 +7,7 @@ import type { SessionUser } from './session.js'
 // through anything here). Role and team-assignment are both stored on the
 // user, not derived from anything guessable, so this can't be bypassed by
 // crafting a request.
-const ROSTER_STAFF_ROLES = ['Coach', 'Trainer', 'Trainer & Coach', 'Manager']
+export const ROSTER_STAFF_ROLES = ['Coach', 'Trainer', 'Trainer & Coach', 'Manager']
 
 export async function isRosterStaffOfTeamName(userId: string, teamName: string): Promise<boolean> {
   const rows = await sql`SELECT role, default_team FROM users WHERE id = ${userId}`
