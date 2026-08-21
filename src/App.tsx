@@ -1107,6 +1107,54 @@ function IconSkipForward({ size = 16 }: { size?: number }) {
   )
 }
 
+function IconPitch({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3.5" y="4" width="17" height="16" rx="1.5" />
+      <path d="M3.5 12h17" />
+      <circle cx="12" cy="12" r="2.5" />
+    </svg>
+  )
+}
+
+function IconSwap({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 8h13l-3-3" />
+      <path d="M20 16H7l3 3" />
+    </svg>
+  )
+}
+
+function IconGoal({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 4v14M20 4v14M4 4h16" strokeWidth={2} />
+      <path d="M4 9h16M4 14h16M9 4v14M15 4v14" opacity={0.55} />
+    </svg>
+  )
+}
+
+function IconTactics({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3.5" y="4" width="17" height="16" rx="1.5" />
+      <path d="M9.5 10 14.5 14" strokeDasharray="1.8 1.8" />
+      <circle cx="8.5" cy="9" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="15" r="1.4" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
+function IconCamera({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z" />
+      <circle cx="12" cy="13" r="3.2" />
+    </svg>
+  )
+}
+
 function IconBell({ size = 20 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -3994,20 +4042,24 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
 
       {/* Bottom tab bar — replaces the old side panel */}
       <div className="shrink-0 shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }} onClick={e => e.stopPropagation()}>
-        <div className="grid grid-cols-5">
+        <div className="grid grid-cols-5 mx-auto" style={{ maxWidth: '380px' }}>
           {([
-            ['wedstrijd', 'Wedstrijd', '🏑'],
-            ['bank', 'Bank', '🔁'],
-            ['score', 'Score', '🥅'],
-            ['tactiek', 'Tactiek', '♟️'],
-            ['media', 'Media', '📷'],
-          ] as const).map(([key, label, icon]) => (
+            ['wedstrijd', 'Wedstrijd'],
+            ['bank', 'Bank'],
+            ['score', 'Score'],
+            ['tactiek', 'Tactiek'],
+            ['media', 'Media'],
+          ] as const).map(([key, label]) => (
             <button key={key} onClick={() => setGameTab(key)}
-              className="flex flex-col items-center justify-center gap-1 py-2 text-[10px] font-bold"
+              className="flex flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-bold"
               style={{ color: gameTab === key ? '#fff' : 'var(--brand-7b9de0)' }}>
-              <span className="relative w-9 h-7 rounded-full flex items-center justify-center text-base transition-colors"
+              <span className="relative w-8 h-7 rounded-full flex items-center justify-center transition-colors"
                 style={{ background: gameTab === key ? 'var(--brand-1a3fab)' : 'transparent' }}>
-                {icon}
+                {key === 'wedstrijd' && <IconPitch size={19} />}
+                {key === 'bank' && <IconSwap size={19} />}
+                {key === 'score' && <IconGoal size={19} />}
+                {key === 'tactiek' && <IconTactics size={19} />}
+                {key === 'media' && <IconCamera size={19} />}
                 {key === 'bank' && benchPlayers.length > 0 && (
                   <span className="absolute -top-1 -right-1.5 text-[9px] font-bold rounded-full px-1 text-white leading-tight" style={{ background: '#DC2626' }}>
                     {benchPlayers.length}
