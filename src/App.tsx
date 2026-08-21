@@ -961,15 +961,6 @@ function benchColor(sec: number) {
   return '#DC2626'
 }
 
-// ── SC Muiden Logo ───────────────────────────────────────────────────────────
-
-function SCMuidenLogo({ size = 48 }: { size?: number }) {
-  return (
-    <img src="/sc-muiden-logo.webp" alt="SC Muiden" width={size} height={size}
-      style={{ width: size, height: size, objectFit: 'contain' }} />
-  )
-}
-
 function H1Logo({ height = 28 }: { height?: number }) {
   return <img src="/h1-logo.png" alt="Hockey One" style={{ height, width: 'auto' }} />
 }
@@ -1050,6 +1041,68 @@ function IconClock({ size = 22 }: { size?: number }) {
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="9" />
       <path d="M12 7v5l3.5 2" />
+    </svg>
+  )
+}
+
+function IconChevronLeft({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M15 5 8 12l7 7" />
+    </svg>
+  )
+}
+
+function IconMore({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <circle cx="5" cy="12" r="2" />
+      <circle cx="12" cy="12" r="2" />
+      <circle cx="19" cy="12" r="2" />
+    </svg>
+  )
+}
+
+function IconUndo({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 10h9a5 5 0 0 1 0 10h-3" />
+      <path d="M8 6 4 10l4 4" />
+    </svg>
+  )
+}
+
+function IconPlay({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M7 5v14l12-7z" />
+    </svg>
+  )
+}
+
+function IconPause({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <rect x="6" y="5" width="4" height="14" rx="1" />
+      <rect x="14" y="5" width="4" height="14" rx="1" />
+    </svg>
+  )
+}
+
+function IconSkipBack({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <rect x="4" y="5" width="2.5" height="14" rx="1" />
+      <path d="M19 5 8 12l11 7z" />
+    </svg>
+  )
+}
+
+function IconSkipForward({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <rect x="17.5" y="5" width="2.5" height="14" rx="1" />
+      <path d="M5 5l11 7-11 7z" />
     </svg>
   )
 }
@@ -3281,43 +3334,42 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
     <div className="flex flex-col" style={{ height: '100dvh', background: 'var(--brand-eef3ff)' }}
       onClick={() => setSelected(null)}>
 
-      {/* Header — icon-first, two-tier: identity/score/settings, then clock/period controls */}
+      {/* Header — icon row (back / crests+score / settings), then a slim row
+          underneath for undo/period/clock/play-pause, matching the reference:
+          crests flank the score, the clock sits on its own row below it. */}
       <div className="shrink-0 text-white" style={{ background: 'var(--brand-0d2b7a)' }}>
-        <div className="flex items-center justify-between gap-2 px-3 py-2">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <button onClick={() => { flushSave(); onBack() }} aria-label="Terug"
-              className="text-xl font-bold shrink-0 leading-none" style={{ color: 'var(--brand-7b9de0)' }}>
-              ‹
-            </button>
-            <SCMuidenLogo size={28} />
-            <div className="min-w-0">
-              <div className="font-display font-bold text-sm leading-none truncate">{club} {team}</div>
-              <div className="text-xs leading-none mt-0.5 truncate" style={{ color: 'var(--brand-7b9de0)' }}>
-                {homeAway === 'Thuis' ? 'vs' : '@'} {opponent} · {ageGroupLabel(ageGroup)}
-              </div>
-            </div>
+        <div className="flex items-center justify-between gap-1 px-2 py-2">
+          <button onClick={() => { flushSave(); onBack() }} aria-label="Terug"
+            className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>
+            <IconChevronLeft size={22} />
+          </button>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <ClubLogo club={club} size={26} />
+            <span className="font-mono font-bold text-base tabular-nums px-1">{scoreOwn} - {scoreOpp}</span>
+            <ClubLogo club={matchKnhbClub(opponent)} size={26} />
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <div className="font-mono font-bold text-sm tabular-nums px-2 py-1 rounded-lg" style={{ background: 'rgba(255,255,255,0.08)' }}>
-              {scoreOwn} - {scoreOpp}
-            </div>
-            <button onClick={e => { e.stopPropagation(); setShowSettings(true) }} aria-label="Notities en instellingen"
-              className="w-8 h-8 rounded-lg text-base font-bold shrink-0" style={{ background: 'rgba(255,255,255,0.08)', color: 'var(--brand-7b9de0)' }}>
-              ⋯
-            </button>
-          </div>
+          <button onClick={e => { e.stopPropagation(); setShowSettings(true) }} aria-label="Notities en instellingen"
+            className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>
+            <IconMore size={20} />
+          </button>
         </div>
-        <div className="flex items-center justify-center gap-3 px-3 pb-2">
-          {!readOnly && currentPeriod > 1 && (
-            <button onClick={e => { e.stopPropagation(); regressPeriod() }}
-              title={`Vorige ${periodLabel.toLowerCase()}`}
-              className="px-2.5 py-1 rounded-lg text-xs font-bold text-white"
-              style={{ background: 'var(--brand-1a3fab)' }}>
-              ⏮
+        <div className="flex items-center justify-center gap-1.5 px-2 pb-2">
+          {!readOnly && (
+            <button onClick={e => { e.stopPropagation(); herstel() }} disabled={historyLen === 0}
+              aria-label="Herstel" title="Herstel"
+              className="w-7 h-7 rounded-lg flex items-center justify-center disabled:opacity-40" style={{ color: 'var(--brand-7b9de0)' }}>
+              <IconUndo size={16} />
             </button>
           )}
-          <div className="flex flex-col items-center leading-none">
-            <div className="font-mono font-bold text-lg tabular-nums" style={{ color: remainingInPeriod === 0 ? '#F87171' : undefined }}>
+          {!readOnly && currentPeriod > 1 && (
+            <button onClick={e => { e.stopPropagation(); regressPeriod() }}
+              aria-label={`Vorige ${periodLabel.toLowerCase()}`} title={`Vorige ${periodLabel.toLowerCase()}`}
+              className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ color: 'var(--brand-7b9de0)' }}>
+              <IconSkipBack size={15} />
+            </button>
+          )}
+          <div className="flex flex-col items-center leading-none px-1">
+            <div className="font-mono font-bold text-base tabular-nums" style={{ color: remainingInPeriod === 0 ? '#F87171' : undefined }}>
               {fmtSec(remainingInPeriod)}
             </div>
             <div className="text-[9px] font-bold uppercase tracking-wide mt-0.5" style={{ color: 'var(--brand-7b9de0)' }}>
@@ -3326,30 +3378,23 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
           </div>
           {!readOnly && currentPeriod < totalPeriods && (
             <button onClick={e => { e.stopPropagation(); advancePeriod() }}
-              title={`Volgende ${periodLabel.toLowerCase()}`}
-              className="px-2.5 py-1 rounded-lg text-xs font-bold text-white"
-              style={{ background: 'var(--brand-1a3fab)' }}>
-              ⏭
+              aria-label={`Volgende ${periodLabel.toLowerCase()}`} title={`Volgende ${periodLabel.toLowerCase()}`}
+              className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ color: 'var(--brand-7b9de0)' }}>
+              <IconSkipForward size={15} />
             </button>
           )}
           {!readOnly && (
             <button onClick={e => { e.stopPropagation(); setRunning(r => !r) }}
-              className="px-3 py-1 rounded-lg text-xs font-bold"
+              aria-label={running ? 'Pauzeer' : 'Start'}
+              className="w-7 h-7 rounded-lg flex items-center justify-center"
               style={{ background: running ? '#D97706' : '#16A34A', color: '#fff' }}>
-              {running ? '⏸' : '▶'}
+              {running ? <IconPause size={15} /> : <IconPlay size={15} />}
             </button>
           )}
-          {readOnly ? (
+          {readOnly && (
             <span className="px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: 'rgba(255,255,255,0.12)', color: 'var(--brand-a8bef0)' }}>
               Alleen-lezen
             </span>
-          ) : (
-            <button onClick={e => { e.stopPropagation(); herstel() }}
-              disabled={historyLen === 0}
-              className="px-2.5 py-1 rounded-lg text-xs font-bold text-white disabled:opacity-40"
-              style={{ background: 'var(--brand-1a3fab)' }}>
-              Herstel
-            </button>
           )}
         </div>
       </div>
