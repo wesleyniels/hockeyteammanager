@@ -1029,6 +1029,15 @@ function IconUsers({ size = 22 }: { size?: number }) {
   )
 }
 
+function IconClock({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3.5 2" />
+    </svg>
+  )
+}
+
 function IconBell({ size = 20 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -4833,12 +4842,21 @@ function TeamView({ user, games, onProfile, onSelectPlayer, unreadNotifications,
               </h2>
               <div className="grid grid-cols-3 gap-4">
                 {stat('Wedstrijden', playedGames.length)}
-                {stat('Minuten gespeeld', fmtHM(totalMinutes))}
                 {stat('Doelpunten voor', goalsFor)}
                 {stat('Doelpunten tegen', goalsAgainst)}
                 {stat('Gewonnen', wins)}
                 {stat('Verloren', losses)}
                 {stat('Gelijkgespeeld', draws)}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-5 shadow-sm flex items-center gap-4" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+              <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
+                <IconClock size={24} />
+              </div>
+              <div>
+                <p className="text-xs font-semibold" style={{ color: 'var(--brand-7b90c8)' }}>Minuten gespeeld</p>
+                <p className="font-display text-2xl font-bold" style={{ color: 'var(--brand-0d2b7a)' }}>{fmtHM(totalMinutes)}</p>
               </div>
             </div>
 
