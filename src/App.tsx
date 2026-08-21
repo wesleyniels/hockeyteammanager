@@ -2696,8 +2696,12 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   }
   const [running, setRunning] = useState(false)
   const [selected, setSelected] = useState<Selected>(null)
-  const [activeTab, setActiveTab] = useState<'bench' | 'subs' | 'notes' | 'tactics' | 'media'>('bench')
-  const [panelCollapsed, setPanelCollapsed] = useLS('fh_panel_collapsed', false)
+  // Bottom tab bar — replaces the old side panel entirely. Wedstrijd is the
+  // default/home tab (the full pitch); Bank/Score/Tactiek/Media are each a
+  // full-screen view now, not a column squeezed beside the field.
+  const [gameTab, setGameTab] = useState<'wedstrijd' | 'bank' | 'score' | 'tactiek' | 'media'>('wedstrijd')
+  const [bankView, setBankView] = useState<'field' | 'list'>('field')
+  const [showSettings, setShowSettings] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // ── Autosave + Herstel (undo) ────────────────────────────────────────────
@@ -3132,7 +3136,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
       setSelected(null)
     } else {
       setSelected({ type: 'field', posId })
-      setActiveTab('bench')
+      setGameTab('bank')
     }
   }
 
@@ -3277,12 +3281,15 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
     <div className="flex flex-col" style={{ height: '100dvh', background: 'var(--brand-eef3ff)' }}
       onClick={() => setSelected(null)}>
 
-      {/* Header */}
-      <div className="shrink-0 text-white px-3 py-2" style={{ background: 'var(--brand-0d2b7a)' }}>
-        <div className="flex items-center justify-between gap-2">
+      {/* Header — icon-first, two-tier: identity/score/settings, then clock/period controls */}
+      <div className="shrink-0 text-white" style={{ background: 'var(--brand-0d2b7a)' }}>
+        <div className="flex items-center justify-between gap-2 px-3 py-2">
           <div className="flex items-center gap-2.5 min-w-0">
-            <button onClick={() => { flushSave(); onBack() }} className="text-xs shrink-0 font-semibold" style={{ color: 'var(--brand-7b9de0)' }}>← Terug</button>
-            <SCMuidenLogo size={30} />
+            <button onClick={() => { flushSave(); onBack() }} aria-label="Terug"
+              className="text-xl font-bold shrink-0 leading-none" style={{ color: 'var(--brand-7b9de0)' }}>
+              ‹
+            </button>
+            <SCMuidenLogo size={28} />
             <div className="min-w-0">
               <div className="font-display font-bold text-sm leading-none truncate">{club} {team}</div>
               <div className="text-xs leading-none mt-0.5 truncate" style={{ color: 'var(--brand-7b9de0)' }}>
@@ -3294,92 +3301,478 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
             <div className="font-mono font-bold text-sm tabular-nums px-2 py-1 rounded-lg" style={{ background: 'rgba(255,255,255,0.08)' }}>
               {scoreOwn} - {scoreOpp}
             </div>
-            <div className="flex flex-col items-center leading-none">
-              <div className="font-mono font-bold text-xl tabular-nums" style={{ color: remainingInPeriod === 0 ? '#F87171' : undefined }}>
-                {fmtSec(remainingInPeriod)}
-              </div>
-              <div className="text-[9px] font-bold uppercase tracking-wide mt-0.5" style={{ color: 'var(--brand-7b9de0)' }}>
-                {periodLabel} {currentPeriod}/{totalPeriods}
-              </div>
-            </div>
-            {!readOnly && (
-              <button onClick={e => { e.stopPropagation(); setRunning(r => !r) }}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold"
-                style={{ background: running ? '#D97706' : '#16A34A', color: '#fff' }}>
-                {running ? '⏸' : '▶'}
-              </button>
-            )}
-            {!readOnly && currentPeriod > 1 && (
-              <button onClick={e => { e.stopPropagation(); regressPeriod() }}
-                title={`Vorige ${periodLabel.toLowerCase()}`}
-                className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-white"
-                style={{ background: 'var(--brand-1a3fab)' }}>
-                ⏮
-              </button>
-            )}
-            {!readOnly && currentPeriod < totalPeriods && (
-              <button onClick={e => { e.stopPropagation(); advancePeriod() }}
-                title={`Volgende ${periodLabel.toLowerCase()}`}
-                className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-white"
-                style={{ background: 'var(--brand-1a3fab)' }}>
-                ⏭
-              </button>
-            )}
-            {readOnly ? (
-              <span className="px-3 py-1.5 rounded-lg text-xs font-bold" style={{ background: 'rgba(255,255,255,0.12)', color: 'var(--brand-a8bef0)' }}>
-                Alleen-lezen
-              </span>
-            ) : (
-              <button onClick={e => { e.stopPropagation(); herstel() }}
-                disabled={historyLen === 0}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-40"
-                style={{ background: 'var(--brand-1a3fab)' }}>
-                Herstel
-              </button>
-            )}
+            <button onClick={e => { e.stopPropagation(); setShowSettings(true) }} aria-label="Notities en instellingen"
+              className="w-8 h-8 rounded-lg text-base font-bold shrink-0" style={{ background: 'rgba(255,255,255,0.08)', color: 'var(--brand-7b9de0)' }}>
+              ⋯
+            </button>
           </div>
+        </div>
+        <div className="flex items-center justify-center gap-3 px-3 pb-2">
+          {!readOnly && currentPeriod > 1 && (
+            <button onClick={e => { e.stopPropagation(); regressPeriod() }}
+              title={`Vorige ${periodLabel.toLowerCase()}`}
+              className="px-2.5 py-1 rounded-lg text-xs font-bold text-white"
+              style={{ background: 'var(--brand-1a3fab)' }}>
+              ⏮
+            </button>
+          )}
+          <div className="flex flex-col items-center leading-none">
+            <div className="font-mono font-bold text-lg tabular-nums" style={{ color: remainingInPeriod === 0 ? '#F87171' : undefined }}>
+              {fmtSec(remainingInPeriod)}
+            </div>
+            <div className="text-[9px] font-bold uppercase tracking-wide mt-0.5" style={{ color: 'var(--brand-7b9de0)' }}>
+              {periodLabel} {currentPeriod}/{totalPeriods}
+            </div>
+          </div>
+          {!readOnly && currentPeriod < totalPeriods && (
+            <button onClick={e => { e.stopPropagation(); advancePeriod() }}
+              title={`Volgende ${periodLabel.toLowerCase()}`}
+              className="px-2.5 py-1 rounded-lg text-xs font-bold text-white"
+              style={{ background: 'var(--brand-1a3fab)' }}>
+              ⏭
+            </button>
+          )}
+          {!readOnly && (
+            <button onClick={e => { e.stopPropagation(); setRunning(r => !r) }}
+              className="px-3 py-1 rounded-lg text-xs font-bold"
+              style={{ background: running ? '#D97706' : '#16A34A', color: '#fff' }}>
+              {running ? '⏸' : '▶'}
+            </button>
+          )}
+          {readOnly ? (
+            <span className="px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: 'rgba(255,255,255,0.12)', color: 'var(--brand-a8bef0)' }}>
+              Alleen-lezen
+            </span>
+          ) : (
+            <button onClick={e => { e.stopPropagation(); herstel() }}
+              disabled={historyLen === 0}
+              className="px-2.5 py-1 rounded-lg text-xs font-bold text-white disabled:opacity-40"
+              style={{ background: 'var(--brand-1a3fab)' }}>
+              Herstel
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Body */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Field column */}
-        <div className="flex flex-col flex-1 overflow-hidden p-3 items-center"
-          onClick={e => e.stopPropagation()}>
-          <div className="flex items-center justify-between w-full mb-2 gap-2"
-            style={{ maxWidth: isDual ? (panelCollapsed ? '820px' : '600px') : (panelCollapsed ? '460px' : '330px') }}>
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="text-xs font-bold shrink-0" style={{ color: 'var(--brand-6b82b8)' }}>
-                Op veld:&nbsp;
-                <span style={{ color: onFieldCount < targetCount ? '#DC2626' : '#16A34A' }}>
-                  {onFieldCount}/{targetCount}
+      {/* Body — full width; content depends on which bottom tab is active */}
+      <div className="flex-1 overflow-y-auto" onClick={e => e.stopPropagation()}>
+        {gameTab === 'wedstrijd' && (
+          <div className="flex flex-col items-center p-3">
+            <div className="flex items-center justify-between w-full mb-2 gap-2"
+              style={{ maxWidth: isDual ? '820px' : '460px' }}>
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-xs font-bold shrink-0" style={{ color: 'var(--brand-6b82b8)' }}>
+                  Op veld:&nbsp;
+                  <span style={{ color: onFieldCount < targetCount ? '#DC2626' : '#16A34A' }}>
+                    {onFieldCount}/{targetCount}
+                  </span>
                 </span>
-              </span>
-              {!readOnly && formationVariants.length > 1 && (
-                <select value={variantId} onChange={e => switchFormation(e.target.value)}
-                  className="text-xs font-semibold rounded-lg px-1.5 py-1 min-w-0"
-                  style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: 'var(--brand-1a3fab)', outline: 'none' }}>
-                  {formationVariants.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                </select>
+                {!readOnly && formationVariants.length > 1 && (
+                  <select value={variantId} onChange={e => switchFormation(e.target.value)}
+                    className="text-xs font-semibold rounded-lg px-1.5 py-1 min-w-0"
+                    style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: 'var(--brand-1a3fab)', outline: 'none' }}>
+                    {formationVariants.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  </select>
+                )}
+              </div>
+              {selected ? (
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full"
+                  style={{ background: 'var(--brand-dbeafe)', color: 'var(--brand-1a3fab)' }}>
+                  {selected.type === 'bench'
+                    ? `Kies positie voor ${getPlayer(selected.playerId)?.name.split(' ')[0]}`
+                    : selected.type === 'opp-pool' || selected.type === 'opp-marker'
+                      ? 'Tik op het veld om de tegenstander te plaatsen'
+                      : selectedFieldPlayer ? `${selectedFieldPlayer.name.split(' ')[0]} geselecteerd` : 'Positie geselecteerd'}
+                </span>
+              ) : (
+                <span className="text-xs" style={{ color: 'var(--brand-a8bef0)' }}>Sleep of klik om te wisselen</span>
               )}
             </div>
-            {selected ? (
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full"
-                style={{ background: 'var(--brand-dbeafe)', color: 'var(--brand-1a3fab)' }}>
-                {selected.type === 'bench'
-                  ? `Kies positie voor ${getPlayer(selected.playerId)?.name.split(' ')[0]}`
-                  : selected.type === 'opp-pool' || selected.type === 'opp-marker'
-                    ? 'Tik op het veld om de tegenstander te plaatsen'
-                    : selectedFieldPlayer ? `${selectedFieldPlayer.name.split(' ')[0]} geselecteerd` : 'Positie geselecteerd'}
-              </span>
-            ) : (
-              <span className="text-xs" style={{ color: 'var(--brand-a8bef0)' }}>Sleep of klik om te wisselen</span>
-            )}
-          </div>
 
-          <div className="flex-1 flex items-center justify-center w-full"
-            style={{ maxWidth: isDual ? (panelCollapsed ? '820px' : '600px') : (panelCollapsed ? '460px' : '330px') }}>
-            {activeTab === 'tactics' ? (
+            <div className="flex items-center justify-center w-full" style={{ maxWidth: isDual ? '820px' : '460px' }}>
+              <FieldView
+                ageGroup={ageGroup}
+                slots={slots}
+                squad={squad}
+                oppMarkers={oppMarkers}
+                selected={selected}
+                dragOverPos={dragOverPos}
+                dragPreview={dragPreview}
+                fieldRef={fieldRef}
+                onFieldClick={handleFieldClick}
+                onBackgroundClick={handleBackgroundClick}
+                onMarkerPointerDown={(posId, e) => beginDrag('field', posId, e)}
+                onOppMarkerPointerDown={(id, e) => beginDrag('opp-marker', id, e)}
+                onOppMarkerClick={handleOppMarkerClick}
+              />
+            </div>
+
+            {!user && (
+              <p className="text-xs text-center mt-2" style={{ color: 'var(--brand-a8bef0)' }}>
+                Log in om deze wedstrijd te kunnen opslaan.
+              </p>
+            )}
+
+            {selectedFieldPos && (
+              <div className="flex gap-2 mt-2" onClick={e => e.stopPropagation()}>
+                {slots.find(s => s.posId === selectedFieldPos)?.playerId && (
+                  <button onClick={() => sendToBench(selectedFieldPos)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
+                    style={{ background: '#4B5563' }}>
+                    → Bank
+                  </button>
+                )}
+                <button onClick={() => setSelected(null)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+                  style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>
+                  Annuleer
+                </button>
+              </div>
+            )}
+
+            {selected?.type === 'opp-marker' && (
+              <div className="flex gap-2 mt-2" onClick={e => e.stopPropagation()}>
+                <button onClick={() => removeOppMarker(selected.id)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
+                  style={{ background: '#4B5563' }}>
+                  Verwijder
+                </button>
+                <button onClick={() => setSelected(null)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+                  style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>
+                  Annuleer
+                </button>
+              </div>
+            )}
+
+            {/* Opponent marker pool lives here (not Bank) — it's about the live
+                pitch picture, not the coach's own roster rotation. */}
+            <div className="w-full mt-4 pt-3" style={{ maxWidth: isDual ? '820px' : '460px', borderTop: '1px solid var(--brand-d0dcfa)' }}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
+                  Tegenstander ({oppAvailable} beschikbaar)
+                </span>
+                {oppMarkers.length > 0 && !readOnly && (
+                  <button onClick={() => setOppMarkers([])} className="text-xs font-bold" style={{ color: '#DC2626' }}>
+                    Wis
+                  </button>
+                )}
+              </div>
+              <p className="text-xs mb-2" style={{ color: selected?.type === 'opp-pool' ? 'var(--brand-1a3fab)' : 'var(--brand-a8bef0)' }}>
+                {selected?.type === 'opp-pool'
+                  ? 'Tik op het veld om te plaatsen…'
+                  : 'Sleep naar het veld, of tik en tik daarna op het veld.'}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {Array.from({ length: oppAvailable }).map((_, i) => (
+                  <div key={i}
+                    className="w-8 h-8 rounded-full cursor-grab touch-none select-none shrink-0"
+                    style={{
+                      background: '#DC2626',
+                      border: selected?.type === 'opp-pool' ? '2.5px solid var(--brand-1a3fab)' : '2px solid #fff',
+                      boxShadow: selected?.type === 'opp-pool' ? '0 0 0 3px rgba(26,63,171,0.35)' : '0 2px 6px rgba(0,0,0,0.25)',
+                    }}
+                    onPointerDown={e => beginDrag('opp-pool', 'new', e)}
+                    onClick={handleOppPoolClick} />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {gameTab === 'bank' && (
+          <div className="p-3">
+            <div className="flex gap-2 mb-4 mx-auto" style={{ maxWidth: '280px' }}>
+              {(['field', 'list'] as const).map(v => (
+                <button key={v} onClick={() => setBankView(v)}
+                  className="flex-1 py-2 rounded-full text-xs font-bold uppercase transition-colors"
+                  style={bankView === v
+                    ? { background: 'var(--brand-1a3fab)', color: '#fff' }
+                    : { background: '#fff', color: 'var(--brand-3b5299)', border: '1px solid var(--brand-d0dcfa)' }}>
+                  {v === 'field' ? 'Veld' : 'Lijst'}
+                </button>
+              ))}
+            </div>
+
+            {bankView === 'field' ? (
+              <div className="flex items-center justify-center w-full mb-4 mx-auto" style={{ maxWidth: isDual ? '600px' : '330px' }}>
+                <FieldView
+                  ageGroup={ageGroup}
+                  slots={slots}
+                  squad={squad}
+                  oppMarkers={oppMarkers}
+                  selected={selected}
+                  dragOverPos={dragOverPos}
+                  dragPreview={dragPreview}
+                  fieldRef={fieldRef}
+                  onFieldClick={handleFieldClick}
+                  onBackgroundClick={handleBackgroundClick}
+                  onMarkerPointerDown={(posId, e) => beginDrag('field', posId, e)}
+                  onOppMarkerPointerDown={(id, e) => beginDrag('opp-marker', id, e)}
+                  onOppMarkerClick={handleOppMarkerClick}
+                />
+              </div>
+            ) : (
+              <div className="space-y-1.5 mb-4 mx-auto" style={{ maxWidth: '420px' }}>
+                {slots.filter(s => s.playerId).length === 0 ? (
+                  <p className="text-xs text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Nog niemand op het veld</p>
+                ) : (
+                  slots.filter(s => s.playerId).map(s => {
+                    const p = getPlayer(s.playerId)
+                    if (!p) return null
+                    return (
+                      <div key={s.posId} className="flex items-center gap-2.5 p-2.5 rounded-xl"
+                        style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                        <span className="text-xs font-bold w-9 shrink-0 text-center" style={{ color: 'var(--brand-1a3fab)' }}>{s.label}</span>
+                        <span className="text-sm font-semibold flex-1 truncate" style={{ color: 'var(--brand-1a2f6b)' }}>
+                          {p.number != null ? `#${p.number} ` : ''}{p.name}
+                        </span>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            )}
+
+            <div className="mx-auto" style={{ maxWidth: '420px' }}>
+              <span className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
+                Bank ({benchPlayers.length})
+              </span>
+              {benchPlayers.length === 0 ? (
+                <div className="text-xs text-center py-6 rounded-xl border-2 border-dashed mt-2"
+                  style={{ color: 'var(--brand-a8bef0)', borderColor: 'var(--brand-d0dcfa)' }}>
+                  Alle spelers staan op het veld
+                </div>
+              ) : (
+                <div className="flex gap-3 overflow-x-auto mt-2 pb-1">
+                  {[...benchPlayers].sort((a, b) => (a.player.number ?? Infinity) - (b.player.number ?? Infinity) || a.player.name.localeCompare(b.player.name)).map(({ playerId, sinceGameSec, player }) => {
+                    const elapsed = Math.max(0, gameSec - sinceGameSec)
+                    const isSel = selected?.type === 'bench' && selected.playerId === playerId
+                    const isBeingDragged = dragPreview?.type === 'bench' && dragPreview.id === playerId
+                    const isRedCarded = redCardedIds.has(playerId)
+                    return (
+                      <div key={playerId}
+                        className={`flex flex-col items-center gap-1 shrink-0 w-16 touch-none select-none ${isRedCarded ? 'cursor-not-allowed' : 'cursor-grab'}`}
+                        style={{ opacity: isBeingDragged ? 0.35 : isRedCarded ? 0.6 : 1 }}
+                        onPointerDown={e => beginDrag('bench', playerId, e)}
+                        onClick={() => handleBenchClick(playerId)}>
+                        <div className="relative w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden"
+                          style={{ background: 'var(--brand-1a3fab)', border: isSel ? '2.5px solid var(--brand-0d2b7a)' : '2px solid transparent' }}>
+                          {player.photoUrl ? (
+                            <img src={mediaSrc(player.photoUrl)} alt={player.name} className="w-full h-full object-cover" />
+                          ) : (
+                            player.number ?? initials(player.name)
+                          )}
+                          {isRedCarded && (
+                            <span className="absolute bottom-0 right-0 inline-block w-2.5 h-3.5 rounded-sm" style={{ background: '#DC2626' }} title="Rode kaart — kan niet meer meedoen" />
+                          )}
+                        </div>
+                        <span className="text-xs font-semibold truncate w-full text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{firstName(player.name)}</span>
+                        <span className="font-mono text-[10px] font-bold"
+                          style={{ color: gameSec > 0 ? benchColor(elapsed) : 'var(--brand-a8bef0)' }}>
+                          {gameSec > 0 ? fmtSec(elapsed) : '—:—'}
+                        </span>
+                        {isSel && <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>↔</span>}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5 pt-3 mx-auto" style={{ maxWidth: '420px', borderTop: '1px solid var(--brand-e8effd)' }}>
+              <span className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
+                Wissels ({subs.length})
+              </span>
+              {subs.length === 0 ? (
+                <p className="text-xs text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Nog geen wissels</p>
+              ) : (
+                <div className="space-y-2 mt-2">
+                  {subs.map((s, i) => {
+                    const pIn = getPlayer(s.playerInId)
+                    const pOut = getPlayer(s.playerOutId)
+                    return (
+                      <div key={i} className="py-2.5 rounded-xl px-3"
+                        style={{ background: 'var(--brand-f0f5ff)', border: '1px solid var(--brand-e4ecfe)' }}>
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span className="font-mono text-xs font-bold" style={{ color: 'var(--brand-7b90c8)' }}>{fmtSec(s.gameTimeSec)}</span>
+                          {s.posLabel && (
+                            <span className="text-xs font-bold px-1.5 rounded" style={{ color: 'var(--brand-1a3fab)', background: 'var(--brand-e4ecfe)' }}>{s.posLabel}</span>
+                          )}
+                        </div>
+                        <div className="text-xs font-semibold" style={{ color: '#16A34A' }}>↑ {pIn?.number ? `#${pIn.number} ` : ''}{pIn?.name}</div>
+                        <div className="text-xs font-semibold" style={{ color: '#DC2626' }}>↓ {pOut?.number ? `#${pOut.number} ` : ''}{pOut?.name}</div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5 pt-3 mx-auto" style={{ maxWidth: '420px', borderTop: '1px solid var(--brand-e8effd)' }}>
+              <span className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
+                Speeltijd
+              </span>
+              <div className="space-y-1 mt-2">
+                {sortPlayers(squad).map(p => {
+                  const onField = slots.some(s => s.playerId === p.id)
+                  return (
+                    <div key={p.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
+                      style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                      <span style={{ color: 'var(--brand-1a2f6b)' }}>
+                        {onField && <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5" style={{ background: '#16A34A' }} />}
+                        {p.number ? `#${p.number} ` : ''}{p.name}
+                      </span>
+                      <span className="font-mono font-bold" style={{ color: 'var(--brand-3b5299)' }}>{fmtSec(playedSeconds[p.id] ?? 0)}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {gameTab === 'score' && (
+          <div className="p-3 space-y-3 mx-auto" style={{ maxWidth: '420px' }}>
+            <div>
+              <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Scorebord</label>
+              <div className="flex items-center justify-between gap-2 rounded-xl px-3 py-2.5"
+                style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)' }}>
+                <div className="flex-1 text-center min-w-0">
+                  <div className="text-xs font-semibold truncate" style={{ color: 'var(--brand-6b82b8)' }}>{team || 'Eigen team'}</div>
+                  <div className="flex items-center justify-center gap-2.5 mt-1">
+                    <button onClick={() => setScoreOwn(s => Math.max(0, s - 1))} disabled={readOnly}
+                      className="w-7 h-7 rounded-lg font-bold text-sm disabled:opacity-50" style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>−</button>
+                    <span className="font-mono font-bold text-xl w-6 text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{scoreOwn}</span>
+                    <button onClick={() => setScoreOwn(s => s + 1)} disabled={readOnly}
+                      className="w-7 h-7 rounded-lg font-bold text-sm text-white disabled:opacity-50" style={{ background: 'var(--brand-1a3fab)' }}>+</button>
+                  </div>
+                </div>
+                <div className="font-bold text-sm shrink-0" style={{ color: 'var(--brand-a8bef0)' }}>–</div>
+                <div className="flex-1 text-center min-w-0">
+                  <div className="text-xs font-semibold truncate" style={{ color: 'var(--brand-6b82b8)' }}>{opponent || 'Tegenstander'}</div>
+                  <div className="flex items-center justify-center gap-2.5 mt-1">
+                    <button onClick={() => setScoreOpp(s => Math.max(0, s - 1))} disabled={readOnly}
+                      className="w-7 h-7 rounded-lg font-bold text-sm disabled:opacity-50" style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>−</button>
+                    <span className="font-mono font-bold text-xl w-6 text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{scoreOpp}</span>
+                    <button onClick={() => setScoreOpp(s => s + 1)} disabled={readOnly}
+                      className="w-7 h-7 rounded-lg font-bold text-sm text-white disabled:opacity-50" style={{ background: 'var(--brand-1a3fab)' }}>+</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Doelpuntenmakers</label>
+              <div className="flex gap-2">
+                <select className="flex-1 rounded-xl px-3 py-2 text-sm" disabled={readOnly}
+                  style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: goalPlayerId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', outline: 'none' }}
+                  value={goalPlayerId} onChange={e => setGoalPlayerId(e.target.value)}>
+                  <option value="">Kies speler…</option>
+                  {sortPlayers(squad).map(p => (
+                    <option key={p.id} value={p.id}>{p.number ? `#${p.number} ` : ''}{p.name}</option>
+                  ))}
+                </select>
+                <button onClick={() => {
+                  if (readOnly || !goalPlayerId) return
+                  setGoals(g => [...g, { id: uid(), playerId: goalPlayerId, gameTimeSec: gameSec }])
+                }}
+                  disabled={readOnly}
+                  className="px-4 py-2 rounded-xl font-bold text-white text-lg shrink-0 disabled:opacity-50"
+                  style={{ background: 'var(--brand-1a3fab)' }}>
+                  +
+                </button>
+              </div>
+              {goals.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {goals.map(g => {
+                    const p = getPlayer(g.playerId)
+                    return (
+                      <div key={g.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
+                        style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                        <span style={{ color: 'var(--brand-1a2f6b)' }}><HockeyBallIcon /> {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}</span>
+                        {!readOnly && (
+                          <button onClick={() => setGoals(gs => gs.filter(x => x.id !== g.id))}
+                            className="font-bold" style={{ color: '#DC2626' }}>
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              <p className="text-xs mt-1.5" style={{ color: goals.length === scoreOwn ? 'var(--brand-7b90c8)' : '#D97706' }}>
+                {goals.length} van de {scoreOwn} doelpunten toegewezen
+              </p>
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Kaarten</label>
+              <select className="w-full rounded-xl px-3 py-2 text-sm" disabled={readOnly}
+                style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: cardPlayerId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', outline: 'none' }}
+                value={cardPlayerId} onChange={e => setCardPlayerId(e.target.value)}>
+                <option value="">Kies speler…</option>
+                {sortPlayers(squad).map(p => (
+                  <option key={p.id} value={p.id}>{p.number ? `#${p.number} ` : ''}{p.name}</option>
+                ))}
+              </select>
+              <div className="flex gap-2 mt-2">
+                {(['green', 'yellow', 'red'] as const).map(c => (
+                  <button key={c} onClick={() => setCardColor(c)} disabled={readOnly}
+                    className="flex-1 h-8 rounded-lg disabled:opacity-50"
+                    style={{
+                      background: c === 'green' ? '#16A34A' : c === 'yellow' ? '#EAB308' : '#DC2626',
+                      border: cardColor === c ? '2px solid var(--brand-1a2f6b)' : '2px solid transparent',
+                    }}
+                    aria-label={c} />
+                ))}
+                <button onClick={() => {
+                  if (readOnly || !cardPlayerId) return
+                  setCards(c => [...c, { id: uid(), playerId: cardPlayerId, color: cardColor, gameTimeSec: gameSec }])
+                  // A red card ends the player's match — take them off the
+                  // field immediately rather than leaving it to be noticed
+                  // (and enforced) only the next time someone tries to sub
+                  // them back in.
+                  if (cardColor === 'red') {
+                    const onFieldSlot = slots.find(s => s.playerId === cardPlayerId)
+                    if (onFieldSlot) sendToBench(onFieldSlot.posId)
+                  }
+                }}
+                  disabled={readOnly}
+                  className="px-4 py-1 rounded-xl font-bold text-white text-lg shrink-0 disabled:opacity-50"
+                  style={{ background: 'var(--brand-1a3fab)' }}>
+                  +
+                </button>
+              </div>
+              {cards.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {cards.map(c => {
+                    const p = getPlayer(c.playerId)
+                    return (
+                      <div key={c.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
+                        style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                        <span style={{ color: 'var(--brand-1a2f6b)' }}>
+                          <span className="inline-block w-3 h-4 rounded-sm mr-1.5 align-middle"
+                            style={{ background: c.color === 'green' ? '#16A34A' : c.color === 'yellow' ? '#EAB308' : '#DC2626' }} />
+                          {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}
+                        </span>
+                        {!readOnly && (
+                          <button onClick={() => setCards(cs => cs.filter(x => x.id !== c.id))}
+                            className="font-bold" style={{ color: '#DC2626' }}>
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {gameTab === 'tactiek' && (
+          <div className="p-3">
+            <div className="flex items-center justify-center w-full mb-3 mx-auto" style={{ maxWidth: isDual ? '600px' : '330px' }}>
               <TacticsFieldEditor
                 isDual={isDual}
                 slots={slots}
@@ -3401,408 +3794,103 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                 onOppMarkerPointerDown={(id, e) => beginDrag('opp-marker', id, e)}
                 onOppMarkerClick={handleOppMarkerClick}
               />
-            ) : (
-              <FieldView
-                ageGroup={ageGroup}
-                slots={slots}
-                squad={squad}
-                oppMarkers={oppMarkers}
-                selected={selected}
-                dragOverPos={dragOverPos}
-                dragPreview={dragPreview}
-                fieldRef={fieldRef}
-                onFieldClick={handleFieldClick}
-                onBackgroundClick={handleBackgroundClick}
-                onMarkerPointerDown={(posId, e) => beginDrag('field', posId, e)}
-                onOppMarkerPointerDown={(id, e) => beginDrag('opp-marker', id, e)}
-                onOppMarkerClick={handleOppMarkerClick}
-              />
-            )}
-          </div>
+            </div>
 
-          {!user && (
-            <p className="text-xs text-center mt-2" style={{ color: 'var(--brand-a8bef0)' }}>
-              Log in om deze wedstrijd te kunnen opslaan.
-            </p>
-          )}
+            <div className="space-y-3 mx-auto" style={{ maxWidth: '420px' }}>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Opstellingen</label>
+                  {!readOnly && (
+                    <div className="flex gap-2">
+                      <button onClick={() => addBoard(false)} className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>
+                        + Opstelling
+                      </button>
+                      <button onClick={() => addBoard(true)} className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>
+                        + Strafcorner
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {tacticsBoards.map(b => (
+                    <div key={b.id} className="flex items-center gap-1">
+                      <button onClick={() => { setActiveBoardId(b.id); setSelectedTacticsMarker(null); setTacticsPlayerId('') }}
+                        className="text-xs font-bold px-2.5 py-1.5 rounded-lg"
+                        style={b.id === activeBoardId
+                          ? { background: 'var(--brand-1a3fab)', color: '#fff' }
+                          : { background: 'var(--brand-f8faff)', color: 'var(--brand-3b5299)', border: '1px solid var(--brand-d0dcfa)' }}>
+                        {b.name}
+                      </button>
+                      {!readOnly && tacticsBoards.length > 1 && (
+                        <button onClick={() => { if (confirm(`"${b.name}" verwijderen?`)) deleteBoard(b.id) }}
+                          className="font-bold text-xs" style={{ color: '#DC2626' }}>
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
 
-          {selectedFieldPos && (
-            <div className="flex gap-2 mt-2" onClick={e => e.stopPropagation()}>
-              {slots.find(s => s.posId === selectedFieldPos)?.playerId && (
-                <button onClick={() => sendToBench(selectedFieldPos)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
-                  style={{ background: '#4B5563' }}>
-                  → Bank
+              {!readOnly && (
+                <div>
+                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Gereedschap</label>
+                  <div className="flex gap-2">
+                    {([
+                      { key: 'select', label: 'Selecteer' },
+                      { key: 'marker', label: '+ Speler' },
+                      { key: 'arrow', label: '+ Pijl' },
+                    ] as const).map(t => (
+                      <button key={t.key} onClick={() => { setTacticsTool(t.key); setSelectedTacticsMarker(null); setTacticsPlayerId('') }}
+                        className="flex-1 py-2 rounded-lg text-xs font-bold"
+                        style={tacticsTool === t.key
+                          ? { background: 'var(--brand-1a3fab)', color: '#fff' }
+                          : { background: 'var(--brand-f8faff)', color: 'var(--brand-3b5299)', border: '1px solid var(--brand-d0dcfa)' }}>
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                  {tacticsTool === 'marker' ? (
+                    <div className="mt-2">
+                      <select className="w-full rounded-xl px-3 py-2 text-sm"
+                        style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: tacticsPlayerId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', outline: 'none' }}
+                        value={tacticsPlayerId} onChange={e => setTacticsPlayerId(e.target.value)}>
+                        <option value="">Kies speler…</option>
+                        {sortPlayers(squad.filter(p => !activeBoard.markers.some(m => m.playerId === p.id))).map(p => (
+                          <option key={p.id} value={p.id}>{p.number ? `#${p.number} ` : ''}{p.name}</option>
+                        ))}
+                      </select>
+                      <p className="text-xs mt-1.5" style={{ color: 'var(--brand-a8bef0)' }}>
+                        {tacticsPlayerId ? 'Tik op het veld om te plaatsen.' : 'Kies eerst een speler.'}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-xs mt-1.5" style={{ color: 'var(--brand-a8bef0)' }}>
+                      {tacticsTool === 'arrow'
+                        ? 'Sleep op het veld om een pijl te tekenen.'
+                        : 'Tik een speler, tik daarna waar die naartoe moet.'}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {selectedTacticsMarker && !readOnly && (
+                <button onClick={() => removeTacticsMarker(selectedTacticsMarker)}
+                  className="text-xs font-bold px-3 py-1.5 rounded-lg" style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
+                  Verwijder geselecteerde speler
                 </button>
               )}
-              <button onClick={() => setSelected(null)}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold"
-                style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>
-                Annuleer
-              </button>
-            </div>
-          )}
 
-          {selected?.type === 'opp-marker' && (
-            <div className="flex gap-2 mt-2" onClick={e => e.stopPropagation()}>
-              <button onClick={() => removeOppMarker(selected.id)}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
-                style={{ background: '#4B5563' }}>
-                Verwijder
-              </button>
-              <button onClick={() => setSelected(null)}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold"
-                style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>
-                Annuleer
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Right panel */}
-        {panelCollapsed ? (
-          <button
-            onClick={e => { e.stopPropagation(); setPanelCollapsed(false) }}
-            className="w-8 flex flex-col items-center gap-3 pt-3 bg-white shrink-0"
-            style={{ borderLeft: '1px solid var(--brand-d0dcfa)' }}>
-            <span style={{ color: 'var(--brand-1a3fab)', fontSize: '14px', fontWeight: 800, lineHeight: 1 }}>‹</span>
-            <span className="text-xs font-bold" style={{ color: 'var(--brand-7b90c8)', writingMode: 'vertical-rl' }}>
-              Bank ({benchPlayers.length})
-            </span>
-          </button>
-        ) : (
-        <div className="w-56 flex flex-col bg-white shrink-0 overflow-hidden"
-          style={{ borderLeft: '1px solid var(--brand-d0dcfa)' }}
-          onClick={e => e.stopPropagation()}>
-          {/* Tabs */}
-          <div className="flex shrink-0 items-stretch" style={{ borderBottom: '1px solid var(--brand-e8effd)' }}>
-            <button onClick={() => setPanelCollapsed(true)}
-              className="shrink-0 px-1.5 text-sm font-bold"
-              style={{ color: 'var(--brand-a8bef0)' }}>
-              ›
-            </button>
-            {(['bench', 'subs', 'notes', 'tactics', 'media'] as const).map(tab => (
-              <button key={tab} onClick={() => setActiveTab(tab)}
-                className="flex-1 min-w-0 py-2.5 px-0.5 text-[10px] font-bold uppercase transition-colors"
-                style={{
-                  color: activeTab === tab ? 'var(--brand-1a3fab)' : 'var(--brand-a8bef0)',
-                  borderBottom: activeTab === tab ? '2.5px solid var(--brand-1a3fab)' : '2.5px solid transparent',
-                }}>
-                {tab === 'bench' ? `Bank (${benchPlayers.length})` : tab === 'subs' ? `Wissel (${subs.length})` : tab === 'notes' ? 'Score' : tab === 'tactics' ? 'Tactiek' : 'Media'}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex-1 overflow-y-auto">
-            {activeTab === 'bench' && (
-              <div className="p-2 space-y-1.5">
-                {benchPlayers.length === 0 ? (
-                  <div className="text-xs text-center py-8 rounded-xl border-2 border-dashed m-2"
-                    style={{ color: 'var(--brand-a8bef0)', borderColor: 'var(--brand-d0dcfa)' }}>
-                    Alle spelers staan op het veld
-                  </div>
-                ) : (
-                  [...benchPlayers].sort((a, b) => (a.player.number ?? Infinity) - (b.player.number ?? Infinity) || a.player.name.localeCompare(b.player.name)).map(({ playerId, sinceGameSec, player }) => {
-                    const elapsed = Math.max(0, gameSec - sinceGameSec)
-                    const isSel = selected?.type === 'bench' && selected.playerId === playerId
-                    const isBeingDragged = dragPreview?.type === 'bench' && dragPreview.id === playerId
-                    const isRedCarded = redCardedIds.has(playerId)
-                    return (
-                      <div key={playerId}
-                        className={`flex items-center gap-2.5 p-2.5 rounded-xl transition-all touch-none select-none ${isRedCarded ? 'cursor-not-allowed' : 'cursor-grab'}`}
-                        style={{
-                          background: isSel ? 'var(--brand-eef3ff)' : isRedCarded ? 'var(--brand-f0f5ff)' : 'var(--brand-f8faff)',
-                          border: isSel ? '1.5px solid var(--brand-1a3fab)' : '1.5px solid var(--brand-e8effd)',
-                          opacity: isBeingDragged ? 0.35 : isRedCarded ? 0.6 : 1,
-                        }}
-                        onPointerDown={e => beginDrag('bench', playerId, e)}
-                        onClick={() => handleBenchClick(playerId)}>
-                        <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden"
-                          style={{ background: 'var(--brand-1a3fab)' }}>
-                          {player.photoUrl ? (
-                            <img src={mediaSrc(player.photoUrl)} alt={player.name} className="w-full h-full object-cover" />
-                          ) : (
-                            player.number ?? initials(player.name)
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-semibold truncate" style={{ color: 'var(--brand-1a2f6b)' }}>{player.name}</div>
-                          <div className="font-mono text-xs font-bold mt-0.5"
-                            style={{ color: gameSec > 0 ? benchColor(elapsed) : 'var(--brand-a8bef0)' }}>
-                            {gameSec > 0 ? fmtSec(elapsed) : '—:—'}
-                          </div>
-                        </div>
-                        {isRedCarded && (
-                          <span className="inline-block w-3 h-4 rounded-sm shrink-0" style={{ background: '#DC2626' }} title="Rode kaart — kan niet meer meedoen" />
-                        )}
-                        {isSel && <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>↔</span>}
-                      </div>
-                    )
-                  })
-                )}
-
-                <div className="mt-4 pt-3 px-1" style={{ borderTop: '1px solid var(--brand-e8effd)' }}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
-                      Tegenstander ({oppAvailable} beschikbaar)
-                    </span>
-                    {oppMarkers.length > 0 && !readOnly && (
-                      <button onClick={() => setOppMarkers([])} className="text-xs font-bold" style={{ color: '#DC2626' }}>
-                        Wis
-                      </button>
-                    )}
-                  </div>
-                  <p className="text-xs mb-2" style={{ color: selected?.type === 'opp-pool' ? 'var(--brand-1a3fab)' : 'var(--brand-a8bef0)' }}>
-                    {selected?.type === 'opp-pool'
-                      ? 'Tik op het veld om te plaatsen…'
-                      : 'Sleep naar het veld, of tik en tik daarna op het veld.'}
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {Array.from({ length: oppAvailable }).map((_, i) => (
-                      <div key={i}
-                        className="w-8 h-8 rounded-full cursor-grab touch-none select-none shrink-0"
-                        style={{
-                          background: '#DC2626',
-                          border: selected?.type === 'opp-pool' ? '2.5px solid var(--brand-1a3fab)' : '2px solid #fff',
-                          boxShadow: selected?.type === 'opp-pool' ? '0 0 0 3px rgba(26,63,171,0.35)' : '0 2px 6px rgba(0,0,0,0.25)',
-                        }}
-                        onPointerDown={e => beginDrag('opp-pool', 'new', e)}
-                        onClick={handleOppPoolClick} />
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'subs' && (
-              <div className="p-3 space-y-2">
-                {subs.length === 0 && (
-                  <p className="text-xs text-center py-8" style={{ color: 'var(--brand-a8bef0)' }}>Nog geen wissels</p>
-                )}
-                {subs.map((s, i) => {
-                  const pIn = getPlayer(s.playerInId)
-                  const pOut = getPlayer(s.playerOutId)
-                  return (
-                    <div key={i} className="py-2.5 rounded-xl px-3"
-                      style={{ background: 'var(--brand-f0f5ff)', border: '1px solid var(--brand-e4ecfe)' }}>
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <span className="font-mono text-xs font-bold" style={{ color: 'var(--brand-7b90c8)' }}>{fmtSec(s.gameTimeSec)}</span>
-                        {s.posLabel && (
-                          <span className="text-xs font-bold px-1.5 rounded" style={{ color: 'var(--brand-1a3fab)', background: 'var(--brand-e4ecfe)' }}>{s.posLabel}</span>
-                        )}
-                      </div>
-                      <div className="text-xs font-semibold" style={{ color: '#16A34A' }}>↑ {pIn?.number ? `#${pIn.number} ` : ''}{pIn?.name}</div>
-                      <div className="text-xs font-semibold" style={{ color: '#DC2626' }}>↓ {pOut?.number ? `#${pOut.number} ` : ''}{pOut?.name}</div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-
-            {activeTab === 'notes' && (
-              <div className="p-3 space-y-3">
+              {activeBoard.arrows.length > 0 && (
                 <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Scorebord</label>
-                  <div className="flex items-center justify-between gap-2 rounded-xl px-3 py-2.5"
-                    style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)' }}>
-                    <div className="flex-1 text-center min-w-0">
-                      <div className="text-xs font-semibold truncate" style={{ color: 'var(--brand-6b82b8)' }}>{team || 'Eigen team'}</div>
-                      <div className="flex items-center justify-center gap-2.5 mt-1">
-                        <button onClick={() => setScoreOwn(s => Math.max(0, s - 1))} disabled={readOnly}
-                          className="w-7 h-7 rounded-lg font-bold text-sm disabled:opacity-50" style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>−</button>
-                        <span className="font-mono font-bold text-xl w-6 text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{scoreOwn}</span>
-                        <button onClick={() => setScoreOwn(s => s + 1)} disabled={readOnly}
-                          className="w-7 h-7 rounded-lg font-bold text-sm text-white disabled:opacity-50" style={{ background: 'var(--brand-1a3fab)' }}>+</button>
-                      </div>
-                    </div>
-                    <div className="font-bold text-sm shrink-0" style={{ color: 'var(--brand-a8bef0)' }}>–</div>
-                    <div className="flex-1 text-center min-w-0">
-                      <div className="text-xs font-semibold truncate" style={{ color: 'var(--brand-6b82b8)' }}>{opponent || 'Tegenstander'}</div>
-                      <div className="flex items-center justify-center gap-2.5 mt-1">
-                        <button onClick={() => setScoreOpp(s => Math.max(0, s - 1))} disabled={readOnly}
-                          className="w-7 h-7 rounded-lg font-bold text-sm disabled:opacity-50" style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>−</button>
-                        <span className="font-mono font-bold text-xl w-6 text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{scoreOpp}</span>
-                        <button onClick={() => setScoreOpp(s => s + 1)} disabled={readOnly}
-                          className="w-7 h-7 rounded-lg font-bold text-sm text-white disabled:opacity-50" style={{ background: 'var(--brand-1a3fab)' }}>+</button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Doelpuntenmakers</label>
-                  <div className="flex gap-2">
-                    <select className="flex-1 rounded-xl px-3 py-2 text-sm" disabled={readOnly}
-                      style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: goalPlayerId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', outline: 'none' }}
-                      value={goalPlayerId} onChange={e => setGoalPlayerId(e.target.value)}>
-                      <option value="">Kies speler…</option>
-                      {sortPlayers(squad).map(p => (
-                        <option key={p.id} value={p.id}>{p.number ? `#${p.number} ` : ''}{p.name}</option>
-                      ))}
-                    </select>
-                    <button onClick={() => {
-                      if (readOnly || !goalPlayerId) return
-                      setGoals(g => [...g, { id: uid(), playerId: goalPlayerId, gameTimeSec: gameSec }])
-                    }}
-                      disabled={readOnly}
-                      className="px-4 py-2 rounded-xl font-bold text-white text-lg shrink-0 disabled:opacity-50"
-                      style={{ background: 'var(--brand-1a3fab)' }}>
-                      +
-                    </button>
-                  </div>
-                  {goals.length > 0 && (
-                    <div className="mt-2 space-y-1">
-                      {goals.map(g => {
-                        const p = getPlayer(g.playerId)
-                        return (
-                          <div key={g.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-                            style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
-                            <span style={{ color: 'var(--brand-1a2f6b)' }}><HockeyBallIcon /> {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}</span>
-                            {!readOnly && (
-                              <button onClick={() => setGoals(gs => gs.filter(x => x.id !== g.id))}
-                                className="font-bold" style={{ color: '#DC2626' }}>
-                                ×
-                              </button>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                  <p className="text-xs mt-1.5" style={{ color: goals.length === scoreOwn ? 'var(--brand-7b90c8)' : '#D97706' }}>
-                    {goals.length} van de {scoreOwn} doelpunten toegewezen
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Kaarten</label>
-                  <select className="w-full rounded-xl px-3 py-2 text-sm" disabled={readOnly}
-                    style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: cardPlayerId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', outline: 'none' }}
-                    value={cardPlayerId} onChange={e => setCardPlayerId(e.target.value)}>
-                    <option value="">Kies speler…</option>
-                    {sortPlayers(squad).map(p => (
-                      <option key={p.id} value={p.id}>{p.number ? `#${p.number} ` : ''}{p.name}</option>
-                    ))}
-                  </select>
-                  <div className="flex gap-2 mt-2">
-                    {(['green', 'yellow', 'red'] as const).map(c => (
-                      <button key={c} onClick={() => setCardColor(c)} disabled={readOnly}
-                        className="flex-1 h-8 rounded-lg disabled:opacity-50"
-                        style={{
-                          background: c === 'green' ? '#16A34A' : c === 'yellow' ? '#EAB308' : '#DC2626',
-                          border: cardColor === c ? '2px solid var(--brand-1a2f6b)' : '2px solid transparent',
-                        }}
-                        aria-label={c} />
-                    ))}
-                    <button onClick={() => {
-                      if (readOnly || !cardPlayerId) return
-                      setCards(c => [...c, { id: uid(), playerId: cardPlayerId, color: cardColor, gameTimeSec: gameSec }])
-                      // A red card ends the player's match — take them off the
-                      // field immediately rather than leaving it to be noticed
-                      // (and enforced) only the next time someone tries to sub
-                      // them back in.
-                      if (cardColor === 'red') {
-                        const onFieldSlot = slots.find(s => s.playerId === cardPlayerId)
-                        if (onFieldSlot) sendToBench(onFieldSlot.posId)
-                      }
-                    }}
-                      disabled={readOnly}
-                      className="px-4 py-1 rounded-xl font-bold text-white text-lg shrink-0 disabled:opacity-50"
-                      style={{ background: 'var(--brand-1a3fab)' }}>
-                      +
-                    </button>
-                  </div>
-                  {cards.length > 0 && (
-                    <div className="mt-2 space-y-1">
-                      {cards.map(c => {
-                        const p = getPlayer(c.playerId)
-                        return (
-                          <div key={c.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-                            style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
-                            <span style={{ color: 'var(--brand-1a2f6b)' }}>
-                              <span className="inline-block w-3 h-4 rounded-sm mr-1.5 align-middle"
-                                style={{ background: c.color === 'green' ? '#16A34A' : c.color === 'yellow' ? '#EAB308' : '#DC2626' }} />
-                              {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}
-                            </span>
-                            {!readOnly && (
-                              <button onClick={() => setCards(cs => cs.filter(x => x.id !== c.id))}
-                                className="font-bold" style={{ color: '#DC2626' }}>
-                                ×
-                              </button>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Speeltijd</label>
+                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Pijlen</label>
                   <div className="space-y-1">
-                    {sortPlayers(squad).map(p => {
-                      const onField = slots.some(s => s.playerId === p.id)
-                      return (
-                        <div key={p.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-                          style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
-                          <span style={{ color: 'var(--brand-1a2f6b)' }}>
-                            {onField && <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5" style={{ background: '#16A34A' }} />}
-                            {p.number ? `#${p.number} ` : ''}{p.name}
-                          </span>
-                          <span className="font-mono font-bold" style={{ color: 'var(--brand-3b5299)' }}>{fmtSec(playedSeconds[p.id] ?? 0)}</span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Notities</label>
-                  <textarea className="w-full rounded-xl px-3 py-2 text-sm resize-none"
-                    style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: 'var(--brand-1a2f6b)', outline: 'none' }}
-                    rows={8} value={notes} onChange={e => setNotes(e.target.value)} readOnly={readOnly}
-                    placeholder="Tactische notities, bijzonderheden…" />
-                </div>
-                {!readOnly && canReset && (
-                  <div className="pt-2" style={{ borderTop: '1px solid var(--brand-e8effd)' }}>
-                    <button onClick={resetGame}
-                      className="w-full px-4 py-2.5 rounded-xl font-bold text-sm"
-                      style={{ background: '#FEE2E2', color: '#DC2626' }}>
-                      Wedstrijd resetten
-                    </button>
-                    <p className="text-xs mt-1.5 text-center" style={{ color: 'var(--brand-7b90c8)' }}>
-                      Zet score, opstelling, doelpunten, kaarten en klok terug naar het begin.
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'tactics' && (
-              <div className="p-3 space-y-3">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Opstellingen</label>
-                    {!readOnly && (
-                      <div className="flex gap-2">
-                        <button onClick={() => addBoard(false)} className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>
-                          + Opstelling
-                        </button>
-                        <button onClick={() => addBoard(true)} className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>
-                          + Strafcorner
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {tacticsBoards.map(b => (
-                      <div key={b.id} className="flex items-center gap-1">
-                        <button onClick={() => { setActiveBoardId(b.id); setSelectedTacticsMarker(null); setTacticsPlayerId('') }}
-                          className="text-xs font-bold px-2.5 py-1.5 rounded-lg"
-                          style={b.id === activeBoardId
-                            ? { background: 'var(--brand-1a3fab)', color: '#fff' }
-                            : { background: 'var(--brand-f8faff)', color: 'var(--brand-3b5299)', border: '1px solid var(--brand-d0dcfa)' }}>
-                          {b.name}
-                        </button>
-                        {!readOnly && tacticsBoards.length > 1 && (
-                          <button onClick={() => { if (confirm(`"${b.name}" verwijderen?`)) deleteBoard(b.id) }}
-                            className="font-bold text-xs" style={{ color: '#DC2626' }}>
+                    {activeBoard.arrows.map((a, i) => (
+                      <div key={a.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
+                        style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                        <span style={{ color: 'var(--brand-1a2f6b)' }}>Pijl {i + 1}</span>
+                        {!readOnly && (
+                          <button onClick={() => removeTacticsArrow(a.id)} className="font-bold" style={{ color: '#DC2626' }}>
                             ×
                           </button>
                         )}
@@ -3810,123 +3898,112 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                     ))}
                   </div>
                 </div>
+              )}
 
+              {!readOnly && (activeBoard.markers.length > 0 || activeBoard.arrows.length > 0) && (
+                <button onClick={() => { if (confirm('Alles op deze opstelling wissen?')) clearBoard() }}
+                  className="text-xs font-bold" style={{ color: '#DC2626' }}>
+                  Wis opstelling
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {gameTab === 'media' && (
+          <div className="p-3 space-y-3 mx-auto" style={{ maxWidth: '480px' }}>
+            {!readOnly && (
+              <input ref={mediaFileInputRef} type="file" accept="image/*,video/*" multiple
+                className="hidden" onChange={e => { handleMediaUpload(e.target.files); e.target.value = '' }} />
+            )}
+            {readOnly && media.length === 0 ? (
+              <div className="text-xs text-center py-8 rounded-xl border-2 border-dashed"
+                style={{ color: 'var(--brand-a8bef0)', borderColor: 'var(--brand-d0dcfa)' }}>
+                Geen foto's of video's
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-2">
                 {!readOnly && (
-                  <div>
-                    <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Gereedschap</label>
-                    <div className="flex gap-2">
-                      {([
-                        { key: 'select', label: 'Selecteer' },
-                        { key: 'marker', label: '+ Speler' },
-                        { key: 'arrow', label: '+ Pijl' },
-                      ] as const).map(t => (
-                        <button key={t.key} onClick={() => { setTacticsTool(t.key); setSelectedTacticsMarker(null); setTacticsPlayerId('') }}
-                          className="flex-1 py-2 rounded-lg text-xs font-bold"
-                          style={tacticsTool === t.key
-                            ? { background: 'var(--brand-1a3fab)', color: '#fff' }
-                            : { background: 'var(--brand-f8faff)', color: 'var(--brand-3b5299)', border: '1px solid var(--brand-d0dcfa)' }}>
-                          {t.label}
-                        </button>
-                      ))}
-                    </div>
-                    {tacticsTool === 'marker' ? (
-                      <div className="mt-2">
-                        <select className="w-full rounded-xl px-3 py-2 text-sm"
-                          style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: tacticsPlayerId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', outline: 'none' }}
-                          value={tacticsPlayerId} onChange={e => setTacticsPlayerId(e.target.value)}>
-                          <option value="">Kies speler…</option>
-                          {sortPlayers(squad.filter(p => !activeBoard.markers.some(m => m.playerId === p.id))).map(p => (
-                            <option key={p.id} value={p.id}>{p.number ? `#${p.number} ` : ''}{p.name}</option>
-                          ))}
-                        </select>
-                        <p className="text-xs mt-1.5" style={{ color: 'var(--brand-a8bef0)' }}>
-                          {tacticsPlayerId ? 'Tik op het veld om te plaatsen.' : 'Kies eerst een speler.'}
-                        </p>
-                      </div>
+                  <button onClick={() => mediaFileInputRef.current?.click()} disabled={uploading}
+                    className="flex flex-col items-center justify-center gap-1 h-24 rounded-xl border-2 border-dashed disabled:opacity-50"
+                    style={{ borderColor: 'var(--brand-d0dcfa)', color: 'var(--brand-7b90c8)' }}>
+                    <span className="text-2xl leading-none font-bold">+</span>
+                    <span className="text-xs font-bold">{uploading ? 'Uploaden…' : 'Toevoegen'}</span>
+                  </button>
+                )}
+                {media.map(item => (
+                  <button key={item.id} onClick={() => setPreviewMedia(item)}
+                    className="relative rounded-xl overflow-hidden h-24" style={{ border: '1px solid var(--brand-d0dcfa)', background: 'var(--brand-0d2b7a)' }}>
+                    {item.type === 'image' ? (
+                      <img src={mediaSrc(item.url)} alt={item.name} className="w-full h-24 object-cover" />
                     ) : (
-                      <p className="text-xs mt-1.5" style={{ color: 'var(--brand-a8bef0)' }}>
-                        {tacticsTool === 'arrow'
-                          ? 'Sleep op het veld om een pijl te tekenen.'
-                          : 'Tik een speler, tik daarna waar die naartoe moet.'}
-                      </p>
+                      <video src={mediaSrc(item.url)} className="w-full h-24 object-cover" />
                     )}
-                  </div>
-                )}
-
-                {selectedTacticsMarker && !readOnly && (
-                  <button onClick={() => removeTacticsMarker(selectedTacticsMarker)}
-                    className="text-xs font-bold px-3 py-1.5 rounded-lg" style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
-                    Verwijder geselecteerde speler
                   </button>
-                )}
-
-                {activeBoard.arrows.length > 0 && (
-                  <div>
-                    <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Pijlen</label>
-                    <div className="space-y-1">
-                      {activeBoard.arrows.map((a, i) => (
-                        <div key={a.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-                          style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
-                          <span style={{ color: 'var(--brand-1a2f6b)' }}>Pijl {i + 1}</span>
-                          {!readOnly && (
-                            <button onClick={() => removeTacticsArrow(a.id)} className="font-bold" style={{ color: '#DC2626' }}>
-                              ×
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {!readOnly && (activeBoard.markers.length > 0 || activeBoard.arrows.length > 0) && (
-                  <button onClick={() => { if (confirm('Alles op deze opstelling wissen?')) clearBoard() }}
-                    className="text-xs font-bold" style={{ color: '#DC2626' }}>
-                    Wis opstelling
-                  </button>
-                )}
+                ))}
               </div>
             )}
+          </div>
+        )}
+      </div>
 
-            {activeTab === 'media' && (
-              <div className="p-3 space-y-3">
-                {!readOnly && (
-                  <input ref={mediaFileInputRef} type="file" accept="image/*,video/*" multiple
-                    className="hidden" onChange={e => { handleMediaUpload(e.target.files); e.target.value = '' }} />
+      {/* Bottom tab bar — replaces the old side panel */}
+      <div className="shrink-0 shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }} onClick={e => e.stopPropagation()}>
+        <div className="grid grid-cols-5">
+          {([
+            ['wedstrijd', 'Wedstrijd', '🏑'],
+            ['bank', 'Bank', '🔁'],
+            ['score', 'Score', '🥅'],
+            ['tactiek', 'Tactiek', '♟️'],
+            ['media', 'Media', '📷'],
+          ] as const).map(([key, label, icon]) => (
+            <button key={key} onClick={() => setGameTab(key)}
+              className="flex flex-col items-center justify-center gap-1 py-2 text-[10px] font-bold"
+              style={{ color: gameTab === key ? '#fff' : 'var(--brand-7b9de0)' }}>
+              <span className="relative w-9 h-7 rounded-full flex items-center justify-center text-base transition-colors"
+                style={{ background: gameTab === key ? 'var(--brand-1a3fab)' : 'transparent' }}>
+                {icon}
+                {key === 'bank' && benchPlayers.length > 0 && (
+                  <span className="absolute -top-1 -right-1.5 text-[9px] font-bold rounded-full px-1 text-white leading-tight" style={{ background: '#DC2626' }}>
+                    {benchPlayers.length}
+                  </span>
                 )}
-                {readOnly && media.length === 0 ? (
-                  <div className="text-xs text-center py-8 rounded-xl border-2 border-dashed"
-                    style={{ color: 'var(--brand-a8bef0)', borderColor: 'var(--brand-d0dcfa)' }}>
-                    Geen foto's of video's
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-2">
-                    {!readOnly && (
-                      <button onClick={() => mediaFileInputRef.current?.click()} disabled={uploading}
-                        className="flex flex-col items-center justify-center gap-1 h-24 rounded-xl border-2 border-dashed disabled:opacity-50"
-                        style={{ borderColor: 'var(--brand-d0dcfa)', color: 'var(--brand-7b90c8)' }}>
-                        <span className="text-2xl leading-none font-bold">+</span>
-                        <span className="text-xs font-bold">{uploading ? 'Uploaden…' : 'Toevoegen'}</span>
-                      </button>
-                    )}
-                    {media.map(item => (
-                      <button key={item.id} onClick={() => setPreviewMedia(item)}
-                        className="relative rounded-xl overflow-hidden h-24" style={{ border: '1px solid var(--brand-d0dcfa)', background: 'var(--brand-0d2b7a)' }}>
-                        {item.type === 'image' ? (
-                          <img src={mediaSrc(item.url)} alt={item.name} className="w-full h-24 object-cover" />
-                        ) : (
-                          <video src={mediaSrc(item.url)} className="w-full h-24 object-cover" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                )}
+              </span>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Settings sheet — notes + reset, moved out of the old catch-all Score tab */}
+      {showSettings && (
+        <div className="fixed inset-0 z-50 flex items-end" style={{ background: 'rgba(13,20,43,0.5)' }}
+          onClick={() => setShowSettings(false)}>
+          <div className="w-full bg-white rounded-t-2xl p-4 space-y-3" style={{ maxHeight: '80vh', overflowY: 'auto' }}
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="font-display text-lg font-bold" style={{ color: 'var(--brand-0d2b7a)' }}>Notities</h3>
+              <button onClick={() => setShowSettings(false)} className="text-2xl leading-none px-2" style={{ color: 'var(--brand-a8bef0)' }}>×</button>
+            </div>
+            <textarea className="w-full rounded-xl px-3 py-2 text-sm resize-none"
+              style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: 'var(--brand-1a2f6b)', outline: 'none' }}
+              rows={8} value={notes} onChange={e => setNotes(e.target.value)} readOnly={readOnly}
+              placeholder="Tactische notities, bijzonderheden…" />
+            {!readOnly && canReset && (
+              <div className="pt-2" style={{ borderTop: '1px solid var(--brand-e8effd)' }}>
+                <button onClick={resetGame}
+                  className="w-full px-4 py-2.5 rounded-xl font-bold text-sm"
+                  style={{ background: '#FEE2E2', color: '#DC2626' }}>
+                  Wedstrijd resetten
+                </button>
+                <p className="text-xs mt-1.5 text-center" style={{ color: 'var(--brand-7b90c8)' }}>
+                  Zet score, opstelling, doelpunten, kaarten en klok terug naar het begin.
+                </p>
               </div>
             )}
           </div>
         </div>
-        )}
-      </div>
+      )}
 
       {previewMedia && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6"
