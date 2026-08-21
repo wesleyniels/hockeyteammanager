@@ -3382,73 +3382,33 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
     <div className="flex flex-col" style={{ height: '100dvh', background: 'var(--brand-eef3ff)' }}
       onClick={() => setSelected(null)}>
 
-      {/* Header — icon row (back / crests+score / settings), then a slim row
-          underneath for undo/period/clock/play-pause, matching the reference:
-          crests flank the score, the clock sits on its own row below it. */}
+      {/* Header — just the identity: crests flank the score, made bigger/more
+          present now that navigation (back) and clock/period/play controls
+          live in rails either side of the body instead of crowding this bar. */}
       <div className="shrink-0 text-white" style={{ background: 'var(--brand-0d2b7a)' }}>
-        <div className="flex items-center justify-between gap-1 px-2 py-2">
-          <button onClick={() => { flushSave(); onBack() }} aria-label="Terug"
-            className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>
-            <IconChevronLeft size={22} />
-          </button>
-          <div className="flex items-center gap-1.5 min-w-0">
-            <ClubLogo club={club} size={26} />
-            <span className="font-mono font-bold text-base tabular-nums px-1">{scoreOwn} - {scoreOpp}</span>
-            <ClubLogo club={matchKnhbClub(opponent)} size={26} />
-          </div>
+        <div className="flex items-center justify-center gap-2.5 px-3 py-3 relative">
+          <ClubLogo club={club} size={38} />
+          <span className="font-mono font-bold text-2xl tabular-nums px-1">{scoreOwn} - {scoreOpp}</span>
+          <ClubLogo club={matchKnhbClub(opponent)} size={38} />
           <button onClick={e => { e.stopPropagation(); setShowSettings(true) }} aria-label="Notities en instellingen"
-            className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>
+            className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg flex items-center justify-center" style={{ color: 'var(--brand-7b9de0)' }}>
             <IconMore size={20} />
           </button>
         </div>
-        <div className="flex items-center justify-center gap-1.5 px-2 pb-2">
-          {!readOnly && (
-            <button onClick={e => { e.stopPropagation(); herstel() }} disabled={historyLen === 0}
-              aria-label="Herstel" title="Herstel"
-              className="w-7 h-7 rounded-lg flex items-center justify-center disabled:opacity-40" style={{ color: 'var(--brand-7b9de0)' }}>
-              <IconUndo size={16} />
-            </button>
-          )}
-          {!readOnly && currentPeriod > 1 && (
-            <button onClick={e => { e.stopPropagation(); regressPeriod() }}
-              aria-label={`Vorige ${periodLabel.toLowerCase()}`} title={`Vorige ${periodLabel.toLowerCase()}`}
-              className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ color: 'var(--brand-7b9de0)' }}>
-              <IconSkipBack size={15} />
-            </button>
-          )}
-          <div className="flex flex-col items-center leading-none px-1">
-            <div className="font-mono font-bold text-base tabular-nums" style={{ color: remainingInPeriod === 0 ? '#F87171' : undefined }}>
-              {fmtSec(remainingInPeriod)}
-            </div>
-            <div className="text-[9px] font-bold uppercase tracking-wide mt-0.5" style={{ color: 'var(--brand-7b9de0)' }}>
-              {periodLabel} {currentPeriod}/{totalPeriods}
-            </div>
-          </div>
-          {!readOnly && currentPeriod < totalPeriods && (
-            <button onClick={e => { e.stopPropagation(); advancePeriod() }}
-              aria-label={`Volgende ${periodLabel.toLowerCase()}`} title={`Volgende ${periodLabel.toLowerCase()}`}
-              className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ color: 'var(--brand-7b9de0)' }}>
-              <IconSkipForward size={15} />
-            </button>
-          )}
-          {!readOnly && (
-            <button onClick={e => { e.stopPropagation(); setRunning(r => !r) }}
-              aria-label={running ? 'Pauzeer' : 'Start'}
-              className="w-7 h-7 rounded-lg flex items-center justify-center"
-              style={{ background: running ? '#D97706' : '#16A34A', color: '#fff' }}>
-              {running ? <IconPause size={15} /> : <IconPlay size={15} />}
-            </button>
-          )}
-          {readOnly && (
-            <span className="px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: 'rgba(255,255,255,0.12)', color: 'var(--brand-a8bef0)' }}>
-              Alleen-lezen
-            </span>
-          )}
-        </div>
       </div>
 
-      {/* Body — full width; content depends on which bottom tab is active */}
-      <div className="flex-1 overflow-y-auto" onClick={e => e.stopPropagation()}>
+      {/* Body — a persistent rail either side (back on the left, clock/period/
+          play/herstel on the right) framing the scrollable tab content. */}
+      <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-col items-center pt-3 shrink-0" style={{ width: '48px' }}
+          onClick={e => e.stopPropagation()}>
+          <button onClick={() => { flushSave(); onBack() }} aria-label="Terug"
+            className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
+            <IconChevronLeft size={22} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto" onClick={e => e.stopPropagation()}>
         {gameTab === 'wedstrijd' && (
           <div className="flex flex-col items-center p-3">
             <div className="flex items-center justify-between w-full mb-2 gap-2"
@@ -4038,6 +3998,52 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
             )}
           </div>
         )}
+        </div>
+
+        <div className="flex flex-col items-center gap-2 pt-3 shrink-0" style={{ width: '52px' }}
+          onClick={e => e.stopPropagation()}>
+          {!readOnly && (
+            <button onClick={() => setRunning(r => !r)} aria-label={running ? 'Pauzeer' : 'Start'}
+              className="w-9 h-9 rounded-lg flex items-center justify-center"
+              style={{ background: running ? '#D97706' : '#16A34A', color: '#fff' }}>
+              {running ? <IconPause size={17} /> : <IconPlay size={17} />}
+            </button>
+          )}
+          {!readOnly && currentPeriod > 1 && (
+            <button onClick={() => regressPeriod()}
+              aria-label={`Vorige ${periodLabel.toLowerCase()}`} title={`Vorige ${periodLabel.toLowerCase()}`}
+              className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
+              <IconSkipBack size={16} />
+            </button>
+          )}
+          <div className="flex flex-col items-center leading-none py-1">
+            <div className="font-mono font-bold text-sm tabular-nums" style={{ color: remainingInPeriod === 0 ? '#DC2626' : 'var(--brand-1a2f6b)' }}>
+              {fmtSec(remainingInPeriod)}
+            </div>
+            <div className="text-[8px] font-bold uppercase tracking-wide mt-0.5 text-center" style={{ color: 'var(--brand-7b90c8)' }}>
+              {periodLabel}<br />{currentPeriod}/{totalPeriods}
+            </div>
+          </div>
+          {!readOnly && currentPeriod < totalPeriods && (
+            <button onClick={() => advancePeriod()}
+              aria-label={`Volgende ${periodLabel.toLowerCase()}`} title={`Volgende ${periodLabel.toLowerCase()}`}
+              className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
+              <IconSkipForward size={16} />
+            </button>
+          )}
+          {!readOnly && (
+            <button onClick={() => herstel()} disabled={historyLen === 0}
+              aria-label="Herstel" title="Herstel"
+              className="w-9 h-9 rounded-lg flex items-center justify-center disabled:opacity-40" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
+              <IconUndo size={17} />
+            </button>
+          )}
+          {readOnly && (
+            <span className="text-[9px] font-bold text-center px-1" style={{ color: 'var(--brand-a8bef0)' }}>
+              Alleen-lezen
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Bottom tab bar — replaces the old side panel */}
