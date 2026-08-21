@@ -4,7 +4,7 @@ import { upload as uploadToBlob } from '@vercel/blob/client'
 // ── Types ───────────────────────────────────────────────────────────────────
 
 type AgeGroup = 'U7' | 'U8' | 'U9' | 'U10' | 'U11' | 'U12' | 'U14' | 'U16' | 'U18' | 'Senioren'
-type View = 'home' | 'setup' | 'game' | 'history' | 'profile' | 'messages' | 'matchDetail' | 'team' | 'playerProfile'
+type View = 'home' | 'setup' | 'game' | 'history' | 'profile' | 'messages' | 'matchDetail' | 'team' | 'playerProfile' | 'staffProfile'
 
 interface Player {
   id: string
@@ -702,6 +702,22 @@ async function fetchTeamRoster(team: string): Promise<RosterPlayer[]> {
     if (!res.ok) return []
     const { players } = await res.json() as { players: RosterPlayer[] }
     return players
+  } catch {
+    return []
+  }
+}
+
+// Coaches/trainers/managers of a team — real accounts (users.role +
+// users.default_team), not team_players rows. No email included; this is a
+// broadly-viewable list, unlike the messaging contact picker.
+interface TeamStaffMember { id: string; name: string | null; firstName: string | null; lastName: string | null; picture: string | null; role: string | null }
+
+async function fetchTeamStaff(team: string): Promise<TeamStaffMember[]> {
+  try {
+    const res = await fetch(`/api/teams/staff?team=${encodeURIComponent(team)}`)
+    if (!res.ok) return []
+    const { staff } = await res.json() as { staff: TeamStaffMember[] }
+    return staff
   } catch {
     return []
   }
@@ -4745,11 +4761,12 @@ function TeamPlayerPhotos({ team, canEditPhotos, canAddPlayer, canManageRoster, 
 // Roster overview, relocated out of Profiel so it's its own bottom-nav
 // destination — tapping a player opens their profile/stats page.
 
-function TeamView({ user, games, onProfile, onSelectPlayer, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
+function TeamView({ user, games, onProfile, onSelectPlayer, onSelectStaff, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
   user: AuthUser | null
   games: SavedGame[]
   onProfile: () => void
   onSelectPlayer: (id: string) => void
+  onSelectStaff: (id: string) => void
   unreadNotifications: number
   notifications: AppNotification[]
   onMarkRead: (id: string) => void
@@ -4763,6 +4780,14 @@ function TeamView({ user, games, onProfile, onSelectPlayer, unreadNotifications,
   // beheerder-only (see TeamPlayerPhotos' canManageRoster below). Same rule
   // ProfileView used to compute before this section moved here.
   const isRosterStaff = user?.role === 'Coach' || user?.role === 'Trainer' || user?.role === 'Trainer & Coach' || user?.role === 'Manager'
+
+  const [staff, setStaff] = useState<TeamStaffMember[]>([])
+  useEffect(() => {
+    if (!user?.defaultTeam) { setStaff([]); return }
+    let cancelled = false
+    fetchTeamStaff(user.defaultTeam).then(s => { if (!cancelled) setStaff(s) })
+    return () => { cancelled = true }
+  }, [user?.defaultTeam])
 
   // Same "played" signal Wedstrijden uses (finalTime > 0) — a scheduled but
   // not-yet-played match shouldn't count toward the team's record.
@@ -4859,6 +4884,32 @@ function TeamView({ user, games, onProfile, onSelectPlayer, unreadNotifications,
                 <p className="font-display text-2xl font-bold" style={{ color: 'var(--brand-0d2b7a)' }}>{fmtHM(totalMinutes)}</p>
               </div>
             </div>
+
+            {staff.length > 0 && (
+              <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+                <h2 className="font-display text-sm font-bold uppercase mb-4" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
+                  Staf
+                </h2>
+                <div className="grid grid-cols-4 gap-3">
+                  {staff.map(s => {
+                    const displayName = s.firstName?.trim() || (s.name ? firstName(s.name) : 'Onbekend')
+                    const initialsName = (s.firstName && s.lastName) ? `${s.firstName} ${s.lastName}` : (s.name ?? displayName)
+                    return (
+                      <button key={s.id} onClick={() => onSelectStaff(s.id)} className="flex flex-col items-center gap-1.5">
+                        {s.picture ? (
+                          <img src={s.picture} alt={displayName} className="w-12 h-12 rounded-full object-cover" referrerPolicy="no-referrer" />
+                        ) : (
+                          <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-sm" style={{ background: 'var(--brand-1a3fab)' }}>
+                            {initials(initialsName)}
+                          </div>
+                        )}
+                        <span className="text-xs font-semibold truncate w-full text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{displayName}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
             <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
               <h2 className="font-display text-sm font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
@@ -5026,6 +5077,76 @@ function PlayerProfileView({ playerId, team, games, user, onBack }: {
                 })}
               </div>
             )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Staff Profile View ───────────────────────────────────────────────────────
+// Same dark-hero-plus-overlap-card layout as PlayerProfileView, but a coach/
+// trainer/manager has no match stats to show — this just surfaces the
+// information they filled in on their own account profile (Profiel), not
+// anything derived from match history.
+
+function StaffProfileView({ staffId, team, onBack }: { staffId: string; team: string; onBack: () => void }) {
+  const [staff, setStaff] = useState<TeamStaffMember[] | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchTeamStaff(team).then(s => { if (!cancelled) setStaff(s) })
+    return () => { cancelled = true }
+  }, [team])
+
+  const member = staff?.find(s => s.id === staffId) ?? null
+  const fullName = member ? ((member.firstName && member.lastName) ? `${member.firstName} ${member.lastName}` : (member.name ?? 'Onbekend')) : ''
+
+  return (
+    <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
+      <div style={{ background: 'var(--brand-0d2b7a)' }} className="text-white">
+        <div className="max-w-2xl mx-auto px-4 pt-3 pb-14">
+          <button onClick={onBack} className="text-sm font-semibold" style={{ color: 'var(--brand-7b9de0)' }}>
+            ← Terug
+          </button>
+          {member && (
+            <div className="flex flex-col items-center text-center mt-3">
+              {member.picture ? (
+                <img src={member.picture} alt={fullName} referrerPolicy="no-referrer"
+                  className="w-24 h-24 rounded-full object-cover" style={{ border: '3px solid rgba(255,255,255,0.85)' }} />
+              ) : (
+                <div className="w-24 h-24 rounded-full flex items-center justify-center font-bold text-2xl"
+                  style={{ background: '#fff', color: 'var(--brand-1a3fab)', border: '3px solid rgba(255,255,255,0.85)' }}>
+                  {initials(fullName)}
+                </div>
+              )}
+              <h1 className="font-display text-xl font-bold mt-3">{fullName}</h1>
+              {member.role && <p className="text-sm mt-1" style={{ color: 'var(--brand-a8bef0)' }}>{member.role}</p>}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {!member ? (
+        <p className="text-sm text-center py-20" style={{ color: 'var(--brand-a8bef0)' }}>
+          {staff === null ? 'Laden…' : 'Niet gevonden.'}
+        </p>
+      ) : (
+        <div className="max-w-2xl mx-auto px-4 -mt-8 pb-8 space-y-4">
+          <div className="bg-white rounded-2xl p-5 shadow-lg" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <h2 className="font-display text-sm font-bold uppercase mb-4" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
+              Profiel
+            </h2>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs font-semibold" style={{ color: 'var(--brand-7b90c8)' }}>Rol</p>
+                <p className="font-display text-lg font-bold" style={{ color: 'var(--brand-0d2b7a)' }}>{member.role ?? '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold" style={{ color: 'var(--brand-7b90c8)' }}>Team</p>
+                <p className="font-display text-lg font-bold" style={{ color: 'var(--brand-0d2b7a)' }}>{team}</p>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -6619,6 +6740,7 @@ export default function App() {
   const [editingGame, setEditingGame] = useState<SavedGame | null>(null)
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null)
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null)
+  const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null)
   const { user, loading: authLoading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, forgotPassword, resetPassword, logout, updateProfile } = useAuth()
   const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user, user?.defaultTeam ?? null)
   const notif = useNotificationCenter(!!user)
@@ -6752,6 +6874,7 @@ export default function App() {
         games={games}
         onProfile={() => setView('profile')}
         onSelectPlayer={id => { setSelectedPlayerId(id); setView('playerProfile') }}
+        onSelectStaff={id => { setSelectedStaffId(id); setView('staffProfile') }}
         unreadNotifications={notif.unreadNotifications}
         notifications={notif.notifications}
         onMarkRead={notif.markRead}
@@ -6768,6 +6891,16 @@ export default function App() {
         team={user.defaultTeam}
         games={games}
         user={user}
+        onBack={() => setView('team')}
+      />
+    )
+  }
+  if (view === 'staffProfile') {
+    if (!selectedStaffId || !user?.defaultTeam) { setView('team'); return null }
+    return withBottomBar(
+      <StaffProfileView
+        staffId={selectedStaffId}
+        team={user.defaultTeam}
         onBack={() => setView('team')}
       />
     )

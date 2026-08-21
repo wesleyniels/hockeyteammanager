@@ -5,7 +5,7 @@ import { getSessionFromCookies, type SessionUser } from '../_lib/session.js'
 import { isAdmin } from '../_lib/admin.js'
 import { randomUUID } from '../_lib/crypto.js'
 import { slugify } from '../_lib/slug.js'
-import { isRosterStaffOfTeamName, isPhotoEditorForPlayer } from '../_lib/team-access.js'
+import { isRosterStaffOfTeamName, isPhotoEditorForPlayer, ROSTER_STAFF_ROLES } from '../_lib/team-access.js'
 
 // /api/teams/list, /api/teams/roster, etc. collapsed into one dynamic-segment
 // file — see the comment in api/auth/[action].ts for why (Hobby plan's
@@ -49,6 +49,24 @@ async function handleRoster(req: VercelRequest, res: VercelResponse) {
     ORDER BY tp.sort_order, tp.name
   `
   res.status(200).json({ players: rows.map(r => ({ id: r.id, name: r.name, photoUrl: r.photo_url, position: r.position })) })
+}
+
+// Coaches/trainers/managers are real accounts (users.role + users.default_team),
+// not team_players rows — this surfaces them for the Team tab's staff grid.
+// Same "any authenticated user" access as the roster, no email exposed (this
+// is a broadly-viewable list, unlike the messaging contact picker).
+async function handleStaff(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'GET') { res.status(405).json({ error: 'Method not allowed' }); return }
+  const team = typeof req.query.team === 'string' ? req.query.team : ''
+  if (!team) { res.status(400).json({ error: 'Missing team' }); return }
+  const rows = await sql`
+    SELECT id, name, first_name, last_name, picture, role FROM users
+    WHERE role = ANY(${ROSTER_STAFF_ROLES}::text[]) AND lower(default_team) = lower(${team})
+    ORDER BY lower(coalesce(first_name, name))
+  `
+  res.status(200).json({
+    staff: rows.map(r => ({ id: r.id, name: r.name, firstName: r.first_name, lastName: r.last_name, picture: r.picture, role: r.role })),
+  })
 }
 
 async function handleAddPlayer(req: VercelRequest, res: VercelResponse, user: SessionUser) {
@@ -177,6 +195,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   switch (req.query.action) {
     case 'list': return handleList(req, res)
     case 'roster': return handleRoster(req, res)
+    case 'staff': return handleStaff(req, res)
     case 'add-player': return handleAddPlayer(req, res, user)
     case 'rename-player': return handleRenamePlayer(req, res, user)
     case 'remove-player': return handleRemovePlayer(req, res, user)
