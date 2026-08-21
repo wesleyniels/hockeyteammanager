@@ -3450,44 +3450,44 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                   </select>
                 )}
               </div>
-              {selected && (
-                <span className="text-xs font-bold px-2 py-0.5 rounded-full"
-                  style={{ background: 'var(--brand-dbeafe)', color: 'var(--brand-1a3fab)' }}>
-                  {selected.type === 'bench'
-                    ? `Kies positie voor ${getPlayer(selected.playerId)?.name.split(' ')[0]}`
-                    : selected.type === 'opp-pool' || selected.type === 'opp-marker'
-                      ? 'Tik op het veld om de tegenstander te plaatsen'
-                      : selectedFieldPlayer ? `${selectedFieldPlayer.name.split(' ')[0]} geselecteerd` : 'Positie geselecteerd'}
-                </span>
-              )}
+              <div className="flex items-center gap-2 shrink-0">
+                {selected && (
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-full"
+                    style={{ background: 'var(--brand-dbeafe)', color: 'var(--brand-1a3fab)' }}>
+                    {selected.type === 'bench'
+                      ? `Kies positie voor ${getPlayer(selected.playerId)?.name.split(' ')[0]}`
+                      : selected.type === 'opp-pool' || selected.type === 'opp-marker'
+                        ? 'Tik op het veld om de tegenstander te plaatsen'
+                        : selectedFieldPlayer ? `${selectedFieldPlayer.name.split(' ')[0]} geselecteerd` : 'Positie geselecteerd'}
+                  </span>
+                )}
+                {!readOnly && (
+                  <button onClick={() => setRunning(r => !r)}
+                    className="flex items-center gap-1 rounded-lg text-xs font-bold px-1.5 py-1 shrink-0"
+                    style={{ background: running ? '#D97706' : '#16A34A', color: '#fff' }}>
+                    {running ? <IconPause size={12} /> : <IconPlay size={12} />}
+                    {running ? 'Pauzeer' : 'Start'}
+                  </button>
+                )}
+              </div>
             </div>
 
-            <div className="flex items-center justify-center gap-2 w-full" style={{ maxWidth: isDual ? '820px' : '460px' }}>
-              <div className="flex-1 min-w-0 flex items-center justify-center">
-                <FieldView
-                  ageGroup={ageGroup}
-                  slots={slots}
-                  squad={squad}
-                  oppMarkers={oppMarkers}
-                  selected={selected}
-                  dragOverPos={dragOverPos}
-                  dragPreview={dragPreview}
-                  fieldRef={fieldRef}
-                  onFieldClick={handleFieldClick}
-                  onBackgroundClick={handleBackgroundClick}
-                  onMarkerPointerDown={(posId, e) => beginDrag('field', posId, e)}
-                  onOppMarkerPointerDown={(id, e) => beginDrag('opp-marker', id, e)}
-                  onOppMarkerClick={handleOppMarkerClick}
-                />
-              </div>
-              {!readOnly && (
-                <button onClick={() => setRunning(r => !r)}
-                  className="flex items-center gap-1 rounded-lg text-xs font-bold px-1.5 py-1 shrink-0"
-                  style={{ background: running ? '#D97706' : '#16A34A', color: '#fff' }}>
-                  {running ? <IconPause size={12} /> : <IconPlay size={12} />}
-                  {running ? 'Pauzeer' : 'Start'}
-                </button>
-              )}
+            <div className="flex items-center justify-center w-full" style={{ maxWidth: isDual ? '820px' : '460px' }}>
+              <FieldView
+                ageGroup={ageGroup}
+                slots={slots}
+                squad={squad}
+                oppMarkers={oppMarkers}
+                selected={selected}
+                dragOverPos={dragOverPos}
+                dragPreview={dragPreview}
+                fieldRef={fieldRef}
+                onFieldClick={handleFieldClick}
+                onBackgroundClick={handleBackgroundClick}
+                onMarkerPointerDown={(posId, e) => beginDrag('field', posId, e)}
+                onOppMarkerPointerDown={(id, e) => beginDrag('opp-marker', id, e)}
+                onOppMarkerClick={handleOppMarkerClick}
+              />
             </div>
 
             {!user && (
