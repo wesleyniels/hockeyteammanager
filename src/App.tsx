@@ -1053,6 +1053,14 @@ function IconChevronLeft({ size = 22 }: { size?: number }) {
   )
 }
 
+function IconChevronRight({ size = 22 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 5l7 7-7 7" />
+    </svg>
+  )
+}
+
 function IconMore({ size = 20 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
@@ -1085,24 +1093,6 @@ function IconPause({ size = 18 }: { size?: number }) {
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
       <rect x="6" y="5" width="4" height="14" rx="1" />
       <rect x="14" y="5" width="4" height="14" rx="1" />
-    </svg>
-  )
-}
-
-function IconSkipBack({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-      <rect x="4" y="5" width="2.5" height="14" rx="1" />
-      <path d="M19 5 8 12l11 7z" />
-    </svg>
-  )
-}
-
-function IconSkipForward({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-      <rect x="17.5" y="5" width="2.5" height="14" rx="1" />
-      <path d="M5 5l11 7-11 7z" />
     </svg>
   )
 }
@@ -3382,11 +3372,10 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
     <div className="flex flex-col" style={{ height: '100dvh', background: 'var(--brand-eef3ff)' }}
       onClick={() => setSelected(null)}>
 
-      {/* Header — just the identity: crests flank the score, made bigger/more
-          present now that navigation (back) and clock/period/play controls
-          live in rails either side of the body instead of crowding this bar. */}
+      {/* Header — crests flank the score up top; period nav sits directly
+          under each crest, flanking the clock+period label underneath them. */}
       <div className="shrink-0 text-white" style={{ background: 'var(--brand-0d2b7a)' }}>
-        <div className="flex items-center justify-center gap-2.5 px-3 py-3 relative">
+        <div className="flex items-center justify-center gap-2.5 px-3 pt-3 pb-1 relative">
           <ClubLogo club={club} size={38} />
           <span className="font-mono font-bold text-2xl tabular-nums px-1">{scoreOwn} - {scoreOpp}</span>
           <ClubLogo club={matchKnhbClub(opponent)} size={38} />
@@ -3395,10 +3384,43 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
             <IconMore size={20} />
           </button>
         </div>
+        <div className="flex items-center justify-center gap-2.5 px-3 pb-3">
+          <div className="flex items-center justify-center" style={{ width: '38px' }}>
+            {!readOnly && currentPeriod > 1 && (
+              <button onClick={() => regressPeriod()} aria-label={`Vorige ${periodLabel.toLowerCase()}`} title={`Vorige ${periodLabel.toLowerCase()}`}
+                className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ color: 'var(--brand-7b9de0)' }}>
+                <IconChevronLeft size={20} />
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2 px-1">
+            <span className="font-mono font-bold text-lg tabular-nums" style={{ color: remainingInPeriod === 0 ? '#F87171' : undefined }}>
+              {fmtSec(remainingInPeriod)}
+            </span>
+            <span className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b9de0)' }}>
+              {periodLabel} {currentPeriod}/{totalPeriods}
+            </span>
+          </div>
+          <div className="flex items-center justify-center" style={{ width: '38px' }}>
+            {!readOnly && currentPeriod < totalPeriods && (
+              <button onClick={() => advancePeriod()} aria-label={`Volgende ${periodLabel.toLowerCase()}`} title={`Volgende ${periodLabel.toLowerCase()}`}
+                className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ color: 'var(--brand-7b9de0)' }}>
+                <IconChevronRight size={20} />
+              </button>
+            )}
+          </div>
+        </div>
+        {readOnly && (
+          <div className="flex justify-center pb-2">
+            <span className="px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: 'rgba(255,255,255,0.12)', color: 'var(--brand-a8bef0)' }}>
+              Alleen-lezen
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* Body — a persistent rail either side (back on the left, clock/period/
-          play/herstel on the right) framing the scrollable tab content. */}
+      {/* Body — a rail on the left for back; the field/tab content fills the
+          rest (Wedstrijd's play/pause button lives above the pitch itself). */}
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-col items-center pt-3 shrink-0" style={{ width: '48px' }}
           onClick={e => e.stopPropagation()}>
@@ -3441,6 +3463,15 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                 <span className="text-xs" style={{ color: 'var(--brand-a8bef0)' }}>Sleep of klik om te wisselen</span>
               )}
             </div>
+
+            {!readOnly && (
+              <button onClick={() => setRunning(r => !r)}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold mb-2"
+                style={{ background: running ? '#D97706' : '#16A34A', color: '#fff' }}>
+                {running ? <IconPause size={13} /> : <IconPlay size={13} />}
+                {running ? 'Pauzeer' : 'Start'}
+              </button>
+            )}
 
             <div className="flex items-center justify-center w-full" style={{ maxWidth: isDual ? '820px' : '460px' }}>
               <FieldView
@@ -3999,51 +4030,6 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
           </div>
         )}
         </div>
-
-        <div className="flex flex-col items-center gap-2 pt-3 shrink-0" style={{ width: '52px' }}
-          onClick={e => e.stopPropagation()}>
-          {!readOnly && (
-            <button onClick={() => setRunning(r => !r)} aria-label={running ? 'Pauzeer' : 'Start'}
-              className="w-9 h-9 rounded-lg flex items-center justify-center"
-              style={{ background: running ? '#D97706' : '#16A34A', color: '#fff' }}>
-              {running ? <IconPause size={17} /> : <IconPlay size={17} />}
-            </button>
-          )}
-          {!readOnly && currentPeriod > 1 && (
-            <button onClick={() => regressPeriod()}
-              aria-label={`Vorige ${periodLabel.toLowerCase()}`} title={`Vorige ${periodLabel.toLowerCase()}`}
-              className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
-              <IconSkipBack size={16} />
-            </button>
-          )}
-          <div className="flex flex-col items-center leading-none py-1">
-            <div className="font-mono font-bold text-sm tabular-nums" style={{ color: remainingInPeriod === 0 ? '#DC2626' : 'var(--brand-1a2f6b)' }}>
-              {fmtSec(remainingInPeriod)}
-            </div>
-            <div className="text-[8px] font-bold uppercase tracking-wide mt-0.5 text-center" style={{ color: 'var(--brand-7b90c8)' }}>
-              {periodLabel}<br />{currentPeriod}/{totalPeriods}
-            </div>
-          </div>
-          {!readOnly && currentPeriod < totalPeriods && (
-            <button onClick={() => advancePeriod()}
-              aria-label={`Volgende ${periodLabel.toLowerCase()}`} title={`Volgende ${periodLabel.toLowerCase()}`}
-              className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
-              <IconSkipForward size={16} />
-            </button>
-          )}
-          {!readOnly && (
-            <button onClick={() => herstel()} disabled={historyLen === 0}
-              aria-label="Herstel" title="Herstel"
-              className="w-9 h-9 rounded-lg flex items-center justify-center disabled:opacity-40" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
-              <IconUndo size={17} />
-            </button>
-          )}
-          {readOnly && (
-            <span className="text-[9px] font-bold text-center px-1" style={{ color: 'var(--brand-a8bef0)' }}>
-              Alleen-lezen
-            </span>
-          )}
-        </div>
       </div>
 
       {/* Bottom tab bar — replaces the old side panel */}
@@ -4088,6 +4074,13 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
               <h3 className="font-display text-lg font-bold" style={{ color: 'var(--brand-0d2b7a)' }}>Notities</h3>
               <button onClick={() => setShowSettings(false)} className="text-2xl leading-none px-2" style={{ color: 'var(--brand-a8bef0)' }}>×</button>
             </div>
+            {!readOnly && (
+              <button onClick={herstel} disabled={historyLen === 0}
+                className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold disabled:opacity-40"
+                style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
+                <IconUndo size={16} /> Herstel
+              </button>
+            )}
             <textarea className="w-full rounded-xl px-3 py-2 text-sm resize-none"
               style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: 'var(--brand-1a2f6b)', outline: 'none' }}
               rows={8} value={notes} onChange={e => setNotes(e.target.value)} readOnly={readOnly}
