@@ -3379,6 +3379,10 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
           the match instead of disappearing, so the row never reflows. */}
       <div className="shrink-0 text-white" style={{ background: 'var(--brand-0d2b7a)' }}>
         <div className="flex items-center justify-center gap-2 px-3 pt-2 pb-0.5 relative">
+          <button onClick={() => { flushSave(); onBack() }} aria-label="Terug"
+            className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-lg flex items-center justify-center" style={{ color: 'var(--brand-7b9de0)' }}>
+            <IconChevronLeft size={20} />
+          </button>
           <ClubLogo club={club} size={30} />
           <span className="font-mono font-bold text-lg tabular-nums px-1">{scoreOwn} - {scoreOpp}</span>
           <ClubLogo club={matchKnhbClub(opponent)} size={30} />
@@ -3424,18 +3428,9 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
         )}
       </div>
 
-      {/* Body — a rail on the left for back; the field/tab content fills the
-          rest (Wedstrijd's play/pause button lives above the pitch itself). */}
-      <div className="flex flex-1 overflow-hidden">
-        <div className="flex flex-col items-center pt-3 shrink-0" style={{ width: '48px' }}
-          onClick={e => e.stopPropagation()}>
-          <button onClick={() => { flushSave(); onBack() }} aria-label="Terug"
-            className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
-            <IconChevronLeft size={22} />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto" onClick={e => e.stopPropagation()}>
+      {/* Body — back now lives in the header, so this is just the scrollable
+          tab content (Wedstrijd's play/pause button sits beside the pitch). */}
+      <div className="flex-1 overflow-y-auto" onClick={e => e.stopPropagation()}>
         {gameTab === 'wedstrijd' && (
           <div className="flex flex-col items-center p-3">
             <div className="flex items-center justify-between w-full mb-2 gap-2"
@@ -3454,16 +3449,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                     {formationVariants.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
                   </select>
                 )}
-                {!readOnly && (
-                  <button onClick={() => setRunning(r => !r)}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold shrink-0"
-                    style={{ background: running ? '#D97706' : '#16A34A', color: '#fff' }}>
-                    {running ? <IconPause size={12} /> : <IconPlay size={12} />}
-                    {running ? 'Pauzeer' : 'Start'}
-                  </button>
-                )}
               </div>
-              {selected ? (
+              {selected && (
                 <span className="text-xs font-bold px-2 py-0.5 rounded-full"
                   style={{ background: 'var(--brand-dbeafe)', color: 'var(--brand-1a3fab)' }}>
                   {selected.type === 'bench'
@@ -3472,27 +3459,35 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                       ? 'Tik op het veld om de tegenstander te plaatsen'
                       : selectedFieldPlayer ? `${selectedFieldPlayer.name.split(' ')[0]} geselecteerd` : 'Positie geselecteerd'}
                 </span>
-              ) : (
-                <span className="text-xs" style={{ color: 'var(--brand-a8bef0)' }}>Sleep of klik om te wisselen</span>
               )}
             </div>
 
-            <div className="flex items-center justify-center w-full" style={{ maxWidth: isDual ? '820px' : '460px' }}>
-              <FieldView
-                ageGroup={ageGroup}
-                slots={slots}
-                squad={squad}
-                oppMarkers={oppMarkers}
-                selected={selected}
-                dragOverPos={dragOverPos}
-                dragPreview={dragPreview}
-                fieldRef={fieldRef}
-                onFieldClick={handleFieldClick}
-                onBackgroundClick={handleBackgroundClick}
-                onMarkerPointerDown={(posId, e) => beginDrag('field', posId, e)}
-                onOppMarkerPointerDown={(id, e) => beginDrag('opp-marker', id, e)}
-                onOppMarkerClick={handleOppMarkerClick}
-              />
+            <div className="flex items-center justify-center gap-2.5 w-full" style={{ maxWidth: isDual ? '820px' : '460px' }}>
+              <div className="flex-1 min-w-0 flex items-center justify-center">
+                <FieldView
+                  ageGroup={ageGroup}
+                  slots={slots}
+                  squad={squad}
+                  oppMarkers={oppMarkers}
+                  selected={selected}
+                  dragOverPos={dragOverPos}
+                  dragPreview={dragPreview}
+                  fieldRef={fieldRef}
+                  onFieldClick={handleFieldClick}
+                  onBackgroundClick={handleBackgroundClick}
+                  onMarkerPointerDown={(posId, e) => beginDrag('field', posId, e)}
+                  onOppMarkerPointerDown={(id, e) => beginDrag('opp-marker', id, e)}
+                  onOppMarkerClick={handleOppMarkerClick}
+                />
+              </div>
+              {!readOnly && (
+                <button onClick={() => setRunning(r => !r)}
+                  className="flex flex-col items-center gap-1 px-2.5 py-2.5 rounded-lg text-xs font-bold shrink-0"
+                  style={{ background: running ? '#D97706' : '#16A34A', color: '#fff' }}>
+                  {running ? <IconPause size={15} /> : <IconPlay size={15} />}
+                  {running ? 'Pauzeer' : 'Start'}
+                </button>
+              )}
             </div>
 
             {!user && (
@@ -4033,12 +4028,6 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
             )}
           </div>
         )}
-        </div>
-
-        {/* Mirrors the left rail's width so the content column is truly
-            centered on the same axis as the header above it, instead of
-            being pushed off-center by the back button's rail alone. */}
-        <div className="shrink-0" style={{ width: '48px' }} />
       </div>
 
       {/* Bottom tab bar — replaces the old side panel */}
