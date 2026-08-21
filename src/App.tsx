@@ -2465,7 +2465,9 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
               </p>
             </div>
           </div>
-          <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">Nieuwe wedstrijd</h1>
+          <div className="flex justify-center">
+            <H1Logo height={26} />
+          </div>
           <div className="flex items-center gap-2 justify-self-end">
             {user && (
               <NotificationBell
@@ -5488,7 +5490,9 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
               </p>
             </div>
           </div>
-          <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">PROFIEL</h1>
+          <div className="flex justify-center">
+            <H1Logo height={26} />
+          </div>
           <div className="flex items-center gap-2 justify-self-end">
             {user && (
               <NotificationBell
