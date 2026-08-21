@@ -4034,6 +4034,11 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
           </div>
         )}
         </div>
+
+        {/* Mirrors the left rail's width so the content column is truly
+            centered on the same axis as the header above it, instead of
+            being pushed off-center by the back button's rail alone. */}
+        <div className="shrink-0" style={{ width: '48px' }} />
       </div>
 
       {/* Bottom tab bar — replaces the old side panel */}
