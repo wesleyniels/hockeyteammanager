@@ -3433,55 +3433,53 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
       <div className="flex-1 overflow-y-auto" onClick={e => e.stopPropagation()}>
         {gameTab === 'wedstrijd' && (
           <div className="flex flex-col items-center p-3">
-            <div className="flex items-start justify-center gap-2 w-full">
-              <div className="flex flex-col items-center w-full" style={{ maxWidth: isDual ? '820px' : '460px' }}>
-                <div className="flex items-center justify-between w-full mb-2 gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-xs font-bold shrink-0" style={{ color: 'var(--brand-6b82b8)' }}>
-                      Op veld:&nbsp;
-                      <span style={{ color: onFieldCount < targetCount ? '#DC2626' : '#16A34A' }}>
-                        {onFieldCount}/{targetCount}
-                      </span>
-                    </span>
-                    {!readOnly && formationVariants.length > 1 && (
-                      <select value={variantId} onChange={e => switchFormation(e.target.value)}
-                        className="text-xs font-semibold rounded-lg px-1.5 py-1 min-w-0"
-                        style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: 'var(--brand-1a3fab)', outline: 'none' }}>
-                        {formationVariants.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                      </select>
-                    )}
-                  </div>
-                  {selected && (
-                    <span className="text-xs font-bold px-2 py-0.5 rounded-full"
-                      style={{ background: 'var(--brand-dbeafe)', color: 'var(--brand-1a3fab)' }}>
-                      {selected.type === 'bench'
-                        ? `Kies positie voor ${getPlayer(selected.playerId)?.name.split(' ')[0]}`
-                        : selected.type === 'opp-pool' || selected.type === 'opp-marker'
-                          ? 'Tik op het veld om de tegenstander te plaatsen'
-                          : selectedFieldPlayer ? `${selectedFieldPlayer.name.split(' ')[0]} geselecteerd` : 'Positie geselecteerd'}
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex items-center justify-center w-full">
-                  <FieldView
-                    ageGroup={ageGroup}
-                    slots={slots}
-                    squad={squad}
-                    oppMarkers={oppMarkers}
-                    selected={selected}
-                    dragOverPos={dragOverPos}
-                    dragPreview={dragPreview}
-                    fieldRef={fieldRef}
-                    onFieldClick={handleFieldClick}
-                    onBackgroundClick={handleBackgroundClick}
-                    onMarkerPointerDown={(posId, e) => beginDrag('field', posId, e)}
-                    onOppMarkerPointerDown={(id, e) => beginDrag('opp-marker', id, e)}
-                    onOppMarkerClick={handleOppMarkerClick}
-                  />
-                </div>
+            <div className="flex items-center justify-between w-full mb-2 gap-2"
+              style={{ maxWidth: isDual ? '820px' : '460px' }}>
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-xs font-bold shrink-0" style={{ color: 'var(--brand-6b82b8)' }}>
+                  Op veld:&nbsp;
+                  <span style={{ color: onFieldCount < targetCount ? '#DC2626' : '#16A34A' }}>
+                    {onFieldCount}/{targetCount}
+                  </span>
+                </span>
+                {!readOnly && formationVariants.length > 1 && (
+                  <select value={variantId} onChange={e => switchFormation(e.target.value)}
+                    className="text-xs font-semibold rounded-lg px-1.5 py-1 min-w-0"
+                    style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: 'var(--brand-1a3fab)', outline: 'none' }}>
+                    {formationVariants.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  </select>
+                )}
               </div>
+              {selected && (
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full"
+                  style={{ background: 'var(--brand-dbeafe)', color: 'var(--brand-1a3fab)' }}>
+                  {selected.type === 'bench'
+                    ? `Kies positie voor ${getPlayer(selected.playerId)?.name.split(' ')[0]}`
+                    : selected.type === 'opp-pool' || selected.type === 'opp-marker'
+                      ? 'Tik op het veld om de tegenstander te plaatsen'
+                      : selectedFieldPlayer ? `${selectedFieldPlayer.name.split(' ')[0]} geselecteerd` : 'Positie geselecteerd'}
+                </span>
+              )}
+            </div>
 
+            <div className="flex items-center justify-center gap-2 w-full" style={{ maxWidth: isDual ? '820px' : '460px' }}>
+              <div className="flex-1 min-w-0 flex items-center justify-center">
+                <FieldView
+                  ageGroup={ageGroup}
+                  slots={slots}
+                  squad={squad}
+                  oppMarkers={oppMarkers}
+                  selected={selected}
+                  dragOverPos={dragOverPos}
+                  dragPreview={dragPreview}
+                  fieldRef={fieldRef}
+                  onFieldClick={handleFieldClick}
+                  onBackgroundClick={handleBackgroundClick}
+                  onMarkerPointerDown={(posId, e) => beginDrag('field', posId, e)}
+                  onOppMarkerPointerDown={(id, e) => beginDrag('opp-marker', id, e)}
+                  onOppMarkerClick={handleOppMarkerClick}
+                />
+              </div>
               {!readOnly && (
                 <button onClick={() => setRunning(r => !r)}
                   className="flex items-center gap-1 rounded-lg text-xs font-bold px-1.5 py-1 shrink-0"
