@@ -1994,7 +1994,7 @@ function FormationEditorView({ ageGroup, onBack }: { ageGroup: AgeGroup; onBack:
   return (
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
-        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-4">
             <button onClick={onBack} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>← Terug</button>
             <div>
@@ -2002,10 +2002,6 @@ function FormationEditorView({ ageGroup, onBack }: { ageGroup: AgeGroup; onBack:
               <p className="text-xs mt-1" style={{ color: 'var(--brand-7b9de0)' }}>{AGE_CONFIG[ageGroup].label}</p>
             </div>
           </div>
-          <div className="flex justify-center">
-            <H1Logo height={24} />
-          </div>
-          <div />
         </div>
       </header>
 
@@ -2294,8 +2290,8 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
   return (
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
-        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
-          <div className="flex items-center gap-3 justify-self-start">
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
             {user.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
             <div>
               <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
@@ -2306,10 +2302,12 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
               </p>
             </div>
           </div>
-          <div className="flex justify-center">
-            <H1Logo height={26} />
-          </div>
-          <div className="flex items-center gap-2 justify-self-end">
+          <div className="flex items-center gap-2">
+            {user.defaultClub && (
+              <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--brand-7b9de0)', opacity: 0.6 }}>
+                Hockey One
+              </span>
+            )}
             <NotificationBell
               unreadNotifications={unreadNotifications}
               notifications={notifications}
@@ -2540,8 +2538,8 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
   return (
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
-        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
-          <div className="flex items-center gap-3 justify-self-start">
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
             {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
             <div>
               <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
@@ -2552,10 +2550,12 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
               </p>
             </div>
           </div>
-          <div className="flex justify-center">
-            <H1Logo height={26} />
-          </div>
-          <div className="flex items-center gap-2 justify-self-end">
+          <div className="flex items-center gap-2">
+            {user?.defaultClub && (
+              <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--brand-7b9de0)', opacity: 0.6 }}>
+                Hockey One
+              </span>
+            )}
             {user && (
               <NotificationBell
                 unreadNotifications={unreadNotifications}
@@ -3862,7 +3862,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
               <div className="flex items-center justify-between gap-2 rounded-xl px-3 py-2.5"
                 style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)' }}>
                 <div className="flex-1 text-center min-w-0">
-                  <div className="text-xs font-semibold truncate" style={{ color: 'var(--brand-6b82b8)' }}>{team || 'Eigen team'}</div>
+                  <div className="text-xs font-semibold truncate" style={{ color: 'var(--brand-6b82b8)' }}>{[club, team].filter(Boolean).join(' ') || 'Eigen team'}</div>
                   <div className="flex items-center justify-center gap-2.5 mt-1">
                     <button onClick={() => setScoreOwn(s => Math.max(0, s - 1))} disabled={readOnly}
                       className="w-7 h-7 rounded-lg font-bold text-sm disabled:opacity-50" style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>−</button>
@@ -4471,8 +4471,8 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, on
           match list below them scrolls. */}
       <div className="sticky top-0 z-20">
         <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white shadow-lg">
-          <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
-            <div className="flex items-center gap-3 justify-self-start">
+          <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-3">
               {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
               <div>
                 <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
@@ -4483,10 +4483,12 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, on
                 </p>
               </div>
             </div>
-            <div className="flex justify-center">
-              <H1Logo height={26} />
-            </div>
-            <div className="flex items-center gap-2 justify-self-end">
+            <div className="flex items-center gap-2">
+              {user?.defaultClub && (
+                <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--brand-7b9de0)', opacity: 0.6 }}>
+                  Hockey One
+                </span>
+              )}
               {user && (
                 <NotificationBell
                   unreadNotifications={unreadNotifications}
@@ -5132,8 +5134,8 @@ function TeamView({ user, games, onProfile, onSelectPlayer, onSelectStaff, unrea
   return (
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
-        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
-          <div className="flex items-center gap-3 justify-self-start">
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
             {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
             <div>
               <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
@@ -5144,10 +5146,12 @@ function TeamView({ user, games, onProfile, onSelectPlayer, onSelectStaff, unrea
               </p>
             </div>
           </div>
-          <div className="flex justify-center">
-            <H1Logo height={26} />
-          </div>
-          <div className="flex items-center gap-2 justify-self-end">
+          <div className="flex items-center gap-2">
+            {user?.defaultClub && (
+              <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--brand-7b9de0)', opacity: 0.6 }}>
+                Hockey One
+              </span>
+            )}
             {user && (
               <NotificationBell
                 unreadNotifications={unreadNotifications}
@@ -5631,8 +5635,8 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   return (
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
-        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
-          <div className="flex items-center gap-3 justify-self-start">
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
             {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
             <div>
               <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
@@ -5643,10 +5647,12 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
               </p>
             </div>
           </div>
-          <div className="flex justify-center">
-            <H1Logo height={26} />
-          </div>
-          <div className="flex items-center gap-2 justify-self-end">
+          <div className="flex items-center gap-2">
+            {user?.defaultClub && (
+              <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--brand-7b9de0)', opacity: 0.6 }}>
+                Hockey One
+              </span>
+            )}
             {user && (
               <NotificationBell
                 unreadNotifications={unreadNotifications}
@@ -6936,8 +6942,8 @@ function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, n
   return (
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
-        <div className="max-w-2xl mx-auto px-4 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-2">
-          <div className="flex items-center gap-3 justify-self-start">
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
             {user.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
             <div>
               <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
@@ -6948,18 +6954,19 @@ function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, n
               </p>
             </div>
           </div>
-          {activeId ? (
+          {activeId && (
             <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">{activeName}</h1>
-          ) : (
-            <div className="flex justify-center">
-              <H1Logo height={26} />
-            </div>
           )}
-          <div className="flex items-center gap-2 justify-self-end">
+          <div className="flex items-center gap-2">
             {activeId && (
               <button onClick={closeThread} className="text-sm font-semibold shrink-0" style={{ color: 'var(--brand-7b9de0)' }}>
                 ← Berichten
               </button>
+            )}
+            {!activeId && user.defaultClub && (
+              <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--brand-7b9de0)', opacity: 0.6 }}>
+                Hockey One
+              </span>
             )}
             {!activeId && (
               <NotificationBell
