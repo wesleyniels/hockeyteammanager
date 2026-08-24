@@ -1154,6 +1154,44 @@ function IconBell({ size = 20 }: { size?: number }) {
   )
 }
 
+function IconCursorArrow({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M5 3.5 19 11l-6.2 1.3L10.4 19 5 3.5Z" />
+    </svg>
+  )
+}
+
+function IconPersonPlus({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="9.5" cy="7.5" r="3" />
+      <path d="M3.5 19c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5" />
+      <path d="M18.5 8v6M15.5 11h6" />
+    </svg>
+  )
+}
+
+function IconArrowTool({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 19 19 5" />
+      <path d="M9 5h10v10" />
+    </svg>
+  )
+}
+
+function IconTrash({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 7h16" />
+      <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+      <path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" />
+      <path d="M10 11v6M14 11v6" />
+    </svg>
+  )
+}
+
 // Avatar shown for the signed-in user (photo, or initials-on-brand-blue
 // fallback) — the same markup used to be duplicated across every header;
 // factored out here since it's now also used in BottomBar's Profiel tab.
@@ -1388,6 +1426,9 @@ interface FieldViewProps {
   onMarkerPointerDown: (posId: string, e: React.PointerEvent) => void
   onOppMarkerPointerDown: (id: string, e: React.PointerEvent) => void
   onOppMarkerClick: (id: string) => void
+  // Optional — when given, occupied markers show how long that player has
+  // been on the field this match (mirrors the bench's elapsed-time badge).
+  playedSeconds?: Record<string, number>
 }
 
 function nearestSlot(slots: PositionSlot[], x: number, y: number, excludeId?: string) {
@@ -1401,7 +1442,7 @@ function nearestSlot(slots: PositionSlot[], x: number, y: number, excludeId?: st
   return best && bestDist <= SNAP_THRESHOLD ? best : null
 }
 
-function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, dragPreview, fieldRef, onFieldClick, onBackgroundClick, onMarkerPointerDown, onOppMarkerPointerDown, onOppMarkerClick }: FieldViewProps) {
+function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, dragPreview, fieldRef, onFieldClick, onBackgroundClick, onMarkerPointerDown, onOppMarkerPointerDown, onOppMarkerClick, playedSeconds }: FieldViewProps) {
   const isDual = ageGroup === 'U7' || ageGroup === 'U8'
   const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
   const draggedBenchPlayer = dragPreview?.type === 'bench' ? getPlayer(dragPreview.id) : null
@@ -1437,6 +1478,15 @@ function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, 
             style={{ left: `${x}%`, top: `${y}%`, zIndex: isBeingDragged ? 30 : 10 }}
             onPointerDown={e => { e.stopPropagation(); onMarkerPointerDown(slot.posId, e) }}
             onClick={e => { e.stopPropagation(); onFieldClick(slot.posId) }}>
+            {player && playedSeconds && (
+              <div className="absolute left-1/2 -translate-x-1/2 font-mono font-bold text-white"
+                style={{
+                  bottom: '-13px', fontSize: '8px', lineHeight: 1, whiteSpace: 'nowrap',
+                  background: 'rgba(13,20,43,0.65)', padding: '1.5px 4px', borderRadius: '5px',
+                }}>
+                {fmtSec(playedSeconds[player.id] ?? 0)}
+              </div>
+            )}
             <div
               style={{
                 width: player ? '46px' : '36px',
@@ -1928,7 +1978,7 @@ function FormationEditorView({ ageGroup, onBack }: { ageGroup: AgeGroup; onBack:
         </p>
 
         {variants.length > 1 && (
-          <div className="bg-white rounded-2xl p-4 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+          <div className="bg-white rounded-2xl p-4 shadow-sm" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
             <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>
               Opstellingsvariant
             </label>
@@ -1976,7 +2026,7 @@ function FormationVariantEditor({ ageGroup, variant, onBack }: { ageGroup: AgeGr
 
   return (
     <>
-      <div className="bg-white rounded-2xl p-6 shadow-sm flex items-center justify-center" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+      <div className="bg-white rounded-2xl p-6 shadow-sm flex items-center justify-center" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
         <div
           ref={containerRef}
           className="relative w-full touch-none"
@@ -2129,7 +2179,7 @@ function NotificationBell({ unreadNotifications, notifications, onMarkRead, onMa
       </button>
       {open && (
         <div ref={panelRef} className="absolute right-0 top-full mt-2 w-80 max-w-[90vw] z-40">
-          <div className="rounded-2xl shadow-2xl overflow-hidden bg-white" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+          <div className="rounded-2xl shadow-2xl overflow-hidden bg-white" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
             <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--brand-e8effd)' }}>
               <span className="font-display font-bold uppercase text-sm tracking-wide" style={{ color: 'var(--brand-0d2b7a)' }}>Meldingen</span>
               {notifications.some(n => !n.read) && (
@@ -2263,7 +2313,7 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
           </section>
         )}
 
-        <section className="bg-white rounded-2xl p-6 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+        <section className="bg-white rounded-2xl p-6 shadow-sm" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
           <h2 className="font-display text-xs font-bold uppercase mb-3" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.14em' }}>
             Laatste resultaat
           </h2>
@@ -2493,7 +2543,7 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
       <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
 
         {/* Team config */}
-        <section className="bg-white rounded-2xl p-6 space-y-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+        <section className="bg-white rounded-2xl p-6 space-y-5 shadow-sm" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
           <h2 className="font-display text-2xl font-bold uppercase tracking-wide" style={{ color: 'var(--brand-0d2b7a)' }}>Team</h2>
 
           <div>
@@ -2542,7 +2592,7 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
         </section>
 
         {/* Match */}
-        <section className="bg-white rounded-2xl p-6 space-y-4 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+        <section className="bg-white rounded-2xl p-6 space-y-4 shadow-sm" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
           <h2 className="font-display text-2xl font-bold uppercase tracking-wide" style={{ color: 'var(--brand-0d2b7a)' }}>Tegenstander</h2>
           <div>
             <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Club</label>
@@ -2586,7 +2636,7 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
         </section>
 
         {/* Squad */}
-        <section className="bg-white rounded-2xl p-6 space-y-4 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+        <section className="bg-white rounded-2xl p-6 space-y-4 shadow-sm" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
           <div className="flex items-baseline justify-between">
             <h2 className="font-display text-2xl font-bold uppercase tracking-wide" style={{ color: 'var(--brand-0d2b7a)' }}>Selectie</h2>
             <span className="text-sm font-bold" style={{ color: squad.length >= minPlayers ? '#16A34A' : 'var(--brand-7b90c8)' }}>
@@ -3480,6 +3530,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                 slots={slots}
                 squad={squad}
                 oppMarkers={oppMarkers}
+                playedSeconds={playedSeconds}
                 selected={selected}
                 dragOverPos={dragOverPos}
                 dragPreview={dragPreview}
@@ -3586,6 +3637,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                   slots={slots}
                   squad={squad}
                   oppMarkers={oppMarkers}
+                  playedSeconds={playedSeconds}
                   selected={selected}
                   dragOverPos={dragOverPos}
                   dragPreview={dragPreview}
@@ -3607,7 +3659,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                     if (!p) return null
                     return (
                       <div key={s.posId} className="flex items-center gap-2.5 p-2.5 rounded-xl"
-                        style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                        style={{ background: 'var(--brand-f8faff)', boxShadow: '0 1px 6px rgba(13, 31, 74, 0.06)' }}>
                         <span className="text-xs font-bold w-9 shrink-0 text-center" style={{ color: 'var(--brand-1a3fab)' }}>{s.label}</span>
                         <span className="text-sm font-semibold flex-1 truncate" style={{ color: 'var(--brand-1a2f6b)' }}>
                           {p.number != null ? `#${p.number} ` : ''}{p.name}
@@ -3703,7 +3755,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                   const onField = slots.some(s => s.playerId === p.id)
                   return (
                     <div key={p.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-                      style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                      style={{ background: 'var(--brand-f8faff)', boxShadow: '0 1px 6px rgba(13, 31, 74, 0.06)' }}>
                       <span style={{ color: 'var(--brand-1a2f6b)' }}>
                         {onField && <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5" style={{ background: '#16A34A' }} />}
                         {p.number ? `#${p.number} ` : ''}{p.name}
@@ -3773,7 +3825,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                     const p = getPlayer(g.playerId)
                     return (
                       <div key={g.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-                        style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                        style={{ background: 'var(--brand-f8faff)', boxShadow: '0 1px 6px rgba(13, 31, 74, 0.06)' }}>
                         <span style={{ color: 'var(--brand-1a2f6b)' }}><HockeyBallIcon /> {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}</span>
                         {!readOnly && (
                           <button onClick={() => setGoals(gs => gs.filter(x => x.id !== g.id))}
@@ -3834,7 +3886,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                     const p = getPlayer(c.playerId)
                     return (
                       <div key={c.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-                        style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                        style={{ background: 'var(--brand-f8faff)', boxShadow: '0 1px 6px rgba(13, 31, 74, 0.06)' }}>
                         <span style={{ color: 'var(--brand-1a2f6b)' }}>
                           <span className="inline-block w-3 h-4 rounded-sm mr-1.5 align-middle"
                             style={{ background: c.color === 'green' ? '#16A34A' : c.color === 'yellow' ? '#EAB308' : '#DC2626' }} />
@@ -3857,7 +3909,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
 
         {gameTab === 'tactiek' && (
           <div className="p-3">
-            <div className="flex items-center justify-center w-full mb-3 mx-auto" style={{ maxWidth: isDual ? '600px' : '330px' }}>
+            <div className="relative flex items-center justify-center w-full mx-auto" style={{ maxWidth: isDual ? '600px' : '330px' }}>
               <TacticsFieldEditor
                 isDual={isDual}
                 slots={slots}
@@ -3879,7 +3931,83 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                 onOppMarkerPointerDown={(id, e) => beginDrag('opp-marker', id, e)}
                 onOppMarkerClick={handleOppMarkerClick}
               />
+
+              {!readOnly && (
+                <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-10">
+                  {([
+                    { key: 'select', label: 'Selecteer', icon: <IconCursorArrow /> },
+                    { key: 'marker', label: '+ Speler', icon: <IconPersonPlus /> },
+                    { key: 'arrow', label: '+ Pijl', icon: <IconArrowTool /> },
+                  ] as const).map(t => (
+                    <button key={t.key} onClick={() => { setTacticsTool(t.key); setSelectedTacticsMarker(null); setTacticsPlayerId('') }}
+                      title={t.label}
+                      className="w-9 h-9 rounded-full flex items-center justify-center shadow-lg"
+                      style={tacticsTool === t.key
+                        ? { background: 'var(--brand-1a3fab)', color: '#fff' }
+                        : { background: '#fff', color: 'var(--brand-3b5299)' }}>
+                      {t.icon}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {!readOnly && tacticsTool === 'marker' && (
+                <div className="absolute top-2 left-2 z-10" style={{ maxWidth: 'calc(100% - 56px)' }}>
+                  <select className="w-full rounded-full px-3 py-1.5 text-xs shadow-lg"
+                    style={{ border: 'none', background: '#fff', color: tacticsPlayerId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', outline: 'none' }}
+                    value={tacticsPlayerId} onChange={e => setTacticsPlayerId(e.target.value)}>
+                    <option value="">Kies speler…</option>
+                    {sortPlayers(squad.filter(p => !activeBoard.markers.some(m => m.playerId === p.id))).map(p => (
+                      <option key={p.id} value={p.id}>{p.number ? `#${p.number} ` : ''}{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {!readOnly && selectedTacticsMarker && (
+                <button onClick={() => removeTacticsMarker(selectedTacticsMarker)}
+                  title="Verwijder geselecteerde speler"
+                  className="absolute bottom-2 left-2 w-9 h-9 rounded-full flex items-center justify-center shadow-lg z-10"
+                  style={{ background: '#fff', color: '#DC2626' }}>
+                  <IconTrash />
+                </button>
+              )}
+
+              {!readOnly && (activeBoard.markers.length > 0 || activeBoard.arrows.length > 0) && (
+                <button onClick={() => { if (confirm('Alles op deze opstelling wissen?')) clearBoard() }}
+                  title="Wis opstelling"
+                  className="absolute bottom-2 right-2 w-9 h-9 rounded-full flex items-center justify-center shadow-lg z-10"
+                  style={{ background: '#DC2626', color: '#fff' }}>
+                  <IconTrash />
+                </button>
+              )}
+
+              {activeBoard.arrows.length > 0 && (
+                <div className="absolute bottom-2 flex gap-1 overflow-x-auto z-10" style={{ left: '48px', right: '48px' }}>
+                  {activeBoard.arrows.map((a, i) => (
+                    <div key={a.id} className="flex items-center gap-1 shrink-0 rounded-full pl-2.5 pr-1.5 py-1 text-xs shadow-lg"
+                      style={{ background: '#fff', color: 'var(--brand-1a2f6b)' }}>
+                      <span>Pijl {i + 1}</span>
+                      {!readOnly && (
+                        <button onClick={() => removeTacticsArrow(a.id)} className="font-bold w-4 h-4 flex items-center justify-center" style={{ color: '#DC2626' }}>
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
+
+            {!readOnly && (
+              <p className="text-xs text-center mt-1.5 mb-3" style={{ color: 'var(--brand-a8bef0)' }}>
+                {tacticsTool === 'marker'
+                  ? (tacticsPlayerId ? 'Tik op het veld om te plaatsen.' : 'Kies eerst een speler.')
+                  : tacticsTool === 'arrow'
+                    ? 'Sleep op het veld om een pijl te tekenen.'
+                    : 'Tik een speler, tik daarna waar die naartoe moet.'}
+              </p>
+            )}
 
             <div className="space-y-3 mx-auto" style={{ maxWidth: '420px' }}>
               <div>
@@ -3916,81 +4044,6 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                   ))}
                 </div>
               </div>
-
-              {!readOnly && (
-                <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Gereedschap</label>
-                  <div className="flex gap-2">
-                    {([
-                      { key: 'select', label: 'Selecteer' },
-                      { key: 'marker', label: '+ Speler' },
-                      { key: 'arrow', label: '+ Pijl' },
-                    ] as const).map(t => (
-                      <button key={t.key} onClick={() => { setTacticsTool(t.key); setSelectedTacticsMarker(null); setTacticsPlayerId('') }}
-                        className="flex-1 py-2 rounded-lg text-xs font-bold"
-                        style={tacticsTool === t.key
-                          ? { background: 'var(--brand-1a3fab)', color: '#fff' }
-                          : { background: 'var(--brand-f8faff)', color: 'var(--brand-3b5299)', border: '1px solid var(--brand-d0dcfa)' }}>
-                        {t.label}
-                      </button>
-                    ))}
-                  </div>
-                  {tacticsTool === 'marker' ? (
-                    <div className="mt-2">
-                      <select className="w-full rounded-xl px-3 py-2 text-sm"
-                        style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: tacticsPlayerId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', outline: 'none' }}
-                        value={tacticsPlayerId} onChange={e => setTacticsPlayerId(e.target.value)}>
-                        <option value="">Kies speler…</option>
-                        {sortPlayers(squad.filter(p => !activeBoard.markers.some(m => m.playerId === p.id))).map(p => (
-                          <option key={p.id} value={p.id}>{p.number ? `#${p.number} ` : ''}{p.name}</option>
-                        ))}
-                      </select>
-                      <p className="text-xs mt-1.5" style={{ color: 'var(--brand-a8bef0)' }}>
-                        {tacticsPlayerId ? 'Tik op het veld om te plaatsen.' : 'Kies eerst een speler.'}
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="text-xs mt-1.5" style={{ color: 'var(--brand-a8bef0)' }}>
-                      {tacticsTool === 'arrow'
-                        ? 'Sleep op het veld om een pijl te tekenen.'
-                        : 'Tik een speler, tik daarna waar die naartoe moet.'}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {selectedTacticsMarker && !readOnly && (
-                <button onClick={() => removeTacticsMarker(selectedTacticsMarker)}
-                  className="text-xs font-bold px-3 py-1.5 rounded-lg" style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
-                  Verwijder geselecteerde speler
-                </button>
-              )}
-
-              {activeBoard.arrows.length > 0 && (
-                <div>
-                  <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Pijlen</label>
-                  <div className="space-y-1">
-                    {activeBoard.arrows.map((a, i) => (
-                      <div key={a.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-                        style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
-                        <span style={{ color: 'var(--brand-1a2f6b)' }}>Pijl {i + 1}</span>
-                        {!readOnly && (
-                          <button onClick={() => removeTacticsArrow(a.id)} className="font-bold" style={{ color: '#DC2626' }}>
-                            ×
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {!readOnly && (activeBoard.markers.length > 0 || activeBoard.arrows.length > 0) && (
-                <button onClick={() => { if (confirm('Alles op deze opstelling wissen?')) clearBoard() }}
-                  className="text-xs font-bold" style={{ color: '#DC2626' }}>
-                  Wis opstelling
-                </button>
-              )}
             </div>
           </div>
         )}
@@ -4410,7 +4463,7 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, on
                 {filter === 'upcoming' ? 'Geen aankomende wedstrijden' : 'Geen gespeelde wedstrijden'}
               </p>
             ) : (
-              <div className="bg-white rounded-2xl overflow-hidden shadow-sm divide-y" style={{ border: '1px solid var(--brand-d0dcfa)', borderColor: 'var(--brand-d0dcfa)' }}>
+              <div className="bg-white rounded-2xl overflow-hidden shadow-sm divide-y" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
                 {filteredGames.map(renderGame)}
               </div>
             )}
@@ -4502,7 +4555,7 @@ function StatBar({ label, own, opp }: { label: string; own: number; opp: number 
 
 function MatchStats({ game }: { game: SavedGame }) {
   return (
-    <div className="bg-white rounded-2xl p-5 shadow-sm space-y-5" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+    <div className="bg-white rounded-2xl p-5 shadow-sm space-y-5" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
       <div className="flex items-center justify-between">
         <div className="flex flex-col items-center gap-1.5 flex-1 min-w-0">
           <ClubLogo club={game.club} size={40} />
@@ -4679,17 +4732,17 @@ function MatchDetailView({ game, user, onEdit, onDelete }: {
       <div className="max-w-2xl mx-auto px-4 py-6">
         {tab === 'stats' && <MatchStats game={game} />}
         {tab === 'lineup' && (
-          <div className="bg-white rounded-2xl p-4 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+          <div className="bg-white rounded-2xl p-4 shadow-sm" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
             <ReadOnlyFieldView ageGroup={game.ageGroup} slots={game.slots} squad={game.squad} />
           </div>
         )}
         {tab === 'timeline' && (
-          <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+          <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
             <MatchTimeline game={game} getPlayer={getPlayer} />
           </div>
         )}
         {tab === 'match' && (
-          <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+          <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
             <MatchDetailSections g={game} user={user} getPlayer={getPlayerFromGame}
               canManageSharing={canManageSharing} shares={shares} addShare={addShare} removeShare={removeShare}
               onEdit={onEdit} onDelete={onDelete} />
@@ -4874,7 +4927,7 @@ function TeamPlayerPhotos({ team, canEditPhotos, canAddPlayer, canManageRoster, 
             )
             return (
               <div key={p.id} className={`flex items-center rounded-xl ${compact ? 'gap-2 p-1.5' : 'gap-3 p-2.5'}`}
-                style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+                style={{ background: 'var(--brand-f8faff)', boxShadow: '0 1px 6px rgba(13, 31, 74, 0.06)' }}>
                 {canEditPhotos ? (
                   <button onClick={() => triggerUpload(p.id)} disabled={busy}
                     className={`relative ${avatarSize} rounded-full shrink-0 group overflow-hidden disabled:opacity-50`} title="Foto wijzigen">
@@ -5034,7 +5087,7 @@ function TeamView({ user, games, onProfile, onSelectPlayer, onSelectStaff, unrea
           <p className="text-sm text-center py-20" style={{ color: 'var(--brand-a8bef0)' }}>Stel eerst een team in via je profiel.</p>
         ) : (
           <div className="space-y-4">
-            <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
               <h2 className="font-display text-sm font-bold uppercase mb-4" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
                 Teamoverzicht
               </h2>
@@ -5048,7 +5101,7 @@ function TeamView({ user, games, onProfile, onSelectPlayer, onSelectStaff, unrea
               </div>
             </div>
 
-            <div className="bg-white rounded-2xl p-5 shadow-sm flex items-center gap-4" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <div className="bg-white rounded-2xl p-5 shadow-sm flex items-center gap-4" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
               <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0" style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
                 <IconClock size={24} />
               </div>
@@ -5059,7 +5112,7 @@ function TeamView({ user, games, onProfile, onSelectPlayer, onSelectStaff, unrea
             </div>
 
             {staff.length > 0 && (
-              <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+              <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
                 <h2 className="font-display text-sm font-bold uppercase mb-4" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
                   Staf
                 </h2>
@@ -5084,7 +5137,7 @@ function TeamView({ user, games, onProfile, onSelectPlayer, onSelectStaff, unrea
               </div>
             )}
 
-            <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+            <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
               <h2 className="font-display text-sm font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
                 Spelers — {user.defaultTeam}
               </h2>
@@ -5216,7 +5269,7 @@ function PlayerProfileView({ playerId, team, games, user, onBack }: {
         </p>
       ) : (
         <div className="max-w-2xl mx-auto px-4 -mt-8 pb-8 space-y-4">
-          <div className="bg-white rounded-2xl p-5 shadow-lg" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+          <div className="bg-white rounded-2xl p-5 shadow-lg" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
             <h2 className="font-display text-sm font-bold uppercase mb-4" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
               Seizoensoverzicht
             </h2>
@@ -5230,7 +5283,7 @@ function PlayerProfileView({ playerId, team, games, user, onBack }: {
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+          <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
             <h2 className="font-display text-sm font-bold uppercase mb-4" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
               Minuten gespeeld — laatste 5 wedstrijden
             </h2>
@@ -5306,7 +5359,7 @@ function StaffProfileView({ staffId, team, onBack }: { staffId: string; team: st
         </p>
       ) : (
         <div className="max-w-2xl mx-auto px-4 -mt-8 pb-8 space-y-4">
-          <div className="bg-white rounded-2xl p-5 shadow-lg" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+          <div className="bg-white rounded-2xl p-5 shadow-lg" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
             <h2 className="font-display text-sm font-bold uppercase mb-4" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
               Profiel
             </h2>
@@ -5417,6 +5470,9 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   const { teams: adminTeams, loading: adminTeamsLoading, error: adminTeamsError, createTeam, renameTeam, deleteTeam } = useAdminTeams(isAdmin)
   const [newTeamName, setNewTeamName] = useState('')
   const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null)
+  const [userSearch, setUserSearch] = useState('')
+  const [teamSearch, setTeamSearch] = useState('')
+  const [collapsedAgeGroups, setCollapsedAgeGroups] = useState<Set<string>>(new Set())
 
   const [announcement, setAnnouncement] = useState('')
   const [announcementBusy, setAnnouncementBusy] = useState(false)
@@ -5518,7 +5574,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-8">
-        <section className="bg-white rounded-2xl p-6 shadow-sm" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+        <section className="bg-white rounded-2xl p-6 shadow-sm" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
           {loading ? (
             <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Laden…</p>
           ) : user ? (
@@ -5636,7 +5692,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
         </section>
 
         {isAdmin && (
-          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
             <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-1" style={{ color: 'var(--brand-0d2b7a)' }}>
               Beheer — Melding versturen
             </h2>
@@ -5661,7 +5717,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
               <span className="text-xs" style={{ color: 'var(--brand-a8bef0)' }}>{announcement.length}/500</span>
             </div>
             {announcement.trim() && (
-              <div className="mt-2 p-3 rounded-xl text-sm" style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)', color: 'var(--brand-1a2f6b)' }}>
+              <div className="mt-2 p-3 rounded-xl text-sm" style={{ background: 'var(--brand-f8faff)', boxShadow: '0 1px 6px rgba(13, 31, 74, 0.06)', color: 'var(--brand-1a2f6b)' }}>
                 <div className="text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.1em' }}>Voorbeeld</div>
                 {renderFormattedText(announcement)}
               </div>
@@ -5680,20 +5736,34 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
         )}
 
         {isAdmin && (
-          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
             <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-4" style={{ color: 'var(--brand-0d2b7a)' }}>
               Beheer — Gebruikers
             </h2>
+            {!adminLoading && !adminError && adminUsers.length > 0 && (
+              <input className="w-full rounded-xl px-3 py-2 text-sm mb-3" style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none', color: 'var(--brand-1a2f6b)' }}
+                value={userSearch} onChange={e => setUserSearch(e.target.value)}
+                placeholder="Zoek op naam, e-mail, team, club of rol…" />
+            )}
             {adminLoading ? (
               <p className="text-sm text-center py-4" style={{ color: 'var(--brand-a8bef0)' }}>Laden…</p>
             ) : adminError ? (
               <p className="text-sm font-semibold" style={{ color: '#DC2626' }}>{adminError}</p>
             ) : adminUsers.length === 0 ? (
               <p className="text-sm" style={{ color: 'var(--brand-7b90c8)' }}>Nog geen gebruikers.</p>
-            ) : (
+            ) : (() => {
+              const q = userSearch.trim().toLowerCase()
+              const filteredUsers = q
+                ? adminUsers.filter(u => [
+                    u.firstName, u.lastName, u.name, u.email, u.role, u.defaultTeam, u.defaultClub,
+                  ].some(v => v?.toLowerCase().includes(q)))
+                : adminUsers
+              return filteredUsers.length === 0 ? (
+                <p className="text-sm" style={{ color: 'var(--brand-7b90c8)' }}>Geen gebruikers gevonden.</p>
+              ) : (
               <div className="space-y-2">
-                {adminUsers.map(u => (
-                  <div key={u.id} className="p-3 rounded-xl" style={{ border: '1px solid var(--brand-e8effd)', background: 'var(--brand-f8faff)' }}>
+                {filteredUsers.map(u => (
+                  <div key={u.id} className="p-3 rounded-xl" style={{ boxShadow: '0 1px 6px rgba(13, 31, 74, 0.06)', background: 'var(--brand-f8faff)' }}>
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
                         <div className="text-sm font-bold truncate" style={{ color: 'var(--brand-1a2f6b)' }}>
@@ -5762,55 +5832,92 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                   </div>
                 ))}
               </div>
-            )}
+              )
+            })()}
           </section>
         )}
 
         {isAdmin && (
-          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+          <section className="bg-white rounded-2xl p-6 shadow-sm mt-5" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
             <h2 className="font-display text-xl font-bold uppercase tracking-wide mb-4" style={{ color: 'var(--brand-0d2b7a)' }}>
               Beheer — Teams
             </h2>
+            {adminTeams.length > 0 && (
+              <input className="w-full rounded-xl px-3 py-2 text-sm mb-3" style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none', color: 'var(--brand-1a2f6b)' }}
+                value={teamSearch} onChange={e => setTeamSearch(e.target.value)}
+                placeholder="Zoek team…" />
+            )}
             {adminTeamsLoading ? (
               <p className="text-sm text-center py-4" style={{ color: 'var(--brand-a8bef0)' }}>Laden…</p>
             ) : adminTeamsError ? (
               <p className="text-sm font-semibold" style={{ color: '#DC2626' }}>{adminTeamsError}</p>
-            ) : (
-              <div className="space-y-2">
-                {adminTeams.length === 0 && (
-                  <p className="text-sm" style={{ color: 'var(--brand-7b90c8)' }}>Nog geen teams.</p>
-                )}
-                {adminTeams.map(t => (
-                  <div key={t.id} className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--brand-e8effd)', background: 'var(--brand-f8faff)' }}>
-                    <div className="flex items-center gap-2 p-2.5">
-                      <span className="flex-1 text-sm font-semibold truncate px-1" style={{ color: 'var(--brand-1a2f6b)' }}>{t.name}</span>
-                      <button onClick={() => setExpandedTeamId(id => id === t.id ? null : t.id)}
-                        className="text-xs font-bold px-2.5 py-1.5 rounded-lg shrink-0" style={{ color: 'var(--brand-1a3fab)', border: '1px solid var(--brand-d0dcfa)' }}>
-                        {expandedTeamId === t.id ? 'Sluiten' : 'Aanpassen'}
+            ) : adminTeams.length === 0 ? (
+              <p className="text-sm" style={{ color: 'var(--brand-7b90c8)' }}>Nog geen teams.</p>
+            ) : (() => {
+              const q = teamSearch.trim().toLowerCase()
+              const filtered = q ? adminTeams.filter(t => t.name.toLowerCase().includes(q)) : adminTeams
+              const groups = [
+                { key: 'Junioren', label: 'Junioren Teams', teams: filtered.filter(t => ageGroupFromTeamName(t.name) !== 'Senioren') },
+                { key: 'Senioren', label: 'Senioren Teams', teams: filtered.filter(t => ageGroupFromTeamName(t.name) === 'Senioren') },
+              ].filter(g => g.teams.length > 0)
+
+              return groups.length === 0 ? (
+                <p className="text-sm" style={{ color: 'var(--brand-7b90c8)' }}>Geen teams gevonden.</p>
+              ) : (
+              <div className="space-y-3">
+                {groups.map(g => {
+                  const collapsed = collapsedAgeGroups.has(g.key)
+                  return (
+                    <div key={g.key}>
+                      <button onClick={() => setCollapsedAgeGroups(s => {
+                        const next = new Set(s)
+                        if (next.has(g.key)) next.delete(g.key); else next.add(g.key)
+                        return next
+                      })}
+                        className="w-full flex items-center justify-between px-1 py-1.5 text-xs font-bold uppercase"
+                        style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>
+                        <span>{g.label} ({g.teams.length})</span>
+                        <span>{collapsed ? '▸' : '▾'}</span>
                       </button>
-                      <button onClick={() => {
-                        if (confirm(`Team ${t.name} verwijderen? Alle spelers en foto's van dit team gaan verloren.`)) deleteTeam(t.id)
-                      }}
-                        className="text-xs font-bold px-2.5 py-1.5 rounded-lg shrink-0"
-                        style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
-                        Verwijder
-                      </button>
-                    </div>
-                    {expandedTeamId === t.id && (
-                      <div className="px-2.5 pb-2.5 space-y-3">
-                        <div>
-                          <label className="text-xs font-bold uppercase tracking-wide block mb-1" style={{ color: 'var(--brand-7b90c8)' }}>Teamnaam</label>
-                          <input className="w-full text-sm font-semibold rounded-lg px-2 py-1.5" style={{ border: '1.5px solid var(--brand-d0dcfa)', color: 'var(--brand-1a2f6b)' }}
-                            defaultValue={t.name} key={`${t.id}-${t.name}`}
-                            onBlur={e => { const name = e.target.value.trim(); if (name && name !== t.name) renameTeam(t.id, name) }} />
+                      {!collapsed && (
+                        <div className="space-y-2 mt-1">
+                          {g.teams.map(t => (
+                            <div key={t.id} className="rounded-xl overflow-hidden" style={{ boxShadow: '0 1px 6px rgba(13, 31, 74, 0.06)', background: 'var(--brand-f8faff)' }}>
+                              <div className="flex items-center gap-2 p-2.5">
+                                <span className="flex-1 text-sm font-semibold truncate px-1" style={{ color: 'var(--brand-1a2f6b)' }}>{t.name}</span>
+                                <button onClick={() => setExpandedTeamId(id => id === t.id ? null : t.id)}
+                                  className="text-xs font-bold px-2.5 py-1.5 rounded-lg shrink-0" style={{ color: 'var(--brand-1a3fab)', border: '1px solid var(--brand-d0dcfa)' }}>
+                                  {expandedTeamId === t.id ? 'Sluiten' : 'Aanpassen'}
+                                </button>
+                                <button onClick={() => {
+                                  if (confirm(`Team ${t.name} verwijderen? Alle spelers en foto's van dit team gaan verloren.`)) deleteTeam(t.id)
+                                }}
+                                  className="text-xs font-bold px-2.5 py-1.5 rounded-lg shrink-0"
+                                  style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
+                                  Verwijder
+                                </button>
+                              </div>
+                              {expandedTeamId === t.id && (
+                                <div className="px-2.5 pb-2.5 space-y-3">
+                                  <div>
+                                    <label className="text-xs font-bold uppercase tracking-wide block mb-1" style={{ color: 'var(--brand-7b90c8)' }}>Teamnaam</label>
+                                    <input className="w-full text-sm font-semibold rounded-lg px-2 py-1.5" style={{ border: '1.5px solid var(--brand-d0dcfa)', color: 'var(--brand-1a2f6b)' }}
+                                      defaultValue={t.name} key={`${t.id}-${t.name}`}
+                                      onBlur={e => { const name = e.target.value.trim(); if (name && name !== t.name) renameTeam(t.id, name) }} />
+                                  </div>
+                                  <TeamPlayerPhotos team={t.name} canEditPhotos={true} canAddPlayer={true} canManageRoster={true} />
+                                </div>
+                              )}
+                            </div>
+                          ))}
                         </div>
-                        <TeamPlayerPhotos team={t.name} canEditPhotos={true} canAddPlayer={true} canManageRoster={true} />
-                      </div>
-                    )}
-                  </div>
-                ))}
+                      )}
+                    </div>
+                  )
+                })}
               </div>
-            )}
+              )
+            })()}
             <div className="flex gap-2 mt-3">
               <input className="flex-1 rounded-xl px-3 py-2 text-sm" style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', outline: 'none' }}
                 value={newTeamName} onChange={e => setNewTeamName(e.target.value)}
@@ -6165,7 +6272,7 @@ function ResetPasswordView({ token, onSubmit, onDone }: {
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4" style={{ background: 'var(--brand-eef3ff)' }}>
-      <div className="w-full max-w-sm bg-white rounded-2xl p-6 shadow-sm space-y-4" style={{ border: '1px solid var(--brand-d0dcfa)' }}>
+      <div className="w-full max-w-sm bg-white rounded-2xl p-6 shadow-sm space-y-4" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
         <h1 className="font-display text-xl font-bold uppercase tracking-wide text-center" style={{ color: 'var(--brand-0d2b7a)' }}>
           Nieuw wachtwoord
         </h1>
@@ -6435,7 +6542,7 @@ function GameShareManager({ shares, onAdd, onRemove }: {
         <div className="mt-2 space-y-1">
           {shares.map(s => (
             <div key={s.userId} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
-              style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e8effd)' }}>
+              style={{ background: 'var(--brand-f8faff)', boxShadow: '0 1px 6px rgba(13, 31, 74, 0.06)' }}>
               <span style={{ color: 'var(--brand-1a2f6b)' }}>
                 {s.name ?? s.email} <span style={{ color: 'var(--brand-7b90c8)' }}>· {s.permission === 'edit' ? 'Bewerken' : 'Bekijken'}</span>
               </span>
@@ -6827,7 +6934,7 @@ function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, n
               contacts.map(c => (
                 <button key={c.id} onClick={() => openThread(c.id, c.name)}
                   className="w-full text-left flex items-center gap-3 p-3 rounded-xl"
-                  style={{ background: '#fff', border: '1px solid var(--brand-e8effd)' }}>
+                  style={{ background: '#fff', boxShadow: '0 1px 6px rgba(13, 31, 74, 0.06)' }}>
                   <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0"
                     style={{ background: c.isHockeyOne ? 'var(--brand-2563eb)' : 'var(--brand-1a3fab)' }}>
                     {c.isHockeyOne ? 'H1' : initials(c.name)}
@@ -6860,7 +6967,7 @@ function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, n
               conversations.map(c => (
                 <button key={c.userId} onClick={() => openThread(c.userId, c.name)}
                   className="w-full text-left flex items-center gap-3 p-3 rounded-xl"
-                  style={{ background: '#fff', border: '1px solid var(--brand-e8effd)' }}>
+                  style={{ background: '#fff', boxShadow: '0 1px 6px rgba(13, 31, 74, 0.06)' }}>
                   <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0"
                     style={{ background: c.isHockeyOne ? 'var(--brand-2563eb)' : 'var(--brand-1a3fab)' }}>
                     {c.isHockeyOne ? 'H1' : initials(c.name)}
