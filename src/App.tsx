@@ -1192,6 +1192,43 @@ function IconTrash({ size = 16 }: { size?: number }) {
   )
 }
 
+// Replaces bare "Laden…" text wherever a view is waiting on data —
+// a plain spinning ring keeps the wait from reading as a stalled page.
+function Spinner({ size = 22, label = 'Laden…' }: { size?: number; label?: string | null }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 py-6">
+      <span className="inline-block rounded-full animate-spin"
+        style={{ width: size, height: size, border: '2.5px solid var(--brand-d0dcfa)', borderTopColor: 'var(--brand-1a3fab)' }} />
+      {label && <span className="text-xs font-semibold" style={{ color: 'var(--brand-a8bef0)' }}>{label}</span>}
+    </div>
+  )
+}
+
+// Standard "nothing here yet" treatment — icon + title + optional
+// subtitle/action — so empty lists read as a deliberate state rather
+// than blank space or a lone line of text.
+function EmptyState({ icon, title, subtitle, action, compact }: {
+  icon?: React.ReactNode
+  title: string
+  subtitle?: string
+  action?: React.ReactNode
+  compact?: boolean
+}) {
+  return (
+    <div className={`flex flex-col items-center text-center ${compact ? 'py-6' : 'py-14'} px-4`}>
+      {icon && (
+        <div className={`rounded-full flex items-center justify-center mb-3 ${compact ? 'w-10 h-10' : 'w-14 h-14'}`}
+          style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
+          {icon}
+        </div>
+      )}
+      <p className={`font-bold ${compact ? 'text-sm' : 'text-base'}`} style={{ color: 'var(--brand-1a2f6b)' }}>{title}</p>
+      {subtitle && <p className="text-xs mt-1 max-w-xs" style={{ color: 'var(--brand-7b90c8)' }}>{subtitle}</p>}
+      {action && <div className="mt-4">{action}</div>}
+    </div>
+  )
+}
+
 // Avatar shown for the signed-in user (photo, or initials-on-brand-blue
 // fallback) — the same markup used to be duplicated across every header;
 // factored out here since it's now also used in BottomBar's Profiel tab.
@@ -2847,6 +2884,35 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   const [showSettings, setShowSettings] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // Brief celebratory/informational toasts for goal/sub/card/match events —
+  // purely cosmetic, no bearing on saved state. Keyed by id so retriggering
+  // the same kind of event while one is still fading always restarts the
+  // animation instead of getting stuck mid-fade.
+  const [flash, setFlash] = useState<{ id: number; emoji: string; text: string; color: string } | null>(null)
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const triggerFlash = (emoji: string, text: string, color: string) => {
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current)
+    setFlash({ id: Date.now(), emoji, text, color })
+    flashTimerRef.current = setTimeout(() => setFlash(null), 1600)
+  }
+  useEffect(() => () => { if (flashTimerRef.current) clearTimeout(flashTimerRef.current) }, [])
+
+  // Fires once when the final period's clock hits zero — a one-shot "final
+  // whistle" toast, guarded so it doesn't refire on every re-render while
+  // the clock sits at zero.
+  const finalWhistleFiredRef = useRef(false)
+  useEffect(() => {
+    if (currentPeriod >= totalPeriods && remainingInPeriod === 0) {
+      if (!finalWhistleFiredRef.current) {
+        finalWhistleFiredRef.current = true
+        triggerFlash('🏁', 'Einde wedstrijd', 'var(--brand-0d2b7a)')
+      }
+    } else {
+      finalWhistleFiredRef.current = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPeriod, remainingInPeriod, totalPeriods])
+
   // ── Autosave + Herstel (undo) ────────────────────────────────────────────
   // Everything that counts as an editable "game setting" — not the running
   // clock itself, and not media (deleting a photo/video also deletes its
@@ -3092,7 +3158,12 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
     const outId = pos?.playerId ?? null
     setSlots(sl => sl.map(s => s.posId === posId ? { ...s, playerId: inId } : s))
     setBench(b => b.filter(e => e.playerId !== inId).concat(outId ? [{ playerId: outId, sinceGameSec: gameSec }] : []))
-    if (outId) setSubs(s => [...s, { gameTimeSec: gameSec, playerInId: inId, playerOutId: outId, posLabel: pos?.label ?? '' }])
+    if (outId) {
+      setSubs(s => [...s, { gameTimeSec: gameSec, playerInId: inId, playerOutId: outId, posLabel: pos?.label ?? '' }])
+      const inName = getPlayer(inId)?.name.split(' ')[0]
+      const outName = getPlayer(outId)?.name.split(' ')[0]
+      triggerFlash('🔄', inName && outName ? `Wissel: ${outName} → ${inName}` : 'Wissel', 'var(--brand-1a3fab)')
+    }
     setSelected(null)
   }
 
@@ -3424,6 +3495,16 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
     <div className="flex flex-col" style={{ height: '100dvh', background: 'var(--brand-eef3ff)' }}
       onClick={() => setSelected(null)}>
 
+      {flash && (
+        <div key={flash.id} className="match-flash-toast fixed left-1/2 z-50 pointer-events-none" style={{ top: '86px' }}>
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-full font-bold text-white text-sm shadow-lg whitespace-nowrap"
+            style={{ background: flash.color }}>
+            <span className="text-base leading-none">{flash.emoji}</span>
+            {flash.text}
+          </div>
+        </div>
+      )}
+
       {/* Header — kept compact so it doesn't eat the screen: crests+score on
           one line, then period-nav flanking the clock (with the period label
           stacked under the clock so the clock itself lands centered under
@@ -3436,7 +3517,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
             <IconChevronLeft size={20} />
           </button>
           <ClubLogo club={club} size={30} />
-          <span className="font-mono font-bold text-lg tabular-nums px-1">{scoreOwn} - {scoreOpp}</span>
+          <span key={`${scoreOwn}-${scoreOpp}`} className="score-pop font-mono font-bold text-lg tabular-nums px-1">{scoreOwn} - {scoreOpp}</span>
           <ClubLogo club={matchKnhbClub(opponent)} size={30} />
           <button onClick={e => { e.stopPropagation(); setShowSettings(true) }} aria-label="Notities en instellingen"
             className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-lg flex items-center justify-center" style={{ color: 'var(--brand-7b9de0)' }}>
@@ -3484,9 +3565,9 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
           tab content (Wedstrijd's play/pause button sits beside the pitch). */}
       <div className="flex-1 overflow-y-auto" onClick={e => e.stopPropagation()}>
         {gameTab === 'wedstrijd' && (
-          <div className="flex flex-col items-center p-3">
-            <div className="flex items-center justify-between w-full mb-2 gap-2"
-              style={{ maxWidth: isDual ? '820px' : '460px' }}>
+          <div className="flex flex-col items-center p-2">
+            <div className="flex items-center justify-between w-full mb-1.5 gap-2"
+              style={{ maxWidth: isDual ? '920px' : '540px' }}>
               <div className="flex items-center gap-2 min-w-0">
                 <span className="text-xs font-bold shrink-0" style={{ color: 'var(--brand-6b82b8)' }}>
                   Op veld:&nbsp;
@@ -3514,17 +3595,22 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                   </span>
                 )}
                 {!readOnly && (
-                  <button onClick={() => setRunning(r => !r)}
-                    className="flex items-center gap-1 rounded-lg text-xs font-bold px-1.5 py-1 shrink-0"
+                  <button onClick={() => {
+                    setRunning(r => {
+                      if (!r) triggerFlash('▶️', currentPeriod === 1 && gameSec === 0 ? 'Wedstrijd gestart' : 'Hervat', 'var(--brand-0d2b7a)')
+                      return !r
+                    })
+                  }}
+                    className="flex items-center gap-1.5 rounded-xl text-sm font-bold px-3 py-2 shrink-0"
                     style={{ background: running ? '#D97706' : '#16A34A', color: '#fff' }}>
-                    {running ? <IconPause size={12} /> : <IconPlay size={12} />}
+                    {running ? <IconPause size={15} /> : <IconPlay size={15} />}
                     {running ? 'Pauzeer' : 'Start'}
                   </button>
                 )}
               </div>
             </div>
 
-            <div className="flex items-center justify-center w-full" style={{ maxWidth: isDual ? '820px' : '460px' }}>
+            <div className="flex items-center justify-center w-full" style={{ maxWidth: isDual ? '920px' : '540px' }}>
               <FieldView
                 ageGroup={ageGroup}
                 slots={slots}
@@ -3550,16 +3636,16 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
             )}
 
             {selectedFieldPos && (
-              <div className="flex gap-2 mt-2" onClick={e => e.stopPropagation()}>
+              <div className="flex gap-2 mt-3 w-full" style={{ maxWidth: isDual ? '920px' : '540px' }} onClick={e => e.stopPropagation()}>
                 {slots.find(s => s.posId === selectedFieldPos)?.playerId && (
                   <button onClick={() => sendToBench(selectedFieldPos)}
-                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
+                    className="flex-1 px-4 py-3 rounded-xl text-sm font-bold text-white"
                     style={{ background: '#4B5563' }}>
                     → Bank
                   </button>
                 )}
                 <button onClick={() => setSelected(null)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+                  className="flex-1 px-4 py-3 rounded-xl text-sm font-semibold"
                   style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>
                   Annuleer
                 </button>
@@ -3567,14 +3653,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
             )}
 
             {selected?.type === 'opp-marker' && (
-              <div className="flex gap-2 mt-2" onClick={e => e.stopPropagation()}>
+              <div className="flex gap-2 mt-3 w-full" style={{ maxWidth: isDual ? '920px' : '540px' }} onClick={e => e.stopPropagation()}>
                 <button onClick={() => removeOppMarker(selected.id)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
+                  className="flex-1 px-4 py-3 rounded-xl text-sm font-bold text-white"
                   style={{ background: '#4B5563' }}>
                   Verwijder
                 </button>
                 <button onClick={() => setSelected(null)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+                  className="flex-1 px-4 py-3 rounded-xl text-sm font-semibold"
                   style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>
                   Annuleer
                 </button>
@@ -3583,7 +3669,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
 
             {/* Opponent marker pool lives here (not Bank) — it's about the live
                 pitch picture, not the coach's own roster rotation. */}
-            <div className="w-full mt-4 pt-3" style={{ maxWidth: isDual ? '820px' : '460px', borderTop: '1px solid var(--brand-d0dcfa)' }}>
+            <div className="w-full mt-4 pt-3" style={{ maxWidth: isDual ? '920px' : '540px', borderTop: '1px solid var(--brand-d0dcfa)' }}>
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
                   Tegenstander ({oppAvailable} beschikbaar)
@@ -3780,8 +3866,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                   <div className="flex items-center justify-center gap-2.5 mt-1">
                     <button onClick={() => setScoreOwn(s => Math.max(0, s - 1))} disabled={readOnly}
                       className="w-7 h-7 rounded-lg font-bold text-sm disabled:opacity-50" style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>−</button>
-                    <span className="font-mono font-bold text-xl w-6 text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{scoreOwn}</span>
-                    <button onClick={() => setScoreOwn(s => s + 1)} disabled={readOnly}
+                    <span key={scoreOwn} className="score-pop font-mono font-bold text-xl w-6 text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{scoreOwn}</span>
+                    <button onClick={() => { setScoreOwn(s => s + 1); triggerFlash('⚽', 'Doelpunt!', '#16A34A') }} disabled={readOnly}
                       className="w-7 h-7 rounded-lg font-bold text-sm text-white disabled:opacity-50" style={{ background: 'var(--brand-1a3fab)' }}>+</button>
                   </div>
                 </div>
@@ -3791,8 +3877,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                   <div className="flex items-center justify-center gap-2.5 mt-1">
                     <button onClick={() => setScoreOpp(s => Math.max(0, s - 1))} disabled={readOnly}
                       className="w-7 h-7 rounded-lg font-bold text-sm disabled:opacity-50" style={{ background: 'var(--brand-d0dcfa)', color: 'var(--brand-1a3fab)' }}>−</button>
-                    <span className="font-mono font-bold text-xl w-6 text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{scoreOpp}</span>
-                    <button onClick={() => setScoreOpp(s => s + 1)} disabled={readOnly}
+                    <span key={scoreOpp} className="score-pop font-mono font-bold text-xl w-6 text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{scoreOpp}</span>
+                    <button onClick={() => { setScoreOpp(s => s + 1); triggerFlash('🥅', 'Tegendoelpunt', '#6B7280') }} disabled={readOnly}
                       className="w-7 h-7 rounded-lg font-bold text-sm text-white disabled:opacity-50" style={{ background: 'var(--brand-1a3fab)' }}>+</button>
                   </div>
                 </div>
@@ -3865,6 +3951,10 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                 <button onClick={() => {
                   if (readOnly || !cardPlayerId) return
                   setCards(c => [...c, { id: uid(), playerId: cardPlayerId, color: cardColor, gameTimeSec: gameSec }])
+                  triggerFlash(
+                    cardColor === 'green' ? '🟩' : cardColor === 'yellow' ? '🟨' : '🟥',
+                    `${cardColor === 'green' ? 'Groene' : cardColor === 'yellow' ? 'Gele' : 'Rode'} kaart`,
+                    cardColor === 'green' ? '#16A34A' : cardColor === 'yellow' ? '#D97706' : '#DC2626')
                   // A red card ends the player's match — take them off the
                   // field immediately rather than leaving it to be noticed
                   // (and enforced) only the next time someone tries to sub
@@ -4441,27 +4531,34 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, on
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-8">
-        {!authLoading && !user ? (
-          <div className="text-center py-20">
-            <div className="text-5xl mb-4">🔒</div>
-            <p className="font-display text-xl font-bold uppercase mb-3" style={{ color: 'var(--brand-a8bef0)' }}>Log in om je wedstrijden te zien</p>
-            <button onClick={onProfile}
-              className="px-4 py-2.5 rounded-xl font-bold text-sm text-white"
-              style={{ background: 'var(--brand-1a3fab)' }}>
-              Naar profiel →
-            </button>
-          </div>
+        {authLoading ? (
+          <Spinner />
+        ) : !user ? (
+          <EmptyState icon={<span className="text-2xl">🔒</span>}
+            title="Log in om je wedstrijden te zien"
+            action={
+              <button onClick={onProfile}
+                className="px-4 py-2.5 rounded-xl font-bold text-sm text-white"
+                style={{ background: 'var(--brand-1a3fab)' }}>
+                Naar profiel →
+              </button>
+            } />
         ) : games.length === 0 ? (
-          <div className="text-center py-20">
-            <div className="text-5xl mb-4">🏑</div>
-            <p className="font-display text-xl font-bold uppercase" style={{ color: 'var(--brand-a8bef0)' }}>Nog geen wedstrijden</p>
-          </div>
+          <EmptyState icon={<IconPitch size={24} />}
+            title="Nog geen wedstrijden"
+            subtitle="Maak je eerste wedstrijd aan om spelers, opstelling en score bij te houden."
+            action={
+              <button onClick={onCreateMatch}
+                className="px-4 py-2.5 rounded-xl font-bold text-sm text-white"
+                style={{ background: 'var(--brand-1a3fab)' }}>
+                + Wedstrijd aanmaken
+              </button>
+            } />
         ) : (
           <div className="space-y-3">
             {filteredGames.length === 0 ? (
-              <p className="text-sm text-center py-10" style={{ color: 'var(--brand-a8bef0)' }}>
-                {filter === 'upcoming' ? 'Geen aankomende wedstrijden' : 'Geen gespeelde wedstrijden'}
-              </p>
+              <EmptyState compact icon={<IconCalendar size={20} />}
+                title={filter === 'upcoming' ? 'Geen aankomende wedstrijden' : 'Geen gespeelde wedstrijden'} />
             ) : (
               <div className="bg-white rounded-2xl overflow-hidden shadow-sm divide-y" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
                 {filteredGames.map(renderGame)}
@@ -4897,7 +4994,7 @@ function TeamPlayerPhotos({ team, canEditPhotos, canAddPlayer, canManageRoster, 
     }
   }
 
-  if (loading) return <p className="text-sm text-center py-4" style={{ color: 'var(--brand-a8bef0)' }}>Laden…</p>
+  if (loading) return <Spinner />
 
   return (
     <div>
@@ -5264,9 +5361,9 @@ function PlayerProfileView({ playerId, team, games, user, onBack }: {
       </div>
 
       {!player ? (
-        <p className="text-sm text-center py-20" style={{ color: 'var(--brand-a8bef0)' }}>
-          {players === null ? 'Laden…' : 'Speler niet gevonden.'}
-        </p>
+        players === null ? <Spinner /> : (
+          <EmptyState icon={<IconUsers size={24} />} title="Speler niet gevonden" />
+        )
       ) : (
         <div className="max-w-2xl mx-auto px-4 -mt-8 pb-8 space-y-4">
           <div className="bg-white rounded-2xl p-5 shadow-lg" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
@@ -5288,7 +5385,7 @@ function PlayerProfileView({ playerId, team, games, user, onBack }: {
               Minuten gespeeld — laatste 5 wedstrijden
             </h2>
             {last5.length === 0 ? (
-              <p className="text-sm" style={{ color: 'var(--brand-a8bef0)' }}>Nog geen speeltijd geregistreerd.</p>
+              <EmptyState compact title="Nog geen speeltijd geregistreerd" />
             ) : (
               <div className="flex items-end justify-between gap-2" style={{ height: 96 }}>
                 {last5.map(g => {
@@ -5354,9 +5451,9 @@ function StaffProfileView({ staffId, team, onBack }: { staffId: string; team: st
       </div>
 
       {!member ? (
-        <p className="text-sm text-center py-20" style={{ color: 'var(--brand-a8bef0)' }}>
-          {staff === null ? 'Laden…' : 'Niet gevonden.'}
-        </p>
+        staff === null ? <Spinner /> : (
+          <EmptyState icon={<IconUsers size={24} />} title="Niet gevonden" />
+        )
       ) : (
         <div className="max-w-2xl mx-auto px-4 -mt-8 pb-8 space-y-4">
           <div className="bg-white rounded-2xl p-5 shadow-lg" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
@@ -5576,7 +5673,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
       <div className="max-w-2xl mx-auto px-4 py-8">
         <section className="bg-white rounded-2xl p-6 shadow-sm" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
           {loading ? (
-            <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Laden…</p>
+            <Spinner />
           ) : user ? (
             <div className="space-y-5">
               <div className="flex items-start justify-between gap-4">
@@ -5746,11 +5843,11 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                 placeholder="Zoek op naam, e-mail, team, club of rol…" />
             )}
             {adminLoading ? (
-              <p className="text-sm text-center py-4" style={{ color: 'var(--brand-a8bef0)' }}>Laden…</p>
+              <Spinner />
             ) : adminError ? (
               <p className="text-sm font-semibold" style={{ color: '#DC2626' }}>{adminError}</p>
             ) : adminUsers.length === 0 ? (
-              <p className="text-sm" style={{ color: 'var(--brand-7b90c8)' }}>Nog geen gebruikers.</p>
+              <EmptyState compact icon={<IconUsers size={20} />} title="Nog geen gebruikers" />
             ) : (() => {
               const q = userSearch.trim().toLowerCase()
               const filteredUsers = q
@@ -5848,11 +5945,11 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                 placeholder="Zoek team…" />
             )}
             {adminTeamsLoading ? (
-              <p className="text-sm text-center py-4" style={{ color: 'var(--brand-a8bef0)' }}>Laden…</p>
+              <Spinner />
             ) : adminTeamsError ? (
               <p className="text-sm font-semibold" style={{ color: '#DC2626' }}>{adminTeamsError}</p>
             ) : adminTeams.length === 0 ? (
-              <p className="text-sm" style={{ color: 'var(--brand-7b90c8)' }}>Nog geen teams.</p>
+              <EmptyState compact icon={<IconPitch size={20} />} title="Nog geen teams" />
             ) : (() => {
               const q = teamSearch.trim().toLowerCase()
               const filtered = q ? adminTeams.filter(t => t.name.toLowerCase().includes(q)) : adminTeams
@@ -6883,9 +6980,9 @@ function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, n
         {activeId ? (
           <div className="space-y-3">
             {loadingThread ? (
-              <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Laden…</p>
+              <Spinner />
             ) : messages.length === 0 ? (
-              <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Nog geen berichten. Stuur de eerste!</p>
+              <EmptyState compact icon={<IconMail size={20} />} title="Nog geen berichten" subtitle="Stuur de eerste!" />
             ) : (
               messages.map(m => (
                 <div key={m.id} className={`flex ${m.mine ? 'justify-end' : 'justify-start'}`}>
@@ -6927,9 +7024,8 @@ function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, n
               <button onClick={() => setShowContactPicker(false)} className="text-sm font-semibold" style={{ color: 'var(--brand-1a3fab)' }}>Annuleren</button>
             </div>
             {contacts.length === 0 ? (
-              <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>
-                Geen coaches of trainers gevonden om een bericht naar te sturen.
-              </p>
+              <EmptyState compact icon={<IconUsers size={20} />} title="Geen contacten gevonden"
+                subtitle="Er zijn geen coaches of trainers om een bericht naar te sturen." />
             ) : (
               contacts.map(c => (
                 <button key={c.id} onClick={() => openThread(c.id, c.name)}
@@ -6958,11 +7054,15 @@ function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, n
               )}
             </div>
             {loadingConversations ? (
-              <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Laden…</p>
+              <Spinner />
             ) : conversations.length === 0 ? (
-              <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>
-                {canSend ? 'Nog geen gesprekken. Start er één met "+ Nieuw".' : 'Nog geen gesprekken.'}
-              </p>
+              <EmptyState icon={<IconMail size={24} />} title="Nog geen gesprekken"
+                subtitle={canSend ? 'Start er één met "+ Nieuw".' : undefined}
+                action={canSend ? (
+                  <button onClick={() => setShowContactPicker(true)} className="px-4 py-2.5 rounded-xl font-bold text-white text-sm" style={{ background: 'var(--brand-1a3fab)' }}>
+                    + Nieuw
+                  </button>
+                ) : undefined} />
             ) : (
               conversations.map(c => (
                 <button key={c.userId} onClick={() => openThread(c.userId, c.name)}
