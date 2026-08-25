@@ -172,6 +172,7 @@ export const TEAM_FIXTURES: Record<string, { date: string; opponent: string; hom
 // fixture's age group correctly; doesn't need the full AGE_CONFIG validation
 // the frontend version has, since every key above is already known-valid.
 export function ageGroupFromTeamName(team: string): string {
+  if (team === 'Senioren' || /^(Dames|Heren)\b/i.test(team)) return 'Senioren'
   const m = team.match(/^[MJ]O(\d+)/i)
   return m ? `U${m[1]}` : 'U7'
 }
