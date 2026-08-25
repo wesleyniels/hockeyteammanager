@@ -271,6 +271,16 @@ function matchKnhbClub(s: string): string {
   return best || s
 }
 
+// Splits a full "<club> <team>" string (e.g. an opponent field like
+// "Amsterdam MO11-1") into its club and team parts, for showing them on two
+// stacked lines under a club logo — falls back to an empty team line if no
+// KNHB club prefix matches.
+function splitClubAndTeam(full: string): [string, string] {
+  const club = matchKnhbClub(full)
+  const team = full === club ? '' : full.slice(club.length).trim()
+  return [club, team]
+}
+
 // ── Age group config ─────────────────────────────────────────────────────────
 
 // `periods` x `periodSec` is each age group's official KNHB match format —
@@ -2298,6 +2308,8 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
   const lastPlayed = [...games]
     .filter(g => g.finalTime > 0 || g.date < todayStr())
     .sort((a, b) => b.date.localeCompare(a.date))[0] ?? null
+  const nextMatchOpponent = nextMatch ? splitClubAndTeam(nextMatch.opponent) : null
+  const lastPlayedOpponent = lastPlayed ? splitClubAndTeam(lastPlayed.opponent) : null
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
@@ -2334,22 +2346,29 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
-        {nextMatch && (
+        {nextMatch && nextMatchOpponent && (
           <section className="rounded-2xl p-6 text-white shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
-            <h2 className="font-display text-xs font-bold uppercase mb-3" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.14em' }}>
+            <h2 className="font-display text-xs font-bold uppercase mb-4" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.14em' }}>
               Volgende wedstrijd
             </h2>
-            <div className="flex items-center gap-3">
-              <ClubLogo club={nextMatch.club} size={40} />
-              <span className="font-display text-lg font-bold uppercase" style={{ color: 'var(--brand-a8bef0)' }}>
+            <div className="flex items-center justify-center gap-4">
+              <div className="flex-1 flex flex-col items-center gap-2 min-w-0">
+                <ClubLogo club={nextMatch.club} size={64} />
+                <p className="text-xs font-semibold text-center leading-tight" style={{ color: 'var(--brand-a8bef0)' }}>
+                  {nextMatch.club}<br />{nextMatch.team}
+                </p>
+              </div>
+              <span className="font-display text-xs font-bold uppercase shrink-0" style={{ color: 'var(--brand-a8bef0)' }}>
                 {nextMatch.homeAway === 'Thuis' ? 'Thuis' : 'Uit'}
               </span>
-              <ClubLogo club={matchKnhbClub(nextMatch.opponent)} size={40} />
+              <div className="flex-1 flex flex-col items-center gap-2 min-w-0">
+                <ClubLogo club={matchKnhbClub(nextMatch.opponent)} size={64} />
+                <p className="text-xs font-semibold text-center leading-tight" style={{ color: 'var(--brand-a8bef0)' }}>
+                  {nextMatchOpponent[0]}<br />{nextMatchOpponent[1]}
+                </p>
+              </div>
             </div>
-            <p className="font-display text-xl font-bold mt-3 leading-tight">
-              {nextMatch.club} {nextMatch.team} <span style={{ color: 'var(--brand-a8bef0)', fontWeight: 400 }}>vs</span> {nextMatch.opponent}
-            </p>
-            <p className="text-sm mt-1" style={{ color: 'var(--brand-a8bef0)' }}>
+            <p className="text-sm text-center mt-4" style={{ color: 'var(--brand-a8bef0)' }}>
               {new Date(nextMatch.date).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })}
             </p>
             <button onClick={() => onEditGame(nextMatch)}
@@ -2361,27 +2380,36 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
         )}
 
         <section className="bg-white rounded-2xl p-6 shadow-sm" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
-          <h2 className="font-display text-xs font-bold uppercase mb-3" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.14em' }}>
+          <h2 className="font-display text-xs font-bold uppercase mb-4" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.14em' }}>
             Laatste resultaat
           </h2>
-          {lastPlayed ? (
+          {lastPlayed && lastPlayedOpponent ? (
             <>
-              <div className="flex items-center gap-3">
-                <ClubLogo club={lastPlayed.club} size={36} />
-                <span className="font-display text-2xl font-bold" style={{ color: 'var(--brand-0d2b7a)' }}>
+              <div className="flex items-center justify-center gap-4">
+                <div className="flex-1 flex flex-col items-center gap-2 min-w-0">
+                  <ClubLogo club={lastPlayed.club} size={64} />
+                  <p className="text-xs font-semibold text-center leading-tight" style={{ color: 'var(--brand-1a2f6b)' }}>
+                    {lastPlayed.club}<br />{lastPlayed.team}
+                  </p>
+                </div>
+                <span className="font-display text-2xl font-bold shrink-0" style={{ color: 'var(--brand-0d2b7a)' }}>
                   {lastPlayed.scoreOwn} - {lastPlayed.scoreOpp}
                 </span>
-                <ClubLogo club={matchKnhbClub(lastPlayed.opponent)} size={36} />
+                <div className="flex-1 flex flex-col items-center gap-2 min-w-0">
+                  <ClubLogo club={matchKnhbClub(lastPlayed.opponent)} size={64} />
+                  <p className="text-xs font-semibold text-center leading-tight" style={{ color: 'var(--brand-1a2f6b)' }}>
+                    {lastPlayedOpponent[0]}<br />{lastPlayedOpponent[1]}
+                  </p>
+                </div>
               </div>
-              <p className="text-sm font-semibold mt-3" style={{ color: 'var(--brand-1a2f6b)' }}>
-                {lastPlayed.club} {lastPlayed.team} <span style={{ color: 'var(--brand-a8bef0)', fontWeight: 400 }}>vs</span> {lastPlayed.opponent}
+              <p className="text-xs text-center mt-3" style={{ color: 'var(--brand-a8bef0)' }}>
+                Eindstand · {new Date(lastPlayed.date).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })}
               </p>
-              <p className="text-xs mt-1" style={{ color: 'var(--brand-a8bef0)' }}>
-                {new Date(lastPlayed.date).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'long' })}
-              </p>
-              <button onClick={() => onOpenMatch(lastPlayed.id)} className="text-sm font-bold mt-3" style={{ color: 'var(--brand-1a3fab)' }}>
-                Bekijk wedstrijd →
-              </button>
+              <div className="text-center mt-3">
+                <button onClick={() => onOpenMatch(lastPlayed.id)} className="text-sm font-bold" style={{ color: 'var(--brand-1a3fab)' }}>
+                  Bekijk wedstrijd →
+                </button>
+              </div>
             </>
           ) : (
             <p className="text-sm py-2" style={{ color: 'var(--brand-a8bef0)' }}>Geen resultaten beschikbaar</p>
