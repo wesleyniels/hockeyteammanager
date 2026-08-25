@@ -1,6 +1,12 @@
-import { version as CURRENT_VERSION } from '../../package.json'
-
-export { CURRENT_VERSION }
+// Deliberately hardcoded rather than imported from package.json: this is
+// the only file under api/ that would otherwise reach outside the api/
+// directory, and Vercel's serverless function bundler traces/packages each
+// function's files independently — a cross-boundary import here is exactly
+// the kind of thing that can build fine locally and 500 on every route in
+// production. Bump this by hand alongside package.json's "version" (and the
+// src/App.tsx footer's import, which goes through Vite's bundler instead
+// and doesn't have this risk) whenever shipping a new release.
+export const CURRENT_VERSION = '1.1.0'
 
 // Human-readable "what's new" notes, broadcast to every account's Meldingen
 // the first time the app boots on a version not yet announced (see
