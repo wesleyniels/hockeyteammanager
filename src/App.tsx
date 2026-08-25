@@ -7080,10 +7080,13 @@ function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, n
           </div>
         ) : showContactPicker ? (
           <div className="space-y-2">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-0.5">
               <h2 className="font-display text-lg font-bold uppercase" style={{ color: 'var(--brand-0d2b7a)' }}>Nieuw bericht</h2>
               <button onClick={() => setShowContactPicker(false)} className="text-sm font-semibold" style={{ color: 'var(--brand-1a3fab)' }}>Annuleren</button>
             </div>
+            {contacts.length > 0 && (
+              <p className="text-xs mb-2" style={{ color: 'var(--brand-7b90c8)' }}>Kies naar wie je een bericht wilt sturen</p>
+            )}
             {contacts.length === 0 ? (
               <EmptyState compact icon={<IconUsers size={20} />} title="Geen contacten gevonden"
                 subtitle="Er zijn geen coaches of trainers om een bericht naar te sturen." />
@@ -7096,9 +7099,12 @@ function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, n
                     style={{ background: c.isHockeyOne ? 'var(--brand-2563eb)' : 'var(--brand-1a3fab)' }}>
                     {c.isHockeyOne ? 'H1' : initials(c.name)}
                   </div>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="text-sm font-bold truncate" style={{ color: 'var(--brand-1a2f6b)' }}>{c.name}</div>
                     <div className="text-xs truncate" style={{ color: 'var(--brand-7b90c8)' }}>{c.role ?? ''}{c.defaultClub ? ` · ${c.defaultClub}` : ''}</div>
+                  </div>
+                  <div style={{ color: 'var(--brand-a8bef0)' }} className="shrink-0">
+                    <IconChevronRight size={18} />
                   </div>
                 </button>
               ))
