@@ -4332,6 +4332,7 @@ function MatchDetailSections({ g, user, getPlayer, canManageSharing, shares, add
   onEdit: (game: SavedGame) => void
   onDelete: (id: string) => void
 }) {
+  const isAdmin = (user?.email?.toLowerCase() === ADMIN_EMAIL || user?.email?.toLowerCase() === HOCKEY_ONE_EMAIL)
   return (
     <div className="space-y-4">
       <div>
@@ -4467,7 +4468,7 @@ function MatchDetailSections({ g, user, getPlayer, canManageSharing, shares, add
           style={{ background: 'var(--brand-1a3fab)' }}>
           {(g.permission ?? 'owner') === 'view' ? 'Bekijken' : 'Bewerken'}
         </button>
-        {(!g.ownerId || g.ownerId === user?.id) && (
+        {(!g.ownerId || g.ownerId === user?.id || isAdmin) && (
           <button onClick={() => { if (confirm('Wedstrijd verwijderen?')) onDelete(g.id) }}
             className="text-xs font-bold px-3 py-1.5 rounded-lg"
             style={{ color: '#DC2626', border: '1px solid #FCA5A5' }}>
