@@ -105,6 +105,11 @@ interface SavedGame {
   oppMarkers: OppMarker[]
   goals: Goal[]
   cards: Card[]
+  // Players ruled out for this specific match (injury, no-show, etc.) — kept
+  // separate from the squad itself so they still show up (as unavailable)
+  // instead of just vanishing from the roster. Optional because older saved
+  // games predate this field; missing means "no one was marked unavailable".
+  unavailableIds?: string[]
   tacticsBoards: TacticsBoard[]
   playedSeconds: Record<string, number>
   media: MediaItem[]
@@ -2823,6 +2828,15 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   // tracked separately, so undoing a mis-given card (the × next to it)
   // immediately lifts the restriction again.
   const redCardedIds = new Set(cards.filter(c => c.color === 'red').map(c => c.playerId))
+  // Ruled out for this match (injury, no-show, etc.) — toggled from the bench
+  // list. Kept as a plain array in state (for JSON persistence) with a Set
+  // derived here for fast lookup, same split as bench/benchPlayers below.
+  const [unavailableIds, setUnavailableIds] = useState<string[]>(() => initial?.unavailableIds ?? [])
+  const unavailableSet = new Set(unavailableIds)
+  const toggleUnavailable = (playerId: string) => {
+    if (readOnly) return
+    setUnavailableIds(ids => ids.includes(playerId) ? ids.filter(id => id !== playerId) : [...ids, playerId])
+  }
   // A brand-new board starts seeded with whoever's currently on the field
   // (their live slot positions) instead of blank — without this, the tactics
   // board looked empty and un-interactive on first open (the live squad shown
@@ -2920,7 +2934,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   // change pushes the state *before* that change onto a stack; Herstel pops
   // and restores it, one click per change, all the way back to the state
   // the match started in.
-  const tracked = { slots, bench, subs, oppMarkers, goals, cards, tacticsBoards, notes, scoreOwn, scoreOpp, currentPeriod, periodStartSec }
+  const tracked = { slots, bench, subs, oppMarkers, goals, cards, unavailableIds, tacticsBoards, notes, scoreOwn, scoreOpp, currentPeriod, periodStartSec }
   const historyRef = useRef<(typeof tracked)[]>([])
   const lastTrackedRef = useRef(tracked)
   const isFirstTrackRef = useRef(true)
@@ -2949,7 +2963,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
     lastTrackedRef.current = tracked
     scheduleSave()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slots, bench, subs, oppMarkers, goals, cards, tacticsBoards, notes, scoreOwn, scoreOpp, currentPeriod, periodStartSec])
+  }, [slots, bench, subs, oppMarkers, goals, cards, unavailableIds, tacticsBoards, notes, scoreOwn, scoreOpp, currentPeriod, periodStartSec])
 
   const isFirstMediaRef = useRef(true)
   useEffect(() => {
@@ -2990,6 +3004,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
     setOppMarkers(prev.oppMarkers)
     setGoals(prev.goals)
     setCards(prev.cards)
+    setUnavailableIds(prev.unavailableIds)
     setTacticsBoards(prev.tacticsBoards)
     setNotes(prev.notes)
     setScoreOwn(prev.scoreOwn)
@@ -3006,13 +3021,13 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   const canReset = user?.role === 'Coach' || user?.role === 'Trainer' || user?.role === 'Trainer & Coach'
   // Puts everything that happens *during* a match back to a blank slate —
   // score, field/bench assignments, goals, cards, tactics boards, played
-  // time, notes and the clock/period. Squad and media are deliberately left
-  // alone: who's called up isn't something that goes wrong mid-match the
-  // way a live scoreboard can, and clearing uploaded photos/videos would
-  // need its own confirmation and Blob cleanup — out of scope for "start
-  // the match over". Goes through the same tracked-state fields Herstel
-  // already watches, so the reset itself is one more undo step, not a
-  // point of no return.
+  // time, notes and the clock/period. Squad, media and unavailableIds are
+  // deliberately left alone: who's called up (and who isn't) isn't something
+  // that goes wrong mid-match the way a live scoreboard can, and clearing
+  // uploaded photos/videos would need its own confirmation and Blob cleanup
+  // — out of scope for "start the match over". Goes through the same
+  // tracked-state fields Herstel already watches, so the reset itself is one
+  // more undo step, not a point of no return.
   const resetGame = () => {
     if (readOnly || !canReset) return
     if (!confirm('Weet u zeker dat u de wedstrijd wilt resetten?')) return
@@ -3153,7 +3168,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   }
 
   const doSub = (inId: string, posId: string) => {
-    if (readOnly || redCardedIds.has(inId)) return
+    if (readOnly || redCardedIds.has(inId) || unavailableSet.has(inId)) return
     const pos = slots.find(s => s.posId === posId)
     const outId = pos?.playerId ?? null
     setSlots(sl => sl.map(s => s.posId === posId ? { ...s, playerId: inId } : s))
@@ -3321,7 +3336,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   }, [])
 
   const beginDrag = (type: DragKind, id: string, e: React.PointerEvent) => {
-    if (readOnly || (type === 'bench' && redCardedIds.has(id))) return
+    if (readOnly || (type === 'bench' && (redCardedIds.has(id) || unavailableSet.has(id)))) return
     dragInfoRef.current = { type, id }
     dragStartRef.current = { x: e.clientX, y: e.clientY }
   }
@@ -3355,7 +3370,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   }
 
   const handleBenchClick = (playerId: string) => {
-    if (suppressClickRef.current || readOnly || redCardedIds.has(playerId)) return
+    if (suppressClickRef.current || readOnly || redCardedIds.has(playerId) || unavailableSet.has(playerId)) return
     if (selected?.type === 'field') {
       doSub(playerId, selected.posId)
     } else if (selected?.type === 'bench' && selected.playerId === playerId) {
@@ -3483,7 +3498,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   const buildSnapshot = (): SavedGame => ({
     id: gameId,
     date: gameDate,
-    club, team, ageGroup, opponent, homeAway, squad, slots, subs, oppMarkers, goals, cards, tacticsBoards, playedSeconds, media, notes, result,
+    club, team, ageGroup, opponent, homeAway, squad, slots, subs, oppMarkers, goals, cards, unavailableIds, tacticsBoards, playedSeconds, media, notes, result,
     scoreOwn, scoreOpp,
     finalTime: gameSec,
     currentPeriod, periodStartSec,
@@ -3773,12 +3788,25 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                     const isSel = selected?.type === 'bench' && selected.playerId === playerId
                     const isBeingDragged = dragPreview?.type === 'bench' && dragPreview.id === playerId
                     const isRedCarded = redCardedIds.has(playerId)
+                    const isUnavailable = unavailableSet.has(playerId)
+                    const isBlocked = isRedCarded || isUnavailable
                     return (
                       <div key={playerId}
-                        className={`flex flex-col items-center gap-1 shrink-0 w-16 touch-none select-none ${isRedCarded ? 'cursor-not-allowed' : 'cursor-grab'}`}
-                        style={{ opacity: isBeingDragged ? 0.35 : isRedCarded ? 0.6 : 1 }}
+                        className={`relative flex flex-col items-center gap-1 shrink-0 w-16 touch-none select-none ${isBlocked ? 'cursor-not-allowed' : 'cursor-grab'}`}
+                        style={{ opacity: isBeingDragged ? 0.35 : isBlocked ? 0.6 : 1 }}
                         onPointerDown={e => beginDrag('bench', playerId, e)}
                         onClick={() => handleBenchClick(playerId)}>
+                        {!readOnly && (
+                          <button onClick={e => { e.stopPropagation(); toggleUnavailable(playerId) }}
+                            onPointerDown={e => e.stopPropagation()}
+                            title={isUnavailable ? 'Weer beschikbaar maken' : 'Markeer als niet beschikbaar voor deze wedstrijd'}
+                            className="absolute top-0 right-1 z-10 w-4 h-4 rounded-full flex items-center justify-center"
+                            style={isUnavailable
+                              ? { background: '#6B7280', color: '#fff' }
+                              : { background: '#fff', border: '1.5px solid var(--brand-d0dcfa)' }}>
+                            {isUnavailable && <span style={{ fontSize: '9px', lineHeight: 1 }}>×</span>}
+                          </button>
+                        )}
                         <div className="relative w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden"
                           style={{ background: 'var(--brand-1a3fab)', border: isSel ? '2.5px solid var(--brand-0d2b7a)' : '2px solid transparent' }}>
                           {player.photoUrl ? (
@@ -3791,10 +3819,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                           )}
                         </div>
                         <span className="text-xs font-semibold truncate w-full text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{firstName(player.name)}</span>
-                        <span className="font-mono text-[10px] font-bold"
-                          style={{ color: gameSec > 0 ? benchColor(elapsed) : 'var(--brand-a8bef0)' }}>
-                          {gameSec > 0 ? fmtSec(elapsed) : '—:—'}
-                        </span>
+                        {isUnavailable ? (
+                          <span className="text-[10px] font-bold" style={{ color: '#6B7280' }}>Afwezig</span>
+                        ) : (
+                          <span className="font-mono text-[10px] font-bold"
+                            style={{ color: gameSec > 0 ? benchColor(elapsed) : 'var(--brand-a8bef0)' }}>
+                            {gameSec > 0 ? fmtSec(elapsed) : '—:—'}
+                          </span>
+                        )}
                         {isSel && <span className="text-xs font-bold" style={{ color: 'var(--brand-1a3fab)' }}>↔</span>}
                       </div>
                     )
