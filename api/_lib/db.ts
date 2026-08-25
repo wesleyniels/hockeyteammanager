@@ -83,10 +83,14 @@ async function seedTeams() {
 // visible (see the GET/PUT handlers in games.ts) to every coach, trainer,
 // player, and supporter whose own default_team matches, not just whoever
 // happened to trigger an import. Ids are deterministic
-// (fixture-<team-slug>-<date>), so ON CONFLICT DO NOTHING makes the whole
-// batch safely re-runnable — this can just run on every cold start instead
-// of needing an "already seeded" flag, and picks up newly-added teams or
-// fixtures on the next deploy without wiping existing ones.
+// (fixture-<team-slug>-<date>[-<n>]), so ON CONFLICT DO NOTHING makes the
+// whole batch safely re-runnable — this can just run on every cold start
+// instead of needing an "already seeded" flag, and picks up newly-added
+// teams or fixtures on the next deploy without wiping existing ones. The
+// `-<n>` suffix only appears on the 2nd+ fixture a team has on the same
+// date (the senior Mix Hockey7 teams play two matches some evenings) —
+// every existing team+date pair has exactly one fixture and keeps its
+// original bare id, so this doesn't reseed anything already inserted.
 //
 // 'hockey-one' / 'admin@hockeyone.nl' here must stay in sync with
 // HOCKEY_ONE_ID/HOCKEY_ONE_EMAIL in _lib/messages.ts — duplicated rather
@@ -96,8 +100,11 @@ async function seedTeamFixtures() {
   const ids: string[] = []
   const datas: string[] = []
   for (const [team, fixtures] of Object.entries(TEAM_FIXTURES)) {
+    const seenDates = new Map<string, number>()
     for (const fx of fixtures) {
-      const id = `fixture-${slugify(team)}-${fx.date}`
+      const occurrence = (seenDates.get(fx.date) ?? 0) + 1
+      seenDates.set(fx.date, occurrence)
+      const id = occurrence === 1 ? `fixture-${slugify(team)}-${fx.date}` : `fixture-${slugify(team)}-${fx.date}-${occurrence}`
       ids.push(id)
       datas.push(JSON.stringify({
         id, date: fx.date, club: 'SC Muiden', team, ageGroup: ageGroupFromTeamName(team),

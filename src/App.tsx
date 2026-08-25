@@ -249,6 +249,7 @@ const CLUB_NAME_ALIASES: Record<string, string> = {
   'Hurley': 'THC Hurley',
   'Soest': 'MHC Soest',
   'SCHC': 'Stichtsche Cricket & Hockey Club',
+  'Kampong': 'SV Kampong Hockey',
 }
 
 // A game's `opponent` field is a free-text "club + team" string (e.g.
@@ -297,7 +298,9 @@ const AGE_CONFIG: Record<AgeGroup, { total: number; field: number; label: string
 // fetchTeamNames()/fetchTeamRoster() below.
 
 function ageGroupFromTeamName(team: string): AgeGroup {
-  if (team === 'Senioren') return 'Senioren'
+  // "Senioren" is the generic logged-out category; real senior teams are
+  // named "Dames S<n>" / "Heren S<n>" per the club's own team list.
+  if (team === 'Senioren' || /^(Dames|Heren)\b/i.test(team)) return 'Senioren'
   const m = team.match(/^[MJ]O(\d+)/i)
   const candidate = m ? (`U${m[1]}` as AgeGroup) : null
   return candidate && candidate in AGE_CONFIG ? candidate : 'U7'
