@@ -249,6 +249,7 @@ const CLUB_NAME_ALIASES: Record<string, string> = {
   'Hurley': 'THC Hurley',
   'Soest': 'MHC Soest',
   'SCHC': 'Stichtsche Cricket & Hockey Club',
+  'Kampong': 'SV Kampong Hockey',
 }
 
 // A game's `opponent` field is a free-text "club + team" string (e.g.

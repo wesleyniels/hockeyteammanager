@@ -11,6 +11,18 @@
 // for that age group. Re-transcribe by hand next season rather than
 // building a standing scraper.
 //
+// 'Dames S1'/'Dames S2'/'Heren S1' added later (read 2026-08-26) from
+// knhb.nl/match-center's direct per-team deep links — the /match-center
+// landing page still never loads real data for an automated browser, but a
+// direct #/team/<id>|<id>/program link does render. Only the "Herfst"
+// (autumn) poule's schedule was transcribed; each team's KNHB page also
+// lists "Winter" and "Lente" poules whose fixtures weren't reachable
+// (the poule-switcher dropdown wouldn't respond to automated clicks) — add
+// those by hand once that part of the season is underway. These three teams
+// play "Mix Hockey7" (7-a-side) rather than full 11-a-side, hence two
+// fixtures on some dates and opponent team codes like HS1/DS1/DS4 instead
+// of the youth teams' MO/JO-number-1/2/3 style.
+//
 // Seeded once into the `games` table (see seedTeamFixtures in db.ts) under
 // the Hockey One system account, and made visible to every user whose own
 // default_team matches — see the GET/PUT handlers in api/games.ts.
@@ -164,6 +176,48 @@ export const TEAM_FIXTURES: Record<string, { date: string; opponent: string; hom
     { date: '2026-09-19', opponent: 'Loenense MHC JO11-1', homeAway: 'Uit' },
     { date: '2026-09-26', opponent: 'Amsterdam JO11-1', homeAway: 'Uit' },
     { date: '2026-10-03', opponent: 'Hockey Club Naarden JO11-1', homeAway: 'Thuis' },
+  ],
+  'Dames S1': [
+    { date: '2026-09-04', opponent: 'MHV Maarssen DS1', homeAway: 'Thuis' },
+    { date: '2026-09-04', opponent: 'Kampong DS4', homeAway: 'Thuis' },
+    { date: '2026-09-18', opponent: 'Kampong DS4', homeAway: 'Uit' },
+    { date: '2026-09-18', opponent: 'MHV Maarssen DS1', homeAway: 'Uit' },
+    { date: '2026-10-02', opponent: 'Kampong DS4', homeAway: 'Uit' },
+    { date: '2026-10-02', opponent: 'MHV Maarssen DS1', homeAway: 'Thuis' },
+    { date: '2026-10-30', opponent: 'Hilversum DS1', homeAway: 'Uit' },
+    { date: '2026-10-30', opponent: 'Hockey Club Houten DS1', homeAway: 'Thuis' },
+    { date: '2026-11-13', opponent: 'Hilversum DS1', homeAway: 'Uit' },
+    { date: '2026-11-13', opponent: 'Hockey Club Houten DS1', homeAway: 'Uit' },
+    { date: '2026-11-27', opponent: 'Hockey Club Houten DS1', homeAway: 'Uit' },
+    { date: '2026-11-27', opponent: 'Hilversum DS1', homeAway: 'Thuis' },
+  ],
+  'Dames S2': [
+    { date: '2026-09-04', opponent: 'MHC Muiderberg DS1', homeAway: 'Thuis' },
+    { date: '2026-09-04', opponent: 'Gooische Hockey Club DS1', homeAway: 'Thuis' },
+    { date: '2026-09-18', opponent: 'M.H.C. Weesp DS1', homeAway: 'Uit' },
+    { date: '2026-09-18', opponent: 'MHC Muiderberg DS1', homeAway: 'Thuis' },
+    { date: '2026-10-02', opponent: 'M.H.C. Weesp DS1', homeAway: 'Thuis' },
+    { date: '2026-10-02', opponent: 'M.H.C. Weesp DS2', homeAway: 'Uit' },
+    { date: '2026-10-30', opponent: 'MHC Muiderberg DS1', homeAway: 'Uit' },
+    { date: '2026-10-30', opponent: 'Gooische Hockey Club DS1', homeAway: 'Uit' },
+    { date: '2026-11-13', opponent: 'M.H.C. Weesp DS2', homeAway: 'Thuis' },
+    { date: '2026-11-13', opponent: 'Gooische Hockey Club DS2', homeAway: 'Uit' },
+    { date: '2026-11-27', opponent: 'Gooische Hockey Club DS2', homeAway: 'Uit' },
+    { date: '2026-11-27', opponent: 'Gooische Hockey Club DS1', homeAway: 'Uit' },
+  ],
+  'Heren S1': [
+    { date: '2026-09-04', opponent: 'Gooische Hockey Club HS1', homeAway: 'Uit' },
+    { date: '2026-09-04', opponent: 'MMHC Voordaan HS5', homeAway: 'Thuis' },
+    { date: '2026-09-18', opponent: 'Hockeyclub UNO HS1', homeAway: 'Thuis' },
+    { date: '2026-09-18', opponent: 'MMHC Voordaan HS5', homeAway: 'Thuis' },
+    { date: '2026-10-02', opponent: 'Hockey Club Naarden HS4', homeAway: 'Thuis' },
+    { date: '2026-10-02', opponent: 'Gooische Hockey Club HS1', homeAway: 'Uit' },
+    { date: '2026-10-30', opponent: 'MMHC Voordaan HS1', homeAway: 'Thuis' },
+    { date: '2026-10-30', opponent: 'Hockey Club Naarden HS4', homeAway: 'Uit' },
+    { date: '2026-11-13', opponent: 'MMHC Voordaan HS5', homeAway: 'Uit' },
+    { date: '2026-11-13', opponent: 'Gooische Hockey Club HS1', homeAway: 'Uit' },
+    { date: '2026-11-27', opponent: 'MMHC Voordaan HS1', homeAway: 'Uit' },
+    { date: '2026-11-27', opponent: 'Hockeyclub UNO HS1', homeAway: 'Thuis' },
   ],
 }
 
