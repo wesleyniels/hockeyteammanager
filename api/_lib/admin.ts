@@ -3,8 +3,13 @@ import type { SessionUser } from './session.js'
 
 // Hardcoded allowlist for the one admin who predates the self-serve
 // users.is_admin column (see api/admin/users.ts) — anyone granted the role
-// later shows up via getAdminEmails() instead.
-const ADMIN_EMAILS = new Set(['wesleyniels@gmail.com'])
+// later shows up via getAdminEmails() instead. Also the break-glass entry
+// for 'admin@hockeyone.nl' (HOCKEY_ONE_EMAIL in _lib/messages.ts — duplicated
+// here rather than imported since messages.ts already imports getAdminEmails
+// from this file, and that would be circular): this account must always
+// have full admin access no matter what users.is_admin says, so a bad edit
+// there can't lock it out.
+const ADMIN_EMAILS = new Set(['wesleyniels@gmail.com', 'admin@hockeyone.nl'])
 
 export function isAdminEmail(email: string | undefined | null): boolean {
   return !!email && ADMIN_EMAILS.has(email.toLowerCase())
