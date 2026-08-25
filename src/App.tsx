@@ -2304,9 +2304,9 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
           </div>
           <div className="flex items-center gap-2">
             {user.defaultClub && (
-              <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--brand-7b9de0)', opacity: 0.6 }}>
-                Hockey One
-              </span>
+              <div style={{ opacity: 0.8 }}>
+                <H1Logo height={22} />
+              </div>
             )}
             <NotificationBell
               unreadNotifications={unreadNotifications}
@@ -2552,9 +2552,9 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
           </div>
           <div className="flex items-center gap-2">
             {user?.defaultClub && (
-              <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--brand-7b9de0)', opacity: 0.6 }}>
-                Hockey One
-              </span>
+              <div style={{ opacity: 0.8 }}>
+                <H1Logo height={22} />
+              </div>
             )}
             {user && (
               <NotificationBell
@@ -4485,9 +4485,9 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, on
             </div>
             <div className="flex items-center gap-2">
               {user?.defaultClub && (
-                <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--brand-7b9de0)', opacity: 0.6 }}>
-                  Hockey One
-                </span>
+                <div style={{ opacity: 0.8 }}>
+                  <H1Logo height={22} />
+                </div>
               )}
               {user && (
                 <NotificationBell
@@ -5148,9 +5148,9 @@ function TeamView({ user, games, onProfile, onSelectPlayer, onSelectStaff, unrea
           </div>
           <div className="flex items-center gap-2">
             {user?.defaultClub && (
-              <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--brand-7b9de0)', opacity: 0.6 }}>
-                Hockey One
-              </span>
+              <div style={{ opacity: 0.8 }}>
+                <H1Logo height={22} />
+              </div>
             )}
             {user && (
               <NotificationBell
@@ -5649,9 +5649,9 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
           </div>
           <div className="flex items-center gap-2">
             {user?.defaultClub && (
-              <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--brand-7b9de0)', opacity: 0.6 }}>
-                Hockey One
-              </span>
+              <div style={{ opacity: 0.8 }}>
+                <H1Logo height={22} />
+              </div>
             )}
             {user && (
               <NotificationBell
@@ -6964,9 +6964,9 @@ function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, n
               </button>
             )}
             {!activeId && user.defaultClub && (
-              <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--brand-7b9de0)', opacity: 0.6 }}>
-                Hockey One
-              </span>
+              <div style={{ opacity: 0.8 }}>
+                <H1Logo height={22} />
+              </div>
             )}
             {!activeId && (
               <NotificationBell
