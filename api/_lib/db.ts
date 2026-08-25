@@ -23,11 +23,6 @@ function blobToken(): string | undefined {
 async function seedTeams() {
   const teamNames = Object.keys(SEED_TEAMS)
   const teamIds = teamNames.map(slugify)
-  await sql`
-    INSERT INTO teams (id, name)
-    SELECT * FROM unnest(${teamIds}::text[], ${teamNames}::text[])
-    ON CONFLICT (id) DO NOTHING
-  `
 
   const playerIds: string[] = []
   const playerTeamIds: string[] = []
@@ -41,10 +36,20 @@ async function seedTeams() {
       playerOrders.push(i)
     })
   })
-  await sql`
-    INSERT INTO team_players (id, team_id, name, sort_order)
-    SELECT * FROM unnest(${playerIds}::text[], ${playerTeamIds}::text[], ${playerNames}::text[], ${playerOrders}::int[])
-  `
+
+  // Both inserts are independent of each other (no data one depends on the
+  // other having already run), so one transaction round-trip covers both.
+  await sql.transaction([
+    sql`
+      INSERT INTO teams (id, name)
+      SELECT * FROM unnest(${teamIds}::text[], ${teamNames}::text[])
+      ON CONFLICT (id) DO NOTHING
+    `,
+    sql`
+      INSERT INTO team_players (id, team_id, name, sort_order)
+      SELECT * FROM unnest(${playerIds}::text[], ${playerTeamIds}::text[], ${playerNames}::text[], ${playerOrders}::int[])
+    `,
+  ])
 
   try {
     const allPlayers = await sql`
@@ -88,11 +93,6 @@ async function seedTeams() {
 // than imported to avoid a circular dependency (messages.ts already imports
 // `sql` from this file).
 async function seedTeamFixtures() {
-  await sql`
-    INSERT INTO users (id, email, name, email_verified) VALUES ('hockey-one', 'admin@hockeyone.nl', 'Hockey One', true)
-    ON CONFLICT (id) DO NOTHING
-  `
-
   const ids: string[] = []
   const datas: string[] = []
   for (const [team, fixtures] of Object.entries(TEAM_FIXTURES)) {
@@ -107,12 +107,22 @@ async function seedTeamFixtures() {
       }))
     }
   }
-  if (ids.length === 0) return
-  await sql`
-    INSERT INTO games (id, data, user_id)
-    SELECT id, data::jsonb, 'hockey-one' FROM unnest(${ids}::text[], ${datas}::text[]) AS t(id, data)
+
+  // The hockey-one user insert must run before the games insert (games.user_id
+  // references it) — a transaction preserves that order in one round-trip
+  // instead of two sequential ones.
+  const queries = [sql`
+    INSERT INTO users (id, email, name, email_verified) VALUES ('hockey-one', 'admin@hockeyone.nl', 'Hockey One', true)
     ON CONFLICT (id) DO NOTHING
-  `
+  `]
+  if (ids.length > 0) {
+    queries.push(sql`
+      INSERT INTO games (id, data, user_id)
+      SELECT id, data::jsonb, 'hockey-one' FROM unnest(${ids}::text[], ${datas}::text[]) AS t(id, data)
+      ON CONFLICT (id) DO NOTHING
+    `)
+  }
+  await sql.transaction(queries)
 }
 
 // Unlike seedTeamFixtures (immutable history once a match happens),
@@ -128,7 +138,6 @@ async function seedTeamStaff() {
   // unseeded too — checking against real team ids first means one bad key
   // just gets skipped (and logged) instead of taking the rest down with it.
   const knownTeamIds = new Set((await sql`SELECT id FROM teams`).map(r => r.id as string))
-  await sql`DELETE FROM team_staff`
   const ids: string[] = []
   const teamIds: string[] = []
   const roles: string[] = []
@@ -148,11 +157,15 @@ async function seedTeamStaff() {
       lasts.push(s.lastName)
     }
   }
-  if (ids.length === 0) return
-  await sql`
-    INSERT INTO team_staff (id, team_id, role, first_name, last_name)
-    SELECT * FROM unnest(${ids}::text[], ${teamIds}::text[], ${roles}::text[], ${firsts}::text[], ${lasts}::text[])
-  `
+  // DELETE-then-INSERT in one transaction instead of two round-trips.
+  const queries = [sql`DELETE FROM team_staff`]
+  if (ids.length > 0) {
+    queries.push(sql`
+      INSERT INTO team_staff (id, team_id, role, first_name, last_name)
+      SELECT * FROM unnest(${ids}::text[], ${teamIds}::text[], ${roles}::text[], ${firsts}::text[], ${lasts}::text[])
+    `)
+  }
+  await sql.transaction(queries)
 }
 
 // Every serverless invocation is a cold-start candidate, so this runs on
@@ -164,114 +177,122 @@ async function seedTeamStaff() {
 let schemaReady: Promise<unknown> | null = null
 export function ensureSchema() {
   schemaReady ??= (async () => {
-    await sql`
-      CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        email TEXT NOT NULL,
-        name TEXT,
-        picture TEXT,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      )
-    `
-    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS default_team TEXT`
-    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS default_club TEXT`
-    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT`
-    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT`
-    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT`
-    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT`
-    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT false`
-    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token TEXT`
-    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_expires TIMESTAMPTZ`
-    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT`
-    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_expires TIMESTAMPTZ`
-    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false`
-    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_logins INT NOT NULL DEFAULT 0`
-    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS login_locked_until TIMESTAMPTZ`
-    await sql`
-      CREATE TABLE IF NOT EXISTS games (
-        id TEXT PRIMARY KEY,
-        data JSONB NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      )
-    `
-    await sql`ALTER TABLE games ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id)`
-    await sql`
-      CREATE TABLE IF NOT EXISTS game_shares (
-        game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        permission TEXT NOT NULL CHECK (permission IN ('view', 'edit')),
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        PRIMARY KEY (game_id, user_id)
-      )
-    `
-    // id is slugify(name) — stable and human-readable, and lets team_players
-    // reference a team without an extra lookup when seeding.
-    await sql`
-      CREATE TABLE IF NOT EXISTS teams (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      )
-    `
-    await sql`
-      CREATE TABLE IF NOT EXISTS team_players (
-        id TEXT PRIMARY KEY,
-        team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-        name TEXT NOT NULL,
-        photo_url TEXT,
-        sort_order INT NOT NULL DEFAULT 0,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      )
-    `
-    await sql`CREATE INDEX IF NOT EXISTS team_players_team_idx ON team_players (team_id)`
-    // Free text, not a fixed set of position codes — a player can list more
-    // than one favorite position (e.g. "Middenvelder, Verdediger"), which a
-    // single-select or a single point on a formation doesn't accommodate.
-    await sql`ALTER TABLE team_players ADD COLUMN IF NOT EXISTS position TEXT`
-    // Reference-only lookup ("is this name really a trainer/coach/manager of
-    // this team") used to gate self-selecting an elevated Rol in Profile —
-    // see team-staff.ts and team-staff-roster.ts. Not linked to `users` at
-    // all: someone can be listed here long before (or without ever) creating
-    // an account.
-    await sql`
-      CREATE TABLE IF NOT EXISTS team_staff (
-        id TEXT PRIMARY KEY,
-        team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-        role TEXT NOT NULL CHECK (role IN ('Trainer', 'Coach', 'Manager')),
-        first_name TEXT NOT NULL,
-        last_name TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      )
-    `
-    await sql`CREATE INDEX IF NOT EXISTS team_staff_team_idx ON team_staff (team_id)`
-    await sql`
-      CREATE TABLE IF NOT EXISTS messages (
-        id TEXT PRIMARY KEY,
-        sender_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        recipient_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        body TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        read_at TIMESTAMPTZ
-      )
-    `
-    await sql`CREATE INDEX IF NOT EXISTS messages_recipient_idx ON messages (recipient_id, read_at)`
-    await sql`CREATE INDEX IF NOT EXISTS messages_pair_idx ON messages (sender_id, recipient_id, created_at)`
-    // game_id is nullable and SET NULL on delete — a notification about a
-    // match that's since been removed should stick around (just without a
-    // working deep link) rather than disappear or block the game's deletion.
-    await sql`
-      CREATE TABLE IF NOT EXISTS notifications (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        type TEXT NOT NULL,
-        body TEXT NOT NULL,
-        game_id TEXT REFERENCES games(id) ON DELETE SET NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        read_at TIMESTAMPTZ
-      )
-    `
-    await sql`CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications (user_id, read_at)`
+    // All of this is idempotent (IF NOT EXISTS / ADD COLUMN IF NOT EXISTS),
+    // and Postgres DDL is transactional, so batching it into one transaction
+    // is safe. This is what actually made "loading staff/players" feel slow:
+    // every route calls ensureSchema(), and on a cold serverless instance
+    // this used to be ~28 sequential HTTP round-trips to Neon before the
+    // route's own query even started. Now it's 1.
+    await sql.transaction([
+      sql`
+        CREATE TABLE IF NOT EXISTS users (
+          id TEXT PRIMARY KEY,
+          email TEXT NOT NULL,
+          name TEXT,
+          picture TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `,
+      sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS default_team TEXT`,
+      sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS default_club TEXT`,
+      sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT`,
+      sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT`,
+      sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT`,
+      sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT`,
+      sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT false`,
+      sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token TEXT`,
+      sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_expires TIMESTAMPTZ`,
+      sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT`,
+      sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_expires TIMESTAMPTZ`,
+      sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false`,
+      sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_logins INT NOT NULL DEFAULT 0`,
+      sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS login_locked_until TIMESTAMPTZ`,
+      sql`
+        CREATE TABLE IF NOT EXISTS games (
+          id TEXT PRIMARY KEY,
+          data JSONB NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `,
+      sql`ALTER TABLE games ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id)`,
+      sql`
+        CREATE TABLE IF NOT EXISTS game_shares (
+          game_id TEXT NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          permission TEXT NOT NULL CHECK (permission IN ('view', 'edit')),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (game_id, user_id)
+        )
+      `,
+      // id is slugify(name) — stable and human-readable, and lets team_players
+      // reference a team without an extra lookup when seeding.
+      sql`
+        CREATE TABLE IF NOT EXISTS teams (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `,
+      sql`
+        CREATE TABLE IF NOT EXISTS team_players (
+          id TEXT PRIMARY KEY,
+          team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          photo_url TEXT,
+          sort_order INT NOT NULL DEFAULT 0,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `,
+      sql`CREATE INDEX IF NOT EXISTS team_players_team_idx ON team_players (team_id)`,
+      // Free text, not a fixed set of position codes — a player can list more
+      // than one favorite position (e.g. "Middenvelder, Verdediger"), which a
+      // single-select or a single point on a formation doesn't accommodate.
+      sql`ALTER TABLE team_players ADD COLUMN IF NOT EXISTS position TEXT`,
+      // Reference-only lookup ("is this name really a trainer/coach/manager of
+      // this team") used to gate self-selecting an elevated Rol in Profile —
+      // see team-staff.ts and team-staff-roster.ts. Not linked to `users` at
+      // all: someone can be listed here long before (or without ever) creating
+      // an account.
+      sql`
+        CREATE TABLE IF NOT EXISTS team_staff (
+          id TEXT PRIMARY KEY,
+          team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+          role TEXT NOT NULL CHECK (role IN ('Trainer', 'Coach', 'Manager')),
+          first_name TEXT NOT NULL,
+          last_name TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `,
+      sql`CREATE INDEX IF NOT EXISTS team_staff_team_idx ON team_staff (team_id)`,
+      sql`
+        CREATE TABLE IF NOT EXISTS messages (
+          id TEXT PRIMARY KEY,
+          sender_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          recipient_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          body TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          read_at TIMESTAMPTZ
+        )
+      `,
+      sql`CREATE INDEX IF NOT EXISTS messages_recipient_idx ON messages (recipient_id, read_at)`,
+      sql`CREATE INDEX IF NOT EXISTS messages_pair_idx ON messages (sender_id, recipient_id, created_at)`,
+      // game_id is nullable and SET NULL on delete — a notification about a
+      // match that's since been removed should stick around (just without a
+      // working deep link) rather than disappear or block the game's deletion.
+      sql`
+        CREATE TABLE IF NOT EXISTS notifications (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          type TEXT NOT NULL,
+          body TEXT NOT NULL,
+          game_id TEXT REFERENCES games(id) ON DELETE SET NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          read_at TIMESTAMPTZ
+        )
+      `,
+      sql`CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications (user_id, read_at)`,
+    ])
 
     // A failure here must not take the rest of the app down with it — every
     // route calls ensureSchema(), so an unhandled rejection here would 500
