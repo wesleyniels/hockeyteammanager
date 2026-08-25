@@ -13,9 +13,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === 'GET') {
     // Own matches, anything explicitly shared with this account, plus any
-    // Hockey-One-owned fixture (see seedTeamFixtures in db.ts) for this
-    // account's own default_team — a coach/trainer gets 'edit' on those so
-    // they can build the squad and run the match, everyone else (player,
+    // match at all — regardless of who created it — for this account's own
+    // default_team, so a Speler/Supporter sees their whole team's schedule
+    // by default and doesn't depend on a coach remembering to share each
+    // one individually. A coach/trainer/manager gets 'edit' on a team match
+    // they don't own so they can help run it too; everyone else (player,
     // supporter, or no role at all) only gets 'view'. The viewer's effective
     // permission for each is folded into the returned data so the frontend
     // can gate editing without a second round trip.
@@ -28,7 +30,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       LEFT JOIN game_shares gs ON gs.game_id = g.id AND gs.user_id = ${user.id}
       WHERE g.user_id = ${user.id}
          OR gs.user_id = ${user.id}
-         OR (g.user_id = 'hockey-one' AND ${defaultTeam}::text IS NOT NULL AND g.data->>'team' = ${defaultTeam})
+         OR (${defaultTeam}::text IS NOT NULL AND g.data->>'team' = ${defaultTeam})
       ORDER BY g.created_at ASC
     `
     // A freshly-seeded Hockey-One fixture starts with an empty squad (see
@@ -59,7 +61,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       let permission: string | undefined
       if (r.owner_id === user.id) permission = 'owner'
       else if (r.share_permission) permission = r.share_permission
-      else if (r.owner_id === 'hockey-one') permission = ELIGIBLE_ROLES.includes(role ?? '') ? 'edit' : 'view'
+      else if (defaultTeam && r.data.team === defaultTeam) permission = ELIGIBLE_ROLES.includes(role ?? '') ? 'edit' : 'view'
       const needsRoster = r.owner_id === 'hockey-one' && (r.data.squad?.length ?? 0) === 0 && roster.length > 0
       let data = needsRoster ? { ...r.data, squad: roster.map(p => ({ id: p.id, name: p.name, photoUrl: p.photoUrl ?? undefined })) } : r.data
       if (!fullNamesOk && Array.isArray(data.squad)) {
@@ -86,15 +88,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const defaultTeam = me[0]?.default_team ?? null
     const eligible = ELIGIBLE_ROLES.includes(me[0]?.role ?? '')
     // Owner can always edit; a shared user needs an explicit 'edit' grant; a
-    // coach/trainer can also build out their own team's Hockey-One-owned
-    // fixture (see the matching GET branch above for the read-side rule).
+    // coach/trainer/manager can also edit any other match for their own
+    // team, not just Hockey-One-owned fixtures (see the matching GET branch
+    // above for the read-side rule this mirrors).
     const rows = await sql`
       UPDATE games g SET data = ${JSON.stringify(game)}::jsonb, updated_at = now()
       WHERE g.id = ${game.id}
         AND (
           g.user_id = ${user.id}
           OR EXISTS (SELECT 1 FROM game_shares gs WHERE gs.game_id = g.id AND gs.user_id = ${user.id} AND gs.permission = 'edit')
-          OR (g.user_id = 'hockey-one' AND ${eligible} AND ${defaultTeam}::text IS NOT NULL AND g.data->>'team' = ${defaultTeam})
+          OR (${eligible} AND ${defaultTeam}::text IS NOT NULL AND g.data->>'team' = ${defaultTeam})
         )
       RETURNING data, g.user_id AS owner_id
     `
