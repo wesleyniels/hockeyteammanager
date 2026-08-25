@@ -5,6 +5,7 @@ import { slugify } from './slug.js'
 import { SEED_TEAMS } from './seed-teams.js'
 import { TEAM_FIXTURES, ageGroupFromTeamName } from './team-fixtures.js'
 import { TEAM_STAFF } from './team-staff-roster.js'
+import { CURRENT_VERSION, RELEASE_NOTES } from './changelog.js'
 
 export const sql = neon(process.env.POSTGRES_URL!)
 
@@ -175,6 +176,36 @@ async function seedTeamStaff() {
   await sql.transaction(queries)
 }
 
+// Broadcasts RELEASE_NOTES[CURRENT_VERSION] (changelog.ts) to every user's
+// Meldingen the first time any cold start sees a version that hasn't been
+// announced yet — shipping a notable feature and telling the coaches/
+// players about it become the same step, instead of a manual announcement
+// someone has to remember to send. A version with no RELEASE_NOTES entry is
+// a silent release (bug fixes/internal work only): the marker still
+// advances so it can't re-trigger later, but nobody gets notified.
+async function announceReleaseIfNeeded() {
+  const last = await sql`SELECT value FROM app_meta WHERE key = 'last_announced_version'`
+  if (last[0]?.value === CURRENT_VERSION) return
+  const note = RELEASE_NOTES[CURRENT_VERSION]
+  if (note) {
+    const users = await sql`SELECT id FROM users`
+    if (users.length > 0) {
+      const ids = users.map(() => randomUUID())
+      const userIds = users.map(u => u.id as string)
+      const types = users.map(() => 'release')
+      const bodies = users.map(() => note)
+      await sql`
+        INSERT INTO notifications (id, user_id, type, body)
+        SELECT * FROM unnest(${ids}::text[], ${userIds}::text[], ${types}::text[], ${bodies}::text[])
+      `
+    }
+  }
+  await sql`
+    INSERT INTO app_meta (key, value) VALUES ('last_announced_version', ${CURRENT_VERSION})
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+  `
+}
+
 // Every serverless invocation is a cold-start candidate, so this runs on
 // (almost) every request; `??=` memoizes it per warm instance rather than
 // re-running the ALTERs every time. Intentionally no unique index on
@@ -299,6 +330,15 @@ export function ensureSchema() {
         )
       `,
       sql`CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications (user_id, read_at)`,
+      // Tiny key-value store for one-off app state that doesn't belong on
+      // any existing table — currently just the last app version announced
+      // via announceReleaseIfNeeded below.
+      sql`
+        CREATE TABLE IF NOT EXISTS app_meta (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        )
+      `,
     ])
 
     // A failure here must not take the rest of the app down with it — every
@@ -332,6 +372,12 @@ export function ensureSchema() {
       await sql`UPDATE users SET role = 'Speler' WHERE role = 'Player'`
     } catch (err) {
       console.error('Player->Speler role migration failed:', err)
+    }
+
+    try {
+      await announceReleaseIfNeeded()
+    } catch (err) {
+      console.error('Release announcement failed:', err)
     }
   })()
   return schemaReady

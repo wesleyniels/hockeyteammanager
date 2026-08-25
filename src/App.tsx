@@ -1,5 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { upload as uploadToBlob } from '@vercel/blob/client'
+// Single source of truth for the version shown in Profiel (see below) and
+// broadcast to every Meldingen inbox on release (api/_lib/changelog.ts) —
+// bump this whenever shipping something worth telling coaches/players about.
+import { version as APP_VERSION } from '../package.json'
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -6073,6 +6077,8 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
             </div>
           </section>
         )}
+
+        <p className="text-xs text-center mt-6" style={{ color: 'var(--brand-a8bef0)' }}>Hockey One v{APP_VERSION}</p>
       </div>
     </div>
   )
