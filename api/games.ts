@@ -109,8 +109,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'DELETE') {
     const id = typeof req.query.id === 'string' ? req.query.id : req.body?.id
     if (!id) { res.status(400).json({ error: 'Missing id' }); return }
-    // Only the owner can delete — a shared 'edit' grant is not delete access.
-    await sql`DELETE FROM games WHERE id = ${id} AND user_id = ${user.id}`
+    // Only the owner can delete — a shared 'edit' grant is not delete access
+    // — except a beheerder, who can clean up any match regardless of owner.
+    const rows = await isAdmin(user)
+      ? await sql`DELETE FROM games WHERE id = ${id} RETURNING id`
+      : await sql`DELETE FROM games WHERE id = ${id} AND user_id = ${user.id} RETURNING id`
+    if (rows.length === 0) { res.status(404).json({ error: 'Not found' }); return }
     res.status(204).end()
     return
   }
