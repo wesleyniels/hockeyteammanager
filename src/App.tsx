@@ -2481,10 +2481,17 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
   // Selecting a team fills Selectie with its official roster; players can
   // still be added or removed manually afterwards. This only affects the
   // current match setup — it never touches the profile's preferred team,
-  // which is only changed explicitly from the Profile page.
+  // which is only changed explicitly from the Profile page. Only roster
+  // staff (and admins) get this auto-fill — a Speler/Supporter starts a
+  // match with an empty squad instead. The server-side redaction in
+  // /api/teams/roster would only give them initials anyway, but there's no
+  // point even fetching the club's whole roster for an account that isn't
+  // meant to see who's on it.
+  const isRosterStaffRole = user?.role === 'Coach' || user?.role === 'Trainer' || user?.role === 'Trainer & Coach' || user?.role === 'Manager'
+  const isAdminClient = (user?.email?.toLowerCase() === ADMIN_EMAIL || user?.email?.toLowerCase() === HOCKEY_ONE_EMAIL)
   const selectTeam = (newTeam: string) => {
     setTeam(newTeam)
-    if (!user) return
+    if (!user || !(isRosterStaffRole || isAdminClient)) return
     fetchTeamRoster(newTeam).then(players => {
       if (players.length) {
         setSquad(players.map(p => ({ id: p.id, name: p.name, photoUrl: p.photoUrl ?? undefined })))
@@ -5134,7 +5141,7 @@ function TeamView({ user, games, onProfile, onSelectPlayer, onSelectStaff, unrea
   onMarkUnread: (id: string) => void
   onDeleteNotification: (id: string) => void
 }) {
-  const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL
+  const isAdmin = (user?.email?.toLowerCase() === ADMIN_EMAIL || user?.email?.toLowerCase() === HOCKEY_ONE_EMAIL)
   // Coach/Trainer/Trainer & Coach/Manager can add a player to their own team
   // and edit a player's photo — renaming or removing a player entirely is
   // beheerder-only (see TeamPlayerPhotos' canManageRoster below). Same rule
@@ -5319,7 +5326,7 @@ function PlayerProfileView({ playerId, team, games, user, onBack }: {
 
   const player = players?.find(p => p.id === playerId) ?? null
 
-  const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL
+  const isAdmin = (user?.email?.toLowerCase() === ADMIN_EMAIL || user?.email?.toLowerCase() === HOCKEY_ONE_EMAIL)
   const isRosterStaff = user?.role === 'Coach' || user?.role === 'Trainer' || user?.role === 'Trainer & Coach' || user?.role === 'Manager'
   const canEditPosition = isAdmin || (isRosterStaff && (user?.defaultTeam ?? '').toLowerCase() === team.toLowerCase())
 
@@ -5601,7 +5608,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
     }
   }
 
-  const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL
+  const isAdmin = (user?.email?.toLowerCase() === ADMIN_EMAIL || user?.email?.toLowerCase() === HOCKEY_ONE_EMAIL)
   const { users: adminUsers, loading: adminLoading, error: adminError, deleteUser, setAdmin } = useAdminUsers(isAdmin)
   const { teams: adminTeams, loading: adminTeamsLoading, error: adminTeamsError, createTeam, renameTeam, deleteTeam } = useAdminTeams(isAdmin)
   const [newTeamName, setNewTeamName] = useState('')
@@ -6698,6 +6705,12 @@ function GameShareManager({ shares, onAdd, onRemove }: {
 // session's email server-side, so hiding this section isn't the real guard.
 
 const ADMIN_EMAIL = 'wesleyniels@gmail.com'
+// Break-glass account (HOCKEY_ONE_EMAIL in api/_lib/messages.ts, and in the
+// server's own ADMIN_EMAILS allowlist in api/_lib/admin.ts — duplicated here
+// too since frontend and API code aren't shared bundles). Must always read
+// as an admin client-side as well, so this account isn't locked out of the
+// Beheer UI just because nobody remembered to flip its users.is_admin flag.
+const HOCKEY_ONE_EMAIL = 'admin@hockeyone.nl'
 
 interface AdminUser {
   id: string

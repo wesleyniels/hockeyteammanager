@@ -6,6 +6,7 @@ import { isAdmin } from '../_lib/admin.js'
 import { randomUUID } from '../_lib/crypto.js'
 import { slugify } from '../_lib/slug.js'
 import { isRosterStaffOfTeamName, isPhotoEditorForPlayer, ROSTER_STAFF_ROLES } from '../_lib/team-access.js'
+import { canSeeFullNames, initials } from '../_lib/names.js'
 
 // /api/teams/list, /api/teams/roster, etc. collapsed into one dynamic-segment
 // file — see the comment in api/auth/[action].ts for why (Hobby plan's
@@ -38,7 +39,7 @@ async function handleList(req: VercelRequest, res: VercelResponse) {
   res.status(200).json({ teams })
 }
 
-async function handleRoster(req: VercelRequest, res: VercelResponse) {
+async function handleRoster(req: VercelRequest, res: VercelResponse, user: SessionUser) {
   if (req.method !== 'GET') { res.status(405).json({ error: 'Method not allowed' }); return }
   const team = typeof req.query.team === 'string' ? req.query.team : ''
   if (!team) { res.status(400).json({ error: 'Missing team' }); return }
@@ -48,14 +49,22 @@ async function handleRoster(req: VercelRequest, res: VercelResponse) {
     WHERE lower(t.name) = lower(${team})
     ORDER BY tp.sort_order, tp.name
   `
-  res.status(200).json({ players: rows.map(r => ({ id: r.id, name: r.name, photoUrl: r.photo_url, position: r.position })) })
+  // Real player names are only for roster staff/admins — a Speler,
+  // Supporter, or not-yet-verified account gets initials instead. Photos
+  // stay either way (see the calling code's `canSeeFullNames`/`initials`).
+  const me = await sql`SELECT role FROM users WHERE id = ${user.id}`
+  const fullNamesOk = canSeeFullNames(me[0]?.role ?? null, await isAdmin(user))
+  res.status(200).json({
+    players: rows.map(r => ({ id: r.id, name: fullNamesOk ? r.name : initials(r.name), photoUrl: r.photo_url, position: r.position })),
+  })
 }
 
 // Coaches/trainers/managers are real accounts (users.role + users.default_team),
 // not team_players rows — this surfaces them for the Team tab's staff grid.
 // Same "any authenticated user" access as the roster, no email exposed (this
-// is a broadly-viewable list, unlike the messaging contact picker).
-async function handleStaff(req: VercelRequest, res: VercelResponse) {
+// is a broadly-viewable list, unlike the messaging contact picker) — but
+// same name-redaction rule as the roster above.
+async function handleStaff(req: VercelRequest, res: VercelResponse, user: SessionUser) {
   if (req.method !== 'GET') { res.status(405).json({ error: 'Method not allowed' }); return }
   const team = typeof req.query.team === 'string' ? req.query.team : ''
   if (!team) { res.status(400).json({ error: 'Missing team' }); return }
@@ -64,8 +73,15 @@ async function handleStaff(req: VercelRequest, res: VercelResponse) {
     WHERE role = ANY(${ROSTER_STAFF_ROLES}::text[]) AND lower(default_team) = lower(${team})
     ORDER BY lower(coalesce(first_name, name))
   `
+  const me = await sql`SELECT role FROM users WHERE id = ${user.id}`
+  const fullNamesOk = canSeeFullNames(me[0]?.role ?? null, await isAdmin(user))
   res.status(200).json({
-    staff: rows.map(r => ({ id: r.id, name: r.name, firstName: r.first_name, lastName: r.last_name, picture: r.picture, role: r.role })),
+    staff: rows.map(r => {
+      if (fullNamesOk) return { id: r.id, name: r.name, firstName: r.first_name, lastName: r.last_name, picture: r.picture, role: r.role }
+      const full = (r.first_name && r.last_name) ? `${r.first_name} ${r.last_name}` : (r.name ?? '')
+      const label = full ? initials(full) : null
+      return { id: r.id, name: label, firstName: label, lastName: null, picture: r.picture, role: r.role }
+    }),
   })
 }
 
@@ -194,8 +210,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   switch (req.query.action) {
     case 'list': return handleList(req, res)
-    case 'roster': return handleRoster(req, res)
-    case 'staff': return handleStaff(req, res)
+    case 'roster': return handleRoster(req, res, user)
+    case 'staff': return handleStaff(req, res, user)
     case 'add-player': return handleAddPlayer(req, res, user)
     case 'rename-player': return handleRenamePlayer(req, res, user)
     case 'remove-player': return handleRemovePlayer(req, res, user)

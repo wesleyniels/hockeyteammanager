@@ -2,6 +2,8 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { sql, ensureSchema } from './_lib/db.js'
 import { getSessionFromCookies } from './_lib/session.js'
 import { ELIGIBLE_ROLES } from './_lib/messages.js'
+import { isAdmin } from './_lib/admin.js'
+import { canSeeFullNames, initials } from './_lib/names.js'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   await ensureSchema()
@@ -46,13 +48,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       `
       roster = rosterRows.map(r => ({ id: r.id, name: r.name, photoUrl: r.photo_url }))
     }
+    // Player names in a game's squad are only for roster staff/admins — a
+    // Speler, Supporter, or not-yet-verified account gets initials instead,
+    // same trust boundary as the roster/staff endpoints below. This is the
+    // one choke point every match-viewing surface (field, bench, timeline,
+    // stats, goal scorers) reads names through, so redacting it here covers
+    // all of them without any client-side changes.
+    const fullNamesOk = canSeeFullNames(role, await isAdmin(user))
     res.status(200).json(rows.map(r => {
       let permission: string | undefined
       if (r.owner_id === user.id) permission = 'owner'
       else if (r.share_permission) permission = r.share_permission
       else if (r.owner_id === 'hockey-one') permission = ELIGIBLE_ROLES.includes(role ?? '') ? 'edit' : 'view'
       const needsRoster = r.owner_id === 'hockey-one' && (r.data.squad?.length ?? 0) === 0 && roster.length > 0
-      const data = needsRoster ? { ...r.data, squad: roster.map(p => ({ id: p.id, name: p.name, photoUrl: p.photoUrl ?? undefined })) } : r.data
+      let data = needsRoster ? { ...r.data, squad: roster.map(p => ({ id: p.id, name: p.name, photoUrl: p.photoUrl ?? undefined })) } : r.data
+      if (!fullNamesOk && Array.isArray(data.squad)) {
+        data = { ...data, squad: data.squad.map((p: { name?: string }) => (p.name ? { ...p, name: initials(p.name) } : p)) }
+      }
       return { ...data, ownerId: r.owner_id, permission }
     }))
     return
