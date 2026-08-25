@@ -1,7 +1,7 @@
 import { sql } from './db.js'
 import { getAdminEmails } from './admin.js'
 
-export const ELIGIBLE_ROLES = ['Coach', 'Trainer', 'Trainer & Coach']
+export const ELIGIBLE_ROLES = ['Coach', 'Trainer', 'Trainer & Coach', 'Manager']
 
 // "Hockey One" is the app's own virtual support contact — always
 // messageable by anyone (see canMessage below), including players and
