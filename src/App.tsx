@@ -1000,24 +1000,18 @@ function ClubLogo({ club, size = 46 }: { club: string; size?: number }) {
   return <img src={mediaSrc(src)} alt={club} width={size} height={size} style={{ width: size, height: size, objectFit: 'contain' }} />
 }
 
-// A raised, embossed "badge" wrapper around ClubLogo — layered shadows (an
-// outer drop shadow for lift, an inset highlight along the top edge, an inset
-// shadow along the bottom) fake a 3D pop against a flat card background. Used
-// on the home overview's match cards, which need this a lot more than the
-// smaller inline logos used elsewhere.
-function LogoBadge({ club, size = 64, variant }: { club: string; size?: number; variant: 'dark' | 'light' }) {
-  const pad = Math.round(size * 0.16)
+// Gives ClubLogo itself a raised, 3D look — stacked drop-shadows (unlike
+// box-shadow, these hug the crest's actual alpha silhouette rather than its
+// square bounding box) combine a tight "key light" shadow with a soft
+// "ambient" one for depth, plus a faint upward rim-light shadow to suggest
+// the top edge catching light. No wrapper shape, no background — just the
+// logo, lifted. Used on the home overview's match cards.
+function Logo3D({ club, size = 64, variant }: { club: string; size?: number; variant: 'dark' | 'light' }) {
+  const filter = variant === 'dark'
+    ? 'drop-shadow(0 2px 2px rgba(0,0,0,0.45)) drop-shadow(0 6px 10px rgba(0,0,0,0.35)) drop-shadow(0 -1px 0 rgba(255,255,255,0.25))'
+    : 'drop-shadow(0 2px 2px rgba(13,31,74,0.28)) drop-shadow(0 6px 10px rgba(13,31,74,0.18)) drop-shadow(0 -1px 0 rgba(255,255,255,0.7))'
   return (
-    <div className="rounded-full flex items-center justify-center shrink-0"
-      style={{
-        width: size + pad * 2, height: size + pad * 2,
-        background: variant === 'dark'
-          ? 'linear-gradient(145deg, rgba(255,255,255,0.24), rgba(255,255,255,0.05))'
-          : 'linear-gradient(145deg, #ffffff, var(--brand-eef3ff))',
-        boxShadow: variant === 'dark'
-          ? '0 6px 14px rgba(0,0,0,0.35), inset 0 1px 2px rgba(255,255,255,0.55), inset 0 -2px 3px rgba(0,0,0,0.3)'
-          : '0 6px 14px rgba(13,31,74,0.2), inset 0 1px 2px rgba(255,255,255,0.9), inset 0 -2px 3px rgba(13,31,74,0.1)',
-      }}>
+    <div className="shrink-0" style={{ filter }}>
       <ClubLogo club={club} size={size} />
     </div>
   )
@@ -2376,7 +2370,7 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
             </h2>
             <div className="flex items-center justify-center gap-3">
               <div className="flex-1 flex flex-col items-center gap-2 min-w-0">
-                <LogoBadge club={nextMatch.club} size={56} variant="dark" />
+                <Logo3D club={nextMatch.club} size={64} variant="dark" />
                 <p className="text-xs font-semibold text-center leading-tight" style={{ color: 'var(--brand-a8bef0)' }}>
                   {nextMatch.club}<br />{nextMatch.team}
                 </p>
@@ -2390,7 +2384,7 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
                 </span>
               </div>
               <div className="flex-1 flex flex-col items-center gap-2 min-w-0">
-                <LogoBadge club={matchKnhbClub(nextMatch.opponent)} size={56} variant="dark" />
+                <Logo3D club={matchKnhbClub(nextMatch.opponent)} size={64} variant="dark" />
                 <p className="text-xs font-semibold text-center leading-tight" style={{ color: 'var(--brand-a8bef0)' }}>
                   {nextMatchOpponent[0]}<br />{nextMatchOpponent[1]}
                 </p>
@@ -2412,7 +2406,7 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
             <>
               <div className="flex items-center justify-center gap-3">
                 <div className="flex-1 flex flex-col items-center gap-2 min-w-0">
-                  <LogoBadge club={lastPlayed.club} size={56} variant="light" />
+                  <Logo3D club={lastPlayed.club} size={64} variant="light" />
                   <p className="text-xs font-semibold text-center leading-tight" style={{ color: 'var(--brand-1a2f6b)' }}>
                     {lastPlayed.club}<br />{lastPlayed.team}
                   </p>
@@ -2429,7 +2423,7 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
                   </span>
                 </div>
                 <div className="flex-1 flex flex-col items-center gap-2 min-w-0">
-                  <LogoBadge club={matchKnhbClub(lastPlayed.opponent)} size={56} variant="light" />
+                  <Logo3D club={matchKnhbClub(lastPlayed.opponent)} size={64} variant="light" />
                   <p className="text-xs font-semibold text-center leading-tight" style={{ color: 'var(--brand-1a2f6b)' }}>
                     {lastPlayedOpponent[0]}<br />{lastPlayedOpponent[1]}
                   </p>
