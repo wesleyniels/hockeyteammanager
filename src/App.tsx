@@ -3351,6 +3351,22 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   const sendToBenchRef = useRef((_posId: string) => {})
   sendToBenchRef.current = sendToBench
 
+  // The bench strip's native scrollbar is invisible on most touch devices,
+  // giving no hint there's more to scroll to — this thumb/track pair is a
+  // custom, always-visible stand-in that tracks real scroll position.
+  const benchScrollRef = useRef<HTMLDivElement>(null)
+  const [benchScroll, setBenchScroll] = useState({ thumbPct: 100, offsetPct: 0 })
+  const updateBenchScroll = () => {
+    const el = benchScrollRef.current
+    if (!el) return
+    const { scrollLeft, scrollWidth, clientWidth } = el
+    if (scrollWidth <= clientWidth + 1) { setBenchScroll({ thumbPct: 100, offsetPct: 0 }); return }
+    const thumbPct = Math.max(15, (clientWidth / scrollWidth) * 100)
+    const maxScroll = scrollWidth - clientWidth
+    const offsetPct = (100 - thumbPct) * (maxScroll > 0 ? scrollLeft / maxScroll : 0)
+    setBenchScroll({ thumbPct, offsetPct })
+  }
+
   useEffect(() => {
     const pointInField = (clientX: number, clientY: number) => {
       const rect = fieldRef.current?.getBoundingClientRect()
@@ -3550,6 +3566,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   const benchPlayers = bench
     .map(b => ({ ...b, player: getPlayer(b.playerId) }))
     .filter(b => b.player) as (BenchEntry & { player: Player })[]
+
+  useEffect(() => { updateBenchScroll() }, [benchPlayers.length, gameTab])
 
   const onFieldCount = slots.filter(s => s.playerId).length
   const targetCount = AGE_CONFIG[ageGroup].total
@@ -3894,7 +3912,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                   Alle spelers staan op het veld
                 </div>
               ) : (
-                <div className="flex gap-3 overflow-x-auto mt-2 pb-1">
+                <>
+                <div ref={benchScrollRef} onScroll={updateBenchScroll} className="flex gap-3 overflow-x-auto mt-2 pb-1">
                   {[...benchPlayers].sort((a, b) => (a.player.number ?? Infinity) - (b.player.number ?? Infinity) || a.player.name.localeCompare(b.player.name)).map(({ playerId, sinceGameSec, player }) => {
                     const elapsed = Math.max(0, gameSec - sinceGameSec)
                     const isSel = selected?.type === 'bench' && selected.playerId === playerId
@@ -3904,7 +3923,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                     const isBlocked = isRedCarded || isUnavailable
                     return (
                       <div key={playerId}
-                        className={`relative flex flex-col items-center gap-1 shrink-0 w-16 touch-none select-none ${isBlocked ? 'cursor-not-allowed' : 'cursor-grab'}`}
+                        className={`relative flex flex-col items-center gap-1 shrink-0 w-16 touch-pan-x select-none ${isBlocked ? 'cursor-not-allowed' : 'cursor-grab'}`}
                         style={{ opacity: isBeingDragged ? 0.35 : isBlocked ? 0.6 : 1 }}
                         onPointerDown={e => beginDrag('bench', playerId, e)}
                         onClick={() => handleBenchClick(playerId)}>
@@ -3944,6 +3963,12 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                     )
                   })}
                 </div>
+                {benchScroll.thumbPct < 100 && (
+                  <div className="w-full h-1 rounded-full relative overflow-hidden" style={{ background: 'var(--brand-e4ecfe)' }}>
+                    <div className="absolute top-0 h-full rounded-full" style={{ width: `${benchScroll.thumbPct}%`, left: `${benchScroll.offsetPct}%`, background: 'var(--brand-a8bef0)' }} />
+                  </div>
+                )}
+                </>
               )}
             </div>
 
