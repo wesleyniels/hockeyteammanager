@@ -546,6 +546,43 @@ const uid = () => Math.random().toString(36).slice(2, 11)
 // reads media through this proxy instead (see api/blob/[action].ts's 'view').
 const mediaSrc = (url: string) => `/api/blob/view?url=${encodeURIComponent(url)}`
 
+// ── Toasts ───────────────────────────────────────────────────────────────────
+// A tiny module-level pub-sub so any component can confirm a background
+// action ("Speler toegevoegd") without threading toast state through props —
+// this app has one huge component tree per view, so a shared singleton beats
+// wiring a context provider through every one of them. <ToastHost/> is
+// mounted once near the app root and is the only subscriber.
+let toastListeners: ((text: string) => void)[] = []
+function showToast(text: string) {
+  toastListeners.forEach(l => l(text))
+}
+function ToastHost() {
+  const [toasts, setToasts] = useState<{ id: number; text: string }[]>([])
+  useEffect(() => {
+    const listener = (text: string) => {
+      setToasts(t => [...t, { id: Date.now() + Math.random(), text }])
+    }
+    toastListeners.push(listener)
+    return () => { toastListeners = toastListeners.filter(l => l !== listener) }
+  }, [])
+  useEffect(() => {
+    if (toasts.length === 0) return
+    const timer = setTimeout(() => setToasts(t => t.slice(1)), 2200)
+    return () => clearTimeout(timer)
+  }, [toasts])
+  if (toasts.length === 0) return null
+  return (
+    <div className="fixed left-1/2 z-50 flex flex-col items-center gap-2 pointer-events-none" style={{ bottom: 88, transform: 'translateX(-50%)' }}>
+      {toasts.map(t => (
+        <div key={t.id} className="app-toast px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-lg"
+          style={{ background: 'var(--brand-0d2b7a)' }}>
+          {t.text}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // Mirrors the Python slugify used when the club crests were uploaded to Blob
 // storage (club-logos/{slug}.png) — NFKD-normalize, drop combining marks,
 // lowercase, collapse non-alphanumeric runs to a single hyphen.
@@ -2364,7 +2401,7 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
 
       <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
         {nextMatch && nextMatchOpponent && (
-          <section className="rounded-2xl p-5 text-white shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
+          <section onClick={() => onEditGame(nextMatch)} className="rounded-2xl p-5 text-white shadow-lg cursor-pointer" style={{ background: 'var(--brand-0d2b7a)' }}>
             <h2 className="font-display text-xs font-bold uppercase mb-3" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.14em' }}>
               Volgende wedstrijd
             </h2>
@@ -2390,15 +2427,15 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
                 </p>
               </div>
             </div>
-            <button onClick={() => onEditGame(nextMatch)}
-              className="w-full mt-3 py-2.5 rounded-xl font-display font-bold uppercase tracking-wide text-sm"
+            <div className="w-full mt-3 py-2.5 rounded-xl font-display font-bold uppercase tracking-wide text-sm text-center"
               style={{ background: '#fff', color: 'var(--brand-0d2b7a)' }}>
-              Wedstrijd voorbereiden →
-            </button>
+              Wedstrijd voorbereiden
+            </div>
           </section>
         )}
 
-        <section className="bg-white rounded-2xl p-5 shadow-sm" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
+        <section onClick={lastPlayed ? () => onOpenMatch(lastPlayed.id) : undefined}
+          className={`bg-white rounded-2xl p-5 shadow-sm ${lastPlayed ? 'cursor-pointer' : ''}`} style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
           <h2 className="font-display text-xs font-bold uppercase mb-3" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.14em' }}>
             Laatste resultaat
           </h2>
@@ -2429,10 +2466,11 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
                   </p>
                 </div>
               </div>
-              <div className="text-center mt-3">
-                <button onClick={() => onOpenMatch(lastPlayed.id)} className="text-sm font-bold" style={{ color: 'var(--brand-1a3fab)' }}>
-                  Bekijk wedstrijd →
-                </button>
+              <div className="mt-3">
+                <div className="w-full py-2 rounded-xl font-display font-bold uppercase tracking-wide text-sm text-center text-white"
+                  style={{ background: 'var(--brand-1a3fab)' }}>
+                  Bekijk wedstrijd
+                </div>
               </div>
             </>
           ) : (
@@ -2452,9 +2490,10 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
 
 // ── Setup View ───────────────────────────────────────────────────────────────
 
-function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification, onOpenHistory }: {
+function SetupView({ onStart, onProfile, onHome, user, authLoading, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification, onOpenHistory }: {
   onStart: (p: GameParams) => void
   onProfile: () => void
+  onHome: () => void
   user: AuthUser | null
   authLoading: boolean
   unreadNotifications: number
@@ -2481,11 +2520,29 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
   const [editName, setEditName] = useState('')
   const [showFormationEditor, setShowFormationEditor] = useState(false)
 
+  // Native scrollbars on a short, fixed-height list like this are easy to
+  // miss (invisible by default on touch devices) — this always-visible
+  // thumb/track pair beside the list makes it obvious there's more below.
+  const selectieScrollRef = useRef<HTMLDivElement>(null)
+  const [selectieScroll, setSelectieScroll] = useState({ thumbPct: 100, offsetPct: 0 })
+  const updateSelectieScroll = () => {
+    const el = selectieScrollRef.current
+    if (!el) return
+    const { scrollTop, scrollHeight, clientHeight } = el
+    if (scrollHeight <= clientHeight + 1) { setSelectieScroll({ thumbPct: 100, offsetPct: 0 }); return }
+    const thumbPct = Math.max(15, (clientHeight / scrollHeight) * 100)
+    const maxScroll = scrollHeight - clientHeight
+    const offsetPct = (100 - thumbPct) * (maxScroll > 0 ? scrollTop / maxScroll : 0)
+    setSelectieScroll({ thumbPct, offsetPct })
+  }
+  useEffect(() => { updateSelectieScroll() }, [squad.length])
+
   const addPlayer = () => {
     const name = newName.trim()
     if (!name) return
     setSquad(s => [...s, { id: uid(), name }])
     setNewName('')
+    showToast(`${name} toegevoegd`)
   }
 
   const saveEdit = (id: string) => {
@@ -2610,7 +2667,7 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-3">
+          <button onClick={onHome} className="flex items-center gap-3 text-left" title="Naar home">
             {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
             <div>
               <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
@@ -2620,7 +2677,7 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
                 {user?.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
               </p>
             </div>
-          </div>
+          </button>
           <div className="flex items-center gap-2">
             {user?.defaultClub && (
               <div style={{ opacity: 0.8 }}>
@@ -2762,7 +2819,8 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
               style={{ background: 'var(--brand-1a3fab)' }}>+</button>
           </div>
 
-          <div className="space-y-1.5 max-h-64 overflow-y-auto">
+          <div className="flex gap-2">
+          <div ref={selectieScrollRef} onScroll={updateSelectieScroll} className="flex-1 min-w-0 space-y-1.5 max-h-64 overflow-y-auto">
             {squad.length === 0 && (
               <p className="text-sm text-center py-6" style={{ color: 'var(--brand-a8bef0)' }}>Voeg spelers toe aan de selectie</p>
             )}
@@ -2797,6 +2855,12 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
               </div>
             ))}
           </div>
+          {selectieScroll.thumbPct < 100 && (
+            <div className="w-1 h-64 rounded-full relative overflow-hidden shrink-0" style={{ background: 'var(--brand-e4ecfe)' }}>
+              <div className="absolute left-0 w-full rounded-full" style={{ height: `${selectieScroll.thumbPct}%`, top: `${selectieScroll.offsetPct}%`, background: 'var(--brand-a8bef0)' }} />
+            </div>
+          )}
+          </div>
         </section>
 
         <button
@@ -2804,7 +2868,7 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
           onClick={() => onStart({ club, team: teamFull, ageGroup, opponent: [opponent, opponentTeamFull].filter(Boolean).join(' '), homeAway, squad, date: matchDate })}
           className="w-full py-4 rounded-2xl font-display text-xl font-bold uppercase tracking-widest text-white shadow-lg"
           style={{ background: canStart ? 'var(--brand-1a3fab)' : 'var(--brand-b8c8f0)', cursor: canStart ? 'pointer' : 'not-allowed' }}>
-          Wedstrijd starten →
+          Wedstrijd voorbereiden
         </button>
         {!canStart && (
           <p className="text-xs text-center -mt-3" style={{ color: 'var(--brand-a8bef0)' }}>
@@ -3312,6 +3376,22 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   const sendToBenchRef = useRef((_posId: string) => {})
   sendToBenchRef.current = sendToBench
 
+  // The bench strip's native scrollbar is invisible on most touch devices,
+  // giving no hint there's more to scroll to — this thumb/track pair is a
+  // custom, always-visible stand-in that tracks real scroll position.
+  const benchScrollRef = useRef<HTMLDivElement>(null)
+  const [benchScroll, setBenchScroll] = useState({ thumbPct: 100, offsetPct: 0 })
+  const updateBenchScroll = () => {
+    const el = benchScrollRef.current
+    if (!el) return
+    const { scrollLeft, scrollWidth, clientWidth } = el
+    if (scrollWidth <= clientWidth + 1) { setBenchScroll({ thumbPct: 100, offsetPct: 0 }); return }
+    const thumbPct = Math.max(15, (clientWidth / scrollWidth) * 100)
+    const maxScroll = scrollWidth - clientWidth
+    const offsetPct = (100 - thumbPct) * (maxScroll > 0 ? scrollLeft / maxScroll : 0)
+    setBenchScroll({ thumbPct, offsetPct })
+  }
+
   useEffect(() => {
     const pointInField = (clientX: number, clientY: number) => {
       const rect = fieldRef.current?.getBoundingClientRect()
@@ -3512,6 +3592,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
     .map(b => ({ ...b, player: getPlayer(b.playerId) }))
     .filter(b => b.player) as (BenchEntry & { player: Player })[]
 
+  useEffect(() => { updateBenchScroll() }, [benchPlayers.length, gameTab])
+
   const onFieldCount = slots.filter(s => s.playerId).length
   const targetCount = AGE_CONFIG[ageGroup].total
   const oppAvailable = Math.max(0, AGE_CONFIG[ageGroup].total - oppMarkers.length)
@@ -3682,10 +3764,17 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                       return !r
                     })
                   }}
-                    className="flex items-center gap-1.5 rounded-xl text-sm font-bold px-3 py-2 shrink-0"
+                    className="flex items-center gap-1.5 rounded-lg text-xs font-bold px-3 py-1 shrink-0"
                     style={{ background: running ? '#D97706' : '#16A34A', color: '#fff' }}>
-                    {running ? <IconPause size={15} /> : <IconPlay size={15} />}
+                    {running ? <IconPause size={14} /> : <IconPlay size={14} />}
                     {running ? 'Pauzeer' : 'Start'}
+                  </button>
+                )}
+                {!readOnly && (
+                  <button onClick={herstel} disabled={historyLen === 0}
+                    className="flex items-center gap-1.5 rounded-lg text-xs font-bold px-3 py-1 shrink-0 disabled:opacity-40"
+                    style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
+                    <IconUndo size={14} /> Herstel
                   </button>
                 )}
               </div>
@@ -3848,7 +3937,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                   Alle spelers staan op het veld
                 </div>
               ) : (
-                <div className="flex gap-3 overflow-x-auto mt-2 pb-1">
+                <>
+                <div ref={benchScrollRef} onScroll={updateBenchScroll} className="flex gap-3 overflow-x-auto mt-2 pb-1">
                   {[...benchPlayers].sort((a, b) => (a.player.number ?? Infinity) - (b.player.number ?? Infinity) || a.player.name.localeCompare(b.player.name)).map(({ playerId, sinceGameSec, player }) => {
                     const elapsed = Math.max(0, gameSec - sinceGameSec)
                     const isSel = selected?.type === 'bench' && selected.playerId === playerId
@@ -3858,7 +3948,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                     const isBlocked = isRedCarded || isUnavailable
                     return (
                       <div key={playerId}
-                        className={`relative flex flex-col items-center gap-1 shrink-0 w-16 touch-none select-none ${isBlocked ? 'cursor-not-allowed' : 'cursor-grab'}`}
+                        className={`relative flex flex-col items-center gap-1 shrink-0 w-16 touch-pan-x select-none ${isBlocked ? 'cursor-not-allowed' : 'cursor-grab'}`}
                         style={{ opacity: isBeingDragged ? 0.35 : isBlocked ? 0.6 : 1 }}
                         onPointerDown={e => beginDrag('bench', playerId, e)}
                         onClick={() => handleBenchClick(playerId)}>
@@ -3898,6 +3988,12 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                     )
                   })}
                 </div>
+                {benchScroll.thumbPct < 100 && (
+                  <div className="w-full h-1 rounded-full relative overflow-hidden" style={{ background: 'var(--brand-e4ecfe)' }}>
+                    <div className="absolute top-0 h-full rounded-full" style={{ width: `${benchScroll.thumbPct}%`, left: `${benchScroll.offsetPct}%`, background: 'var(--brand-a8bef0)' }} />
+                  </div>
+                )}
+                </>
               )}
             </div>
 
@@ -3996,6 +4092,9 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                 <button onClick={() => {
                   if (readOnly || !goalPlayerId) return
                   setGoals(g => [...g, { id: uid(), playerId: goalPlayerId, gameTimeSec: gameSec }])
+                  setScoreOwn(s => s + 1)
+                  triggerFlash('⚽', 'Doelpunt!', '#16A34A')
+                  setGoalPlayerId('')
                 }}
                   disabled={readOnly}
                   className="px-4 py-2 rounded-xl font-bold text-white text-lg shrink-0 disabled:opacity-50"
@@ -4012,7 +4111,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                         style={{ background: 'var(--brand-f8faff)', boxShadow: '0 1px 6px rgba(13, 31, 74, 0.06)' }}>
                         <span style={{ color: 'var(--brand-1a2f6b)' }}><HockeyBallIcon /> {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}</span>
                         {!readOnly && (
-                          <button onClick={() => setGoals(gs => gs.filter(x => x.id !== g.id))}
+                          <button onClick={() => { setGoals(gs => gs.filter(x => x.id !== g.id)); setScoreOwn(s => Math.max(0, s - 1)) }}
                             className="font-bold" style={{ color: '#DC2626' }}>
                             ×
                           </button>
@@ -4532,13 +4631,14 @@ function MatchDetailSections({ g, user, getPlayer, canManageSharing, shares, add
   )
 }
 
-function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, onCreateMatch, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
+function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, onHome, onCreateMatch, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
   games: SavedGame[]
   user: AuthUser | null
   authLoading: boolean
   onDelete: (id: string) => void
   onEdit: (game: SavedGame) => void
   onProfile: () => void
+  onHome: () => void
   onCreateMatch: () => void
   unreadNotifications: number
   notifications: AppNotification[]
@@ -4571,7 +4671,7 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, on
       <div className="sticky top-0 z-20">
         <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white shadow-lg">
           <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-3">
+            <button onClick={onHome} className="flex items-center gap-3 text-left" title="Naar home">
               {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
               <div>
                 <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
@@ -4581,7 +4681,7 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, on
                   {user?.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
                 </p>
               </div>
-            </div>
+            </button>
             <div className="flex items-center gap-2">
               {user?.defaultClub && (
                 <div style={{ opacity: 0.8 }}>
@@ -5058,6 +5158,7 @@ function TeamPlayerPhotos({ team, canEditPhotos, canAddPlayer, canManageRoster, 
       const player = await res.json() as { id: string; name: string }
       setPlayers(ps => [...ps, { id: player.id, name: player.name, photoUrl: null, position: null }])
       setNewName('')
+      showToast(`${player.name} toegevoegd`)
     } catch {
       setError('Kon speler niet toevoegen.')
     }
@@ -5185,10 +5286,11 @@ function TeamPlayerPhotos({ team, canEditPhotos, canAddPlayer, canManageRoster, 
 // Roster overview, relocated out of Profiel so it's its own bottom-nav
 // destination — tapping a player opens their profile/stats page.
 
-function TeamView({ user, games, onProfile, onSelectPlayer, onSelectStaff, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
+function TeamView({ user, games, onProfile, onHome, onSelectPlayer, onSelectStaff, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
   user: AuthUser | null
   games: SavedGame[]
   onProfile: () => void
+  onHome: () => void
   onSelectPlayer: (id: string) => void
   onSelectStaff: (id: string) => void
   unreadNotifications: number
@@ -5234,7 +5336,7 @@ function TeamView({ user, games, onProfile, onSelectPlayer, onSelectStaff, unrea
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-3">
+          <button onClick={onHome} className="flex items-center gap-3 text-left" title="Naar home">
             {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
             <div>
               <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
@@ -5244,7 +5346,7 @@ function TeamView({ user, games, onProfile, onSelectPlayer, onSelectStaff, unrea
                 {user?.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
               </p>
             </div>
-          </div>
+          </button>
           <div className="flex items-center gap-2">
             {user?.defaultClub && (
               <div style={{ opacity: 0.8 }}>
@@ -5735,7 +5837,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-3">
+          <button onClick={onBack} className="flex items-center gap-3 text-left" title="Naar home">
             {user?.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
             <div>
               <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
@@ -5745,7 +5847,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                 {user?.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
               </p>
             </div>
-          </div>
+          </button>
           <div className="flex items-center gap-2">
             {user?.defaultClub && (
               <div style={{ opacity: 0.8 }}>
@@ -6964,9 +7066,10 @@ function BottomBar({ view, user, unreadMessages, onMessages, onOpenHistory, onHo
 // the server — see api/messages/[action].ts — this just renders what it's
 // given.
 
-function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification, onOpenHistory }: {
+function MessagesView({ user, onProfile, onHome, onRefreshUnread, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification, onOpenHistory }: {
   user: AuthUser | null
   onProfile: () => void
+  onHome: () => void
   onRefreshUnread: () => void
   unreadNotifications: number
   notifications: AppNotification[]
@@ -7050,7 +7153,7 @@ function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, n
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
       <header style={{ background: 'var(--brand-0d2b7a)' }} className="text-white sticky top-0 z-20 shadow-lg">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-3">
+          <button onClick={onHome} className="flex items-center gap-3 text-left" title="Naar home">
             {user.defaultClub ? <ClubLogo club={user.defaultClub} size={32} /> : <H1Logo height={32} />}
             <div>
               <p className="font-display font-bold uppercase leading-none" style={{ fontSize: '16px', letterSpacing: '0.08em' }}>
@@ -7060,7 +7163,7 @@ function MessagesView({ user, onProfile, onRefreshUnread, unreadNotifications, n
                 {user.defaultClub ? (user.role ?? 'HOCKEY ONE').toUpperCase() : 'Hockey Team Manager'}
               </p>
             </div>
-          </div>
+          </button>
           {activeId && (
             <h1 className="font-display text-xl font-bold uppercase tracking-widest text-center truncate">{activeName}</h1>
           )}
@@ -7254,6 +7357,7 @@ export default function App() {
   const withBottomBar = (content: React.ReactNode) => (
     <>
       {content}
+      <ToastHost />
       {showBottomBar && (
         <>
           <div style={{ height: 64 }} />
@@ -7333,6 +7437,7 @@ export default function App() {
         onDelete={deleteGame}
         onEdit={startEdit}
         onProfile={() => setView('profile')}
+        onHome={() => setView('home')}
         onCreateMatch={() => setView('setup')}
         unreadNotifications={notif.unreadNotifications}
         notifications={notif.notifications}
@@ -7347,6 +7452,7 @@ export default function App() {
       <MessagesView
         user={user}
         onProfile={() => setView('profile')}
+        onHome={() => setView('home')}
         onRefreshUnread={notif.refresh}
         unreadNotifications={notif.unreadNotifications}
         notifications={notif.notifications}
@@ -7375,6 +7481,7 @@ export default function App() {
         user={user}
         games={games}
         onProfile={() => setView('profile')}
+        onHome={() => setView('home')}
         onSelectPlayer={id => { setSelectedPlayerId(id); setView('playerProfile') }}
         onSelectStaff={id => { setSelectedStaffId(id); setView('staffProfile') }}
         unreadNotifications={notif.unreadNotifications}
@@ -7426,6 +7533,7 @@ export default function App() {
       <SetupView
         onStart={p => { setEditingGame(null); setGameParams(p); setView('game') }}
         onProfile={() => setView('profile')}
+        onHome={() => setView('home')}
         user={user}
         authLoading={authLoading}
         unreadNotifications={notif.unreadNotifications}
