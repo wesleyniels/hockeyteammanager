@@ -9,11 +9,12 @@
 // "Technisch Coördinator" isn't one of this app's roles (Trainer/Coach/
 // Manager) so those entries are dropped; "Ouder coach" is folded into
 // 'Coach'. Someone listed under more than one role gets one row per role.
-// Still missing (not yet provided): MO8-Wit (partial screenshot only), and
-// JO8-Blauw (the "JO8-Wit" screenshot sent for this doesn't match any team
-// name this app knows — needs clarifying whether that's the same team
-// under a different name in Lisa). Add them here once available, using the
-// exact team names from teams/list.
+// Still missing (not yet provided): JO8-Blauw (the "JO8-Wit" screenshot
+// sent for this doesn't match any team name this app knows — needs
+// clarifying whether that's the same team under a different name in
+// Lisa). Add it here once available, using the exact team name from
+// teams/list. MO8-Wit only had a partial screenshot originally, so may
+// still be missing a Manager alongside the Coach added 2026-08-28.
 //
 // Used only to gate self-selecting an elevated Rol in Profile (see
 // isVerifiedStaffName in team-staff.ts and the PUT /api/auth/me check in
@@ -41,6 +42,9 @@ export const TEAM_STAFF: Record<string, { role: 'Trainer' | 'Coach' | 'Manager';
   'MO8-Rood': [
     { role: 'Coach', firstName: 'Wim', lastName: 'Gille' },
     { role: 'Manager', firstName: 'Haiko', lastName: 'Brinkers' },
+  ],
+  'MO8-Wit': [
+    { role: 'Coach', firstName: 'Joëlle', lastName: 'Rijkse' },
   ],
   'MO9-Blauw': [
     { role: 'Manager', firstName: 'Juliette', lastName: 'Velthuysen' },
