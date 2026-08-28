@@ -71,3 +71,13 @@ body {
   100% { opacity: 0; transform: translate(-50%, -6px) scale(0.96); }
 }
 .match-flash-toast { animation: match-flash-kf 1.6s ease forwards; }
+
+/* Small app-wide confirmation toast (ToastHost in App.tsx) — e.g. "Speler
+   toegevoegd" — distinct from match-flash-toast above, which is GameView-only. */
+@keyframes app-toast-kf {
+  0% { opacity: 0; transform: translateY(8px); }
+  10% { opacity: 1; transform: translateY(0); }
+  88% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(4px); }
+}
+.app-toast { animation: app-toast-kf 2.2s ease forwards; }

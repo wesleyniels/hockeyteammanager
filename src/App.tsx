@@ -546,6 +546,43 @@ const uid = () => Math.random().toString(36).slice(2, 11)
 // reads media through this proxy instead (see api/blob/[action].ts's 'view').
 const mediaSrc = (url: string) => `/api/blob/view?url=${encodeURIComponent(url)}`
 
+// ── Toasts ───────────────────────────────────────────────────────────────────
+// A tiny module-level pub-sub so any component can confirm a background
+// action ("Speler toegevoegd") without threading toast state through props —
+// this app has one huge component tree per view, so a shared singleton beats
+// wiring a context provider through every one of them. <ToastHost/> is
+// mounted once near the app root and is the only subscriber.
+let toastListeners: ((text: string) => void)[] = []
+function showToast(text: string) {
+  toastListeners.forEach(l => l(text))
+}
+function ToastHost() {
+  const [toasts, setToasts] = useState<{ id: number; text: string }[]>([])
+  useEffect(() => {
+    const listener = (text: string) => {
+      setToasts(t => [...t, { id: Date.now() + Math.random(), text }])
+    }
+    toastListeners.push(listener)
+    return () => { toastListeners = toastListeners.filter(l => l !== listener) }
+  }, [])
+  useEffect(() => {
+    if (toasts.length === 0) return
+    const timer = setTimeout(() => setToasts(t => t.slice(1)), 2200)
+    return () => clearTimeout(timer)
+  }, [toasts])
+  if (toasts.length === 0) return null
+  return (
+    <div className="fixed left-1/2 z-50 flex flex-col items-center gap-2 pointer-events-none" style={{ bottom: 88, transform: 'translateX(-50%)' }}>
+      {toasts.map(t => (
+        <div key={t.id} className="app-toast px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-lg"
+          style={{ background: 'var(--brand-0d2b7a)' }}>
+          {t.text}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // Mirrors the Python slugify used when the club crests were uploaded to Blob
 // storage (club-logos/{slug}.png) — NFKD-normalize, drop combining marks,
 // lowercase, collapse non-alphanumeric runs to a single hyphen.
@@ -2364,7 +2401,7 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
 
       <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
         {nextMatch && nextMatchOpponent && (
-          <section className="rounded-2xl p-5 text-white shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
+          <section onClick={() => onEditGame(nextMatch)} className="rounded-2xl p-5 text-white shadow-lg cursor-pointer" style={{ background: 'var(--brand-0d2b7a)' }}>
             <h2 className="font-display text-xs font-bold uppercase mb-3" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.14em' }}>
               Volgende wedstrijd
             </h2>
@@ -2390,15 +2427,15 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
                 </p>
               </div>
             </div>
-            <button onClick={() => onEditGame(nextMatch)}
-              className="w-full mt-3 py-2.5 rounded-xl font-display font-bold uppercase tracking-wide text-sm"
+            <div className="w-full mt-3 py-2.5 rounded-xl font-display font-bold uppercase tracking-wide text-sm text-center"
               style={{ background: '#fff', color: 'var(--brand-0d2b7a)' }}>
-              Wedstrijd voorbereiden →
-            </button>
+              Wedstrijd voorbereiden
+            </div>
           </section>
         )}
 
-        <section className="bg-white rounded-2xl p-5 shadow-sm" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
+        <section onClick={lastPlayed ? () => onOpenMatch(lastPlayed.id) : undefined}
+          className={`bg-white rounded-2xl p-5 shadow-sm ${lastPlayed ? 'cursor-pointer' : ''}`} style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
           <h2 className="font-display text-xs font-bold uppercase mb-3" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.14em' }}>
             Laatste resultaat
           </h2>
@@ -2429,10 +2466,11 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
                   </p>
                 </div>
               </div>
-              <div className="text-center mt-3">
-                <button onClick={() => onOpenMatch(lastPlayed.id)} className="text-sm font-bold" style={{ color: 'var(--brand-1a3fab)' }}>
-                  Bekijk wedstrijd →
-                </button>
+              <div className="mt-3">
+                <div className="w-full py-2 rounded-xl font-display font-bold uppercase tracking-wide text-sm text-center text-white"
+                  style={{ background: 'var(--brand-1a3fab)' }}>
+                  Bekijk wedstrijd
+                </div>
               </div>
             </>
           ) : (
@@ -2486,6 +2524,7 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
     if (!name) return
     setSquad(s => [...s, { id: uid(), name }])
     setNewName('')
+    showToast(`${name} toegevoegd`)
   }
 
   const saveEdit = (id: string) => {
@@ -2804,7 +2843,7 @@ function SetupView({ onStart, onProfile, user, authLoading, unreadNotifications,
           onClick={() => onStart({ club, team: teamFull, ageGroup, opponent: [opponent, opponentTeamFull].filter(Boolean).join(' '), homeAway, squad, date: matchDate })}
           className="w-full py-4 rounded-2xl font-display text-xl font-bold uppercase tracking-widest text-white shadow-lg"
           style={{ background: canStart ? 'var(--brand-1a3fab)' : 'var(--brand-b8c8f0)', cursor: canStart ? 'pointer' : 'not-allowed' }}>
-          Wedstrijd starten →
+          Wedstrijd voorbereiden
         </button>
         {!canStart && (
           <p className="text-xs text-center -mt-3" style={{ color: 'var(--brand-a8bef0)' }}>
@@ -3682,10 +3721,17 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                       return !r
                     })
                   }}
-                    className="flex items-center gap-1.5 rounded-xl text-sm font-bold px-3 py-2 shrink-0"
+                    className="flex items-center gap-1.5 rounded-lg text-xs font-bold px-3 py-1 shrink-0"
                     style={{ background: running ? '#D97706' : '#16A34A', color: '#fff' }}>
-                    {running ? <IconPause size={15} /> : <IconPlay size={15} />}
+                    {running ? <IconPause size={14} /> : <IconPlay size={14} />}
                     {running ? 'Pauzeer' : 'Start'}
+                  </button>
+                )}
+                {!readOnly && (
+                  <button onClick={herstel} disabled={historyLen === 0}
+                    className="flex items-center gap-1.5 rounded-lg text-xs font-bold px-3 py-1 shrink-0 disabled:opacity-40"
+                    style={{ background: 'var(--brand-eef3ff)', color: 'var(--brand-1a3fab)' }}>
+                    <IconUndo size={14} /> Herstel
                   </button>
                 )}
               </div>
@@ -5058,6 +5104,7 @@ function TeamPlayerPhotos({ team, canEditPhotos, canAddPlayer, canManageRoster, 
       const player = await res.json() as { id: string; name: string }
       setPlayers(ps => [...ps, { id: player.id, name: player.name, photoUrl: null, position: null }])
       setNewName('')
+      showToast(`${player.name} toegevoegd`)
     } catch {
       setError('Kon speler niet toevoegen.')
     }
@@ -7254,6 +7301,7 @@ export default function App() {
   const withBottomBar = (content: React.ReactNode) => (
     <>
       {content}
+      <ToastHost />
       {showBottomBar && (
         <>
           <div style={{ height: 64 }} />
