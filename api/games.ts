@@ -14,23 +14,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'GET') {
     // Own matches, anything explicitly shared with this account, plus any
     // match at all — regardless of who created it — for this account's own
-    // default_team, so a Speler/Supporter sees their whole team's schedule
-    // by default and doesn't depend on a coach remembering to share each
-    // one individually. A coach/trainer/manager gets 'edit' on a team match
-    // they don't own so they can help run it too; everyone else (player,
-    // supporter, or no role at all) only gets 'view'. The viewer's effective
-    // permission for each is folded into the returned data so the frontend
-    // can gate editing without a second round trip.
-    const me = await sql`SELECT default_team, role FROM users WHERE id = ${user.id}`
+    // default_team or any team they've chosen to follow, so a Speler/
+    // Supporter sees their whole team's schedule by default and doesn't
+    // depend on a coach remembering to share each one individually. A
+    // coach/trainer/manager gets 'edit' on a team match they don't own so
+    // they can help run it too, but only for their own default_team —
+    // followed teams are view-only, same as anyone with no role at all. The
+    // viewer's effective permission for each is folded into the returned
+    // data so the frontend can gate editing without a second round trip.
+    const me = await sql`SELECT default_team, followed_teams, role FROM users WHERE id = ${user.id}`
     const defaultTeam = me[0]?.default_team ?? null
+    const followedTeams = (me[0]?.followed_teams ?? []) as string[]
     const role = me[0]?.role ?? null
+    const visibleTeams = [...new Set([defaultTeam, ...followedTeams].filter((t): t is string => !!t))]
     const rows = await sql`
       SELECT g.data, g.user_id AS owner_id, gs.permission AS share_permission
       FROM games g
       LEFT JOIN game_shares gs ON gs.game_id = g.id AND gs.user_id = ${user.id}
       WHERE g.user_id = ${user.id}
          OR gs.user_id = ${user.id}
-         OR (${defaultTeam}::text IS NOT NULL AND g.data->>'team' = ${defaultTeam})
+         OR g.data->>'team' = ANY(${visibleTeams}::text[])
       ORDER BY g.created_at ASC
     `
     // A freshly-seeded Hockey-One fixture starts with an empty squad (see
@@ -39,16 +42,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // added/removed all season instead of freezing whatever the roster
     // looked like on import day. Only applies while the squad is still
     // empty: the moment a coach saves the match (PUT), its squad becomes
-    // real match data and this overlay stops applying to it.
-    let roster: { id: string; name: string; photoUrl: string | null }[] = []
-    if (defaultTeam && rows.some(r => r.owner_id === 'hockey-one' && (r.data.squad?.length ?? 0) === 0)) {
+    // real match data and this overlay stops applying to it. Covers every
+    // visible team (default + followed), not just default_team, so a
+    // followed team's fixtures show its real roster too.
+    const teamsNeedingRoster = [...new Set(
+      rows.filter(r => r.owner_id === 'hockey-one' && (r.data.squad?.length ?? 0) === 0).map(r => r.data.team as string)
+    )]
+    const rosterByTeam = new Map<string, { id: string; name: string; photoUrl: string | null }[]>()
+    for (const t of teamsNeedingRoster) {
       const rosterRows = await sql`
         SELECT tp.id, tp.name, tp.photo_url FROM team_players tp
         JOIN teams t ON t.id = tp.team_id
-        WHERE lower(t.name) = lower(${defaultTeam})
+        WHERE lower(t.name) = lower(${t})
         ORDER BY tp.sort_order, tp.name
       `
-      roster = rosterRows.map(r => ({ id: r.id, name: r.name, photoUrl: r.photo_url }))
+      rosterByTeam.set(t, rosterRows.map(r => ({ id: r.id, name: r.name, photoUrl: r.photo_url })))
     }
     // Player names in a game's squad are only for roster staff/admins — a
     // Speler, Supporter, or not-yet-verified account gets initials instead,
@@ -62,6 +70,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (r.owner_id === user.id) permission = 'owner'
       else if (r.share_permission) permission = r.share_permission
       else if (defaultTeam && r.data.team === defaultTeam) permission = ELIGIBLE_ROLES.includes(role ?? '') ? 'edit' : 'view'
+      else if (visibleTeams.includes(r.data.team)) permission = 'view'
+      const roster = rosterByTeam.get(r.data.team) ?? []
       const needsRoster = r.owner_id === 'hockey-one' && (r.data.squad?.length ?? 0) === 0 && roster.length > 0
       let data = needsRoster ? { ...r.data, squad: roster.map(p => ({ id: p.id, name: p.name, photoUrl: p.photoUrl ?? undefined })) } : r.data
       if (!fullNamesOk && Array.isArray(data.squad)) {

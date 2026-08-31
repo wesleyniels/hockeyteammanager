@@ -245,6 +245,11 @@ export function ensureSchema() {
       sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false`,
       sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_logins INT NOT NULL DEFAULT 0`,
       sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS login_locked_until TIMESTAMPTZ`,
+      // Extra teams a user wants to browse (Wedstrijden/Team) beyond their
+      // own default_team — view-only, doesn't grant any of the edit/roster
+      // rights default_team + role does. See ELIGIBLE_ROLES/isRosterStaffOfTeamName,
+      // neither of which look at this column.
+      sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS followed_teams TEXT[] NOT NULL DEFAULT '{}'`,
       sql`
         CREATE TABLE IF NOT EXISTS games (
           id TEXT PRIMARY KEY,

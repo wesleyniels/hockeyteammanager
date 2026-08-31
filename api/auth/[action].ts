@@ -126,13 +126,13 @@ async function handleGoogle(req: VercelRequest, res: VercelResponse) {
         picture = COALESCE(picture, ${picture}),
         email_verified = email_verified OR ${verified}
       WHERE id = ${id}
-      RETURNING id, email, name, picture, default_team, default_club, first_name, last_name, role
+      RETURNING id, email, name, picture, default_team, default_club, first_name, last_name, role, followed_teams
     `
   } else {
     rows = await sql`
       INSERT INTO users (id, email, name, picture, email_verified)
       VALUES (${payload.sub}, ${email}, ${name}, ${picture}, ${verified})
-      RETURNING id, email, name, picture, default_team, default_club, first_name, last_name, role
+      RETURNING id, email, name, picture, default_team, default_club, first_name, last_name, role, followed_teams
     `
     await notifyAdminsOfNewRegistration(email, name)
     await sendWelcomeNotification(payload.sub, name)
@@ -207,7 +207,7 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
   if (!session) { res.status(401).json({ error: 'Not authenticated' }); return }
 
   if (req.method === 'GET') {
-    const rows = await sql`SELECT id, email, name, picture, default_team, default_club, first_name, last_name, role FROM users WHERE id = ${session.id}`
+    const rows = await sql`SELECT id, email, name, picture, default_team, default_club, first_name, last_name, role, followed_teams FROM users WHERE id = ${session.id}`
     if (rows.length === 0) { res.status(401).json({ error: 'Not authenticated' }); return }
     res.status(200).json({ user: toUser(rows[0]) })
     return
@@ -225,7 +225,12 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
       res.status(400).json({ error: 'Foto is te groot' })
       return
     }
-    const current = await sql`SELECT default_team, default_club, first_name, last_name, role, picture FROM users WHERE id = ${session.id}`
+    if (body.followedTeams !== undefined
+      && (!Array.isArray(body.followedTeams) || body.followedTeams.some((t: unknown) => typeof t !== 'string') || body.followedTeams.length > 30)) {
+      res.status(400).json({ error: 'Invalid followedTeams' })
+      return
+    }
+    const current = await sql`SELECT default_team, default_club, first_name, last_name, role, picture, followed_teams FROM users WHERE id = ${session.id}`
     if (current.length === 0) { res.status(401).json({ error: 'Not authenticated' }); return }
     const cur = current[0]
     // A key only changes if the caller actually sent it — this lets Setup's
@@ -237,6 +242,9 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
     const lastName = 'lastName' in body ? (body.lastName || null) : cur.last_name
     const role = 'role' in body ? (body.role || null) : cur.role
     const picture = 'picture' in body ? (body.picture || null) : cur.picture
+    const followedTeams = 'followedTeams' in body
+      ? [...new Set((body.followedTeams as string[]).map(t => t.trim()).filter(Boolean))]
+      : (cur.followed_teams ?? [])
     // Once already elevated, moving between elevated roles needs no
     // re-verification (e.g. a real coach switching to Trainer & Coach) —
     // this only gates the first jump away from Speler/Supporter, so nobody
@@ -259,9 +267,10 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
         first_name = ${firstName},
         last_name = ${lastName},
         role = ${role},
-        picture = ${picture}
+        picture = ${picture},
+        followed_teams = ${followedTeams}::text[]
       WHERE id = ${session.id}
-      RETURNING id, email, name, picture, default_team, default_club, first_name, last_name, role
+      RETURNING id, email, name, picture, default_team, default_club, first_name, last_name, role, followed_teams
     `
     if (rows.length === 0) { res.status(401).json({ error: 'Not authenticated' }); return }
     res.status(200).json({ user: toUser(rows[0]) })
@@ -399,7 +408,7 @@ async function handleResetPassword(req: VercelRequest, res: VercelResponse) {
       failed_logins = 0,
       login_locked_until = NULL
     WHERE id = ${row.id}
-    RETURNING id, email, name, picture, default_team, default_club, first_name, last_name, role
+    RETURNING id, email, name, picture, default_team, default_club, first_name, last_name, role, followed_teams
   `
 
   res.setHeader('Set-Cookie', sessionCookieHeader(signSession({ id: row.id, email: row.email, name: row.name, picture: row.picture })))
