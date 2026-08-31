@@ -63,6 +63,12 @@ interface Card {
   gameTimeSec?: number
 }
 
+// Green/yellow are a timed penalty; red has no time limit (out for the rest
+// of the match) — single source of truth so the countdown shown in the
+// Kaarten list, the bench badge, and the expiry notification can't drift
+// out of sync with each other.
+const CARD_PENALTY_SEC: Record<Card['color'], number | null> = { green: 120, yellow: 300, red: null }
+
 interface MediaItem {
   id: string
   url: string
@@ -2991,6 +2997,17 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   const [scoreOwn, setScoreOwn] = useState(initial?.scoreOwn ?? 0)
   const [scoreOpp, setScoreOpp] = useState(initial?.scoreOpp ?? 0)
   const [gameSec, setGameSec] = useState(initial?.finalTime ?? 0)
+  // Green/yellow are a timed penalty (2/5 min) rather than permanent — this
+  // recomputes every render off `gameSec`, so a player is automatically
+  // free to sub back in the moment their time expires, no separate
+  // "release" step needed.
+  const penaltyCardedIds = new Set(
+    cards.filter(c => {
+      const penaltySec = CARD_PENALTY_SEC[c.color]
+      return penaltySec != null && c.gameTimeSec != null && gameSec - c.gameTimeSec < penaltySec
+    }).map(c => c.playerId)
+  )
+  const benchBlockedIds = new Set([...redCardedIds, ...penaltyCardedIds])
   // `gameSec` itself stays a plain cumulative elapsed-seconds counter (bench
   // timers, sub timestamps and per-player played time all key off it) —
   // `periodStartSec` just marks the `gameSec` value the current period began
@@ -3056,6 +3073,25 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPeriod, remainingInPeriod, totalPeriods])
+
+  // Green/yellow cards are a timed penalty — flash a notification the
+  // moment each one's time runs out, so the coach notices the player is
+  // free to come back on. Guarded per-card-id so it fires exactly once,
+  // even though "remaining" stays at 0 for the rest of the match.
+  const penaltyEndNotifiedRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    for (const c of cards) {
+      const penaltySec = CARD_PENALTY_SEC[c.color]
+      if (penaltySec == null || c.gameTimeSec == null) continue
+      const remaining = penaltySec - (gameSec - c.gameTimeSec)
+      if (remaining <= 0 && !penaltyEndNotifiedRef.current.has(c.id)) {
+        penaltyEndNotifiedRef.current.add(c.id)
+        const p = squad.find(pl => pl.id === c.playerId)
+        triggerFlash('⏱️', `${p?.name ?? 'Speler'} mag terug`, c.color === 'green' ? '#16A34A' : '#D97706')
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameSec, cards])
 
   // ── Autosave + Herstel (undo) ────────────────────────────────────────────
   // Everything that counts as an editable "game setting" — not the running
@@ -3332,7 +3368,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   }
 
   const doSub = (inId: string, posId: string) => {
-    if (readOnly || redCardedIds.has(inId) || unavailableSet.has(inId)) return
+    if (readOnly || benchBlockedIds.has(inId) || unavailableSet.has(inId)) return
     const pos = slots.find(s => s.posId === posId)
     const outId = pos?.playerId ?? null
     setSlots(sl => sl.map(s => s.posId === posId ? { ...s, playerId: inId } : s))
@@ -3516,7 +3552,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   }, [])
 
   const beginDrag = (type: DragKind, id: string, e: React.PointerEvent) => {
-    if (readOnly || (type === 'bench' && (redCardedIds.has(id) || unavailableSet.has(id)))) return
+    if (readOnly || (type === 'bench' && (benchBlockedIds.has(id) || unavailableSet.has(id)))) return
     dragInfoRef.current = { type, id }
     dragStartRef.current = { x: e.clientX, y: e.clientY }
   }
@@ -3550,7 +3586,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   }
 
   const handleBenchClick = (playerId: string) => {
-    if (suppressClickRef.current || readOnly || redCardedIds.has(playerId) || unavailableSet.has(playerId)) return
+    if (suppressClickRef.current || readOnly || benchBlockedIds.has(playerId) || unavailableSet.has(playerId)) return
     if (selected?.type === 'field') {
       doSub(playerId, selected.posId)
     } else if (selected?.type === 'bench' && selected.playerId === playerId) {
@@ -3979,7 +4015,13 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                     const isBeingDragged = dragPreview?.type === 'bench' && dragPreview.id === playerId
                     const isRedCarded = redCardedIds.has(playerId)
                     const isUnavailable = unavailableSet.has(playerId)
-                    const isBlocked = isRedCarded || isUnavailable
+                    const penaltyCard = penaltyCardedIds.has(playerId)
+                      ? cards.find(c => c.playerId === playerId && c.color !== 'red')
+                      : undefined
+                    const penaltyRemaining = penaltyCard?.gameTimeSec != null
+                      ? Math.max(0, CARD_PENALTY_SEC[penaltyCard.color]! - (gameSec - penaltyCard.gameTimeSec))
+                      : null
+                    const isBlocked = isRedCarded || !!penaltyCard || isUnavailable
                     return (
                       <div key={playerId}
                         className={`relative flex flex-col items-center gap-1 shrink-0 w-16 touch-pan-x select-none ${isBlocked ? 'cursor-not-allowed' : 'cursor-grab'}`}
@@ -4007,10 +4049,20 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                           {isRedCarded && (
                             <span className="absolute bottom-0 right-0 inline-block w-2.5 h-3.5 rounded-sm" style={{ background: '#DC2626' }} title="Rode kaart — kan niet meer meedoen" />
                           )}
+                          {penaltyCard && (
+                            <span className="absolute bottom-0 right-0 inline-block w-2.5 h-3.5 rounded-sm"
+                              style={{ background: penaltyCard.color === 'green' ? '#16A34A' : '#EAB308' }}
+                              title={`${penaltyCard.color === 'green' ? 'Groene' : 'Gele'} kaart — strafbank`} />
+                          )}
                         </div>
                         <span className="text-xs font-semibold truncate w-full text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{firstName(player.name)}</span>
                         {isUnavailable ? (
                           <span className="text-[10px] font-bold" style={{ color: '#6B7280' }}>Afwezig</span>
+                        ) : penaltyCard && penaltyRemaining != null ? (
+                          <span className="font-mono text-[10px] font-bold"
+                            style={{ color: penaltyCard.color === 'green' ? '#16A34A' : '#D97706' }}>
+                            {penaltyRemaining === 0 ? 'Terug' : fmtSec(penaltyRemaining)}
+                          </span>
                         ) : (
                           <span className="font-mono text-[10px] font-bold"
                             style={{ color: gameSec > 0 ? benchColor(elapsed) : 'var(--brand-a8bef0)' }}>
@@ -4186,14 +4238,12 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                     cardColor === 'green' ? '🟩' : cardColor === 'yellow' ? '🟨' : '🟥',
                     `${cardColor === 'green' ? 'Groene' : cardColor === 'yellow' ? 'Gele' : 'Rode'} kaart`,
                     cardColor === 'green' ? '#16A34A' : cardColor === 'yellow' ? '#D97706' : '#DC2626')
-                  // A red card ends the player's match — take them off the
-                  // field immediately rather than leaving it to be noticed
-                  // (and enforced) only the next time someone tries to sub
-                  // them back in.
-                  if (cardColor === 'red') {
-                    const onFieldSlot = slots.find(s => s.playerId === cardPlayerId)
-                    if (onFieldSlot) sendToBench(onFieldSlot.posId)
-                  }
+                  // Any card takes the player off the field immediately —
+                  // red for good, green/yellow for their penalty time —
+                  // rather than leaving it to be noticed (and enforced) only
+                  // the next time someone tries to sub them back in.
+                  const onFieldSlot = slots.find(s => s.playerId === cardPlayerId)
+                  if (onFieldSlot) sendToBench(onFieldSlot.posId)
                 }}
                   disabled={readOnly}
                   className="px-4 py-1 rounded-xl font-bold text-white text-lg shrink-0 disabled:opacity-50"
@@ -4205,6 +4255,12 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                 <div className="mt-2 space-y-1">
                   {cards.map(c => {
                     const p = getPlayer(c.playerId)
+                    // gameTimeSec can be missing on older/imported cards —
+                    // without a start time there's nothing to count down.
+                    const penaltySec = CARD_PENALTY_SEC[c.color]
+                    const remaining = penaltySec != null && c.gameTimeSec != null
+                      ? Math.max(0, penaltySec - (gameSec - c.gameTimeSec))
+                      : null
                     return (
                       <div key={c.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
                         style={{ background: 'var(--brand-f8faff)', boxShadow: '0 1px 6px rgba(13, 31, 74, 0.06)' }}>
@@ -4213,12 +4269,23 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                             style={{ background: c.color === 'green' ? '#16A34A' : c.color === 'yellow' ? '#EAB308' : '#DC2626' }} />
                           {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}
                         </span>
-                        {!readOnly && (
-                          <button onClick={() => setCards(cs => cs.filter(x => x.id !== c.id))}
-                            className="font-bold" style={{ color: '#DC2626' }}>
-                            ×
-                          </button>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {remaining != null && (
+                            <span className="font-mono text-xs font-bold px-1.5 py-0.5 rounded"
+                              style={{
+                                color: remaining === 0 ? '#16A34A' : '#D97706',
+                                background: remaining === 0 ? '#DCFCE7' : '#FEF3C7',
+                              }}>
+                              {remaining === 0 ? 'Terug' : fmtSec(remaining)}
+                            </span>
+                          )}
+                          {!readOnly && (
+                            <button onClick={() => setCards(cs => cs.filter(x => x.id !== c.id))}
+                              className="font-bold" style={{ color: '#DC2626' }}>
+                              ×
+                            </button>
+                          )}
+                        </div>
                       </div>
                     )
                   })}
