@@ -3185,19 +3185,43 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   // slotsRef (declared further below, kept fresh on every render) lets this
   // interval — only recreated when `running` toggles — see substitutions that
   // happen mid-match without resetting the tick cadence.
+  //
+  // Mobile browsers throttle or fully suspend setInterval while the tab is
+  // backgrounded (app switched away, phone locked), so a plain "+1 every
+  // tick" counter falls behind real time and never catches up. Instead each
+  // tick measures real elapsed time since the last one (via Date.now()) and
+  // advances the clock by however many seconds actually passed — so a tick
+  // that got delayed 40s while backgrounded jumps the clock by 40s, not 1.
+  // A visibilitychange/focus listener also forces an immediate catch-up tick
+  // the moment the app comes back, rather than waiting on the next interval.
+  const lastTickRef = useRef<number | null>(null)
   useEffect(() => {
-    if (running) intervalRef.current = setInterval(() => {
-      setGameSec(s => s + 1)
+    if (!running) { if (intervalRef.current) clearInterval(intervalRef.current); return }
+    const tick = () => {
+      const now = Date.now()
+      const last = lastTickRef.current ?? now
+      const elapsed = Math.floor((now - last) / 1000)
+      if (elapsed <= 0) return
+      lastTickRef.current = last + elapsed * 1000
+      setGameSec(s => s + elapsed)
       setPlayedSeconds(ps => {
         const onField = slotsRef.current.filter(s => s.playerId)
         if (onField.length === 0) return ps
         const next = { ...ps }
-        for (const slot of onField) next[slot.playerId!] = (next[slot.playerId!] ?? 0) + 1
+        for (const slot of onField) next[slot.playerId!] = (next[slot.playerId!] ?? 0) + elapsed
         return next
       })
-    }, 1000)
-    else if (intervalRef.current) clearInterval(intervalRef.current)
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
+    }
+    lastTickRef.current = Date.now()
+    intervalRef.current = setInterval(tick, 1000)
+    const onWake = () => { if (document.visibilityState === 'visible') tick() }
+    document.addEventListener('visibilitychange', onWake)
+    window.addEventListener('focus', onWake)
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+      document.removeEventListener('visibilitychange', onWake)
+      window.removeEventListener('focus', onWake)
+    }
   }, [running])
 
   const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
@@ -3223,6 +3247,16 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
     }
     setTacticsBoards(bs => [...bs, board])
     setActiveBoardId(board.id)
+    // A Strafcorner board starts with no markers and (unlike Opstelling)
+    // never shows the live squad circles either, since their coordinates
+    // don't map onto the cropped D. Left on the default 'select' tool the
+    // board looks empty and unresponsive — there's nothing to select yet —
+    // so jump straight to the '+ Speler' tool that actually adds one.
+    if (board.markers.length === 0) {
+      setTacticsTool('marker')
+      setSelectedTacticsMarker(null)
+      setTacticsPlayerId('')
+    }
   }
 
   const deleteBoard = (id: string) => {
@@ -4292,7 +4326,9 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                   ? (tacticsPlayerId ? 'Tik op het veld om te plaatsen.' : 'Kies eerst een speler.')
                   : tacticsTool === 'arrow'
                     ? 'Sleep op het veld om een pijl te tekenen.'
-                    : 'Tik een speler, tik daarna waar die naartoe moet.'}
+                    : activeBoard.markers.length === 0
+                      ? 'Nog geen spelers op deze opstelling — kies + Speler om er een toe te voegen.'
+                      : 'Tik een speler, tik daarna waar die naartoe moet.'}
               </p>
             )}
 
