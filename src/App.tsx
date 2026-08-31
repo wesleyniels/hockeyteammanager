@@ -4205,6 +4205,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                 <div className="mt-2 space-y-1">
                   {cards.map(c => {
                     const p = getPlayer(c.playerId)
+                    // Green = 2 min, yellow = 5 min time penalty; red has no
+                    // time limit (player's out for the rest of the match).
+                    // gameTimeSec can be missing on older/imported cards —
+                    // without a start time there's nothing to count down.
+                    const penaltySec = c.color === 'green' ? 120 : c.color === 'yellow' ? 300 : null
+                    const remaining = penaltySec != null && c.gameTimeSec != null
+                      ? Math.max(0, penaltySec - (gameSec - c.gameTimeSec))
+                      : null
                     return (
                       <div key={c.id} className="flex items-center justify-between text-sm rounded-lg px-2.5 py-1.5"
                         style={{ background: 'var(--brand-f8faff)', boxShadow: '0 1px 6px rgba(13, 31, 74, 0.06)' }}>
@@ -4213,12 +4221,23 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                             style={{ background: c.color === 'green' ? '#16A34A' : c.color === 'yellow' ? '#EAB308' : '#DC2626' }} />
                           {p ? `${p.number ? `#${p.number} ` : ''}${p.name}` : 'Onbekende speler'}
                         </span>
-                        {!readOnly && (
-                          <button onClick={() => setCards(cs => cs.filter(x => x.id !== c.id))}
-                            className="font-bold" style={{ color: '#DC2626' }}>
-                            ×
-                          </button>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {remaining != null && (
+                            <span className="font-mono text-xs font-bold px-1.5 py-0.5 rounded"
+                              style={{
+                                color: remaining === 0 ? '#16A34A' : '#D97706',
+                                background: remaining === 0 ? '#DCFCE7' : '#FEF3C7',
+                              }}>
+                              {remaining === 0 ? 'Terug' : fmtSec(remaining)}
+                            </span>
+                          )}
+                          {!readOnly && (
+                            <button onClick={() => setCards(cs => cs.filter(x => x.id !== c.id))}
+                              className="font-bold" style={{ color: '#DC2626' }}>
+                              ×
+                            </button>
+                          )}
+                        </div>
                       </div>
                     )
                   })}
