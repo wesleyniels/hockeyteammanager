@@ -6139,16 +6139,29 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
 
               <div>
                 <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Team</label>
-                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: user.defaultTeam ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
-                  value={user.defaultTeam ?? ''}
-                  onChange={e => onUpdateProfile({ defaultTeam: e.target.value || null })}>
-                  <option value="">Kies team…</option>
-                  {/* teamNames is this club's real roster list — only meaningful for SC
-                      Muiden, the only club this app actually manages rosters for. Any
-                      other club falls back to the generic age-category list. */}
-                  {(user.defaultClub === 'SC Muiden' ? teamNames : GENERIC_TEAM_CATEGORIES).map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-                <p className="text-xs mt-1.5" style={{ color: 'var(--brand-7b90c8)' }}>Wordt automatisch geselecteerd bij het starten van een wedstrijd.</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: user.defaultTeam ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
+                    value={user.defaultTeam ?? ''}
+                    onChange={e => onUpdateProfile({ defaultTeam: e.target.value || null })}>
+                    <option value="">Kies team…</option>
+                    {/* teamNames is this club's real roster list — only meaningful for SC
+                        Muiden, the only club this app actually manages rosters for. Any
+                        other club falls back to the generic age-category list. */}
+                    {(user.defaultClub === 'SC Muiden' ? teamNames : GENERIC_TEAM_CATEGORIES).map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                  <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: role ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
+                    value={role} onChange={e => setRole(e.target.value)}>
+                    <option value="">Kies rol…</option>
+                    {selectableRoles.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+                <p className="text-xs mt-1.5" style={{ color: 'var(--brand-7b90c8)' }}>Team wordt automatisch geselecteerd bij het starten van een wedstrijd; rol wordt opgeslagen met Opslaan hieronder.</p>
+                {!alreadyElevated && !staffEligible && (
+                  <p className="text-xs mt-1" style={{ color: 'var(--brand-7b90c8)' }}>
+                    Trainer, Coach en Manager zijn alleen te kiezen als je voor- en achternaam bekend zijn als
+                    Ondersteuning van je team bij Lisa.
+                  </p>
+                )}
               </div>
 
               <div>
@@ -6163,22 +6176,23 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                     ))}
                   </div>
                 )}
-                <div className="flex flex-wrap gap-1.5">
-                  {/* Not-yet-followed teams only — tap one to add it (as
-                      Supporter to start; change the role above once added).
-                      Following never grants edit/roster rights beyond
-                      whatever role you actually pick and get verified for. */}
+                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: 'var(--brand-7b90c8)' }}
+                  value=""
+                  onChange={e => {
+                    if (!e.target.value) return
+                    setFollowedDraft(d => [...d, { team: e.target.value, role: 'Supporter' }])
+                  }}>
+                  <option value="">+ Team volgen…</option>
+                  {/* Not-yet-followed teams only — picking one adds it as
+                      Supporter to start; its own row above then lets you
+                      change the role, same live-eligibility picker the
+                      primary role uses. Following never grants edit/roster
+                      rights beyond whatever role you actually pick and get
+                      verified for. */}
                   {(user.defaultClub === 'SC Muiden' ? teamNames : GENERIC_TEAM_CATEGORIES)
                     .filter(t => t !== user.defaultTeam && !followedDraft.some(f => f.team === t))
-                    .map(t => (
-                      <button key={t} type="button"
-                        onClick={() => setFollowedDraft(d => [...d, { team: t, role: 'Supporter' }])}
-                        className="text-xs font-semibold px-2.5 py-1.5 rounded-full"
-                        style={{ background: 'var(--brand-f8faff)', color: 'var(--brand-3b5299)', border: '1px solid var(--brand-d0dcfa)' }}>
-                        + {t}
-                      </button>
-                    ))}
-                </div>
+                    .map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
                 <p className="text-xs mt-1.5" style={{ color: 'var(--brand-7b90c8)' }}>
                   Bekijk wedstrijden en spelers van extra teams, elk met je eigen rol daar. Klik op Opslaan om te bevestigen.
                 </p>
@@ -6195,20 +6209,6 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                   <input className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle}
                     value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Achternaam" />
                 </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Rol</label>
-                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: role ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
-                  value={role} onChange={e => setRole(e.target.value)}>
-                  <option value="">Kies rol…</option>
-                  {selectableRoles.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
-                {!alreadyElevated && !staffEligible && (
-                  <p className="text-xs mt-1.5" style={{ color: 'var(--brand-7b90c8)' }}>
-                    Trainer, Coach en Manager zijn alleen te kiezen als je voor- en achternaam bekend zijn als
-                    Ondersteuning van je team bij Lisa.
-                  </p>
-                )}
               </div>
               <div className="flex items-center gap-3">
                 <button onClick={saveDetails}
