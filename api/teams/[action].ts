@@ -7,6 +7,7 @@ import { randomUUID } from '../_lib/crypto.js'
 import { slugify } from '../_lib/slug.js'
 import { isRosterStaffOfTeamName, isPhotoEditorForPlayer, ROSTER_STAFF_ROLES } from '../_lib/team-access.js'
 import { canSeeFullNames, initials } from '../_lib/names.js'
+import { effectiveRoleForTeam, type FollowedTeam } from '../_lib/team-roles.js'
 
 // /api/teams/list, /api/teams/roster, etc. collapsed into one dynamic-segment
 // file — see the comment in api/auth/[action].ts for why (Hobby plan's
@@ -52,8 +53,11 @@ async function handleRoster(req: VercelRequest, res: VercelResponse, user: Sessi
   // Real player names are only for roster staff/admins — a Speler,
   // Supporter, or not-yet-verified account gets initials instead. Photos
   // stay either way (see the calling code's `canSeeFullNames`/`initials`).
-  const me = await sql`SELECT role FROM users WHERE id = ${user.id}`
-  const fullNamesOk = canSeeFullNames(me[0]?.role ?? null, await isAdmin(user))
+  // Resolved for *this* team specifically — a Manager elsewhere who merely
+  // follows this one as Supporter still only sees initials here.
+  const me = await sql`SELECT default_team, role, followed_teams FROM users WHERE id = ${user.id}`
+  const teamRole = effectiveRoleForTeam(me[0]?.default_team ?? null, me[0]?.role ?? null, (me[0]?.followed_teams ?? []) as FollowedTeam[], team)
+  const fullNamesOk = canSeeFullNames(teamRole, await isAdmin(user))
   res.status(200).json({
     players: rows.map(r => ({ id: r.id, name: fullNamesOk ? r.name : initials(r.name), photoUrl: r.photo_url, position: r.position })),
   })
@@ -68,19 +72,29 @@ async function handleStaff(req: VercelRequest, res: VercelResponse, user: Sessio
   if (req.method !== 'GET') { res.status(405).json({ error: 'Method not allowed' }); return }
   const team = typeof req.query.team === 'string' ? req.query.team : ''
   if (!team) { res.status(400).json({ error: 'Missing team' }); return }
-  const rows = await sql`
-    SELECT id, name, first_name, last_name, picture, role FROM users
-    WHERE role = ANY(${ROSTER_STAFF_ROLES}::text[]) AND lower(default_team) = lower(${team})
-    ORDER BY lower(coalesce(first_name, name))
+  // Candidates are anyone whose default_team is this team, or who follows it
+  // — the actual roster-staff filter (and which role to display) is
+  // resolved per-candidate below via effectiveRoleForTeam, since a
+  // follower's displayed role here is whatever they picked for *this* team,
+  // not their (possibly different) primary role.
+  const candidates = await sql`
+    SELECT id, name, first_name, last_name, picture, role, default_team, followed_teams FROM users
+    WHERE lower(default_team) = lower(${team})
+       OR EXISTS (SELECT 1 FROM jsonb_array_elements(followed_teams) AS ft WHERE lower(ft->>'team') = lower(${team}))
   `
-  const me = await sql`SELECT role FROM users WHERE id = ${user.id}`
-  const fullNamesOk = canSeeFullNames(me[0]?.role ?? null, await isAdmin(user))
+  const rows = candidates
+    .map(r => ({ ...r, effectiveRole: effectiveRoleForTeam(r.default_team, r.role, (r.followed_teams ?? []) as FollowedTeam[], team) }))
+    .filter((r): r is typeof r & { effectiveRole: string } => !!r.effectiveRole && ROSTER_STAFF_ROLES.includes(r.effectiveRole))
+    .sort((a, b) => (a.first_name ?? a.name ?? '').toLowerCase().localeCompare((b.first_name ?? b.name ?? '').toLowerCase()))
+  const me = await sql`SELECT default_team, role, followed_teams FROM users WHERE id = ${user.id}`
+  const myTeamRole = effectiveRoleForTeam(me[0]?.default_team ?? null, me[0]?.role ?? null, (me[0]?.followed_teams ?? []) as FollowedTeam[], team)
+  const fullNamesOk = canSeeFullNames(myTeamRole, await isAdmin(user))
   res.status(200).json({
     staff: rows.map(r => {
-      if (fullNamesOk) return { id: r.id, name: r.name, firstName: r.first_name, lastName: r.last_name, picture: r.picture, role: r.role }
+      if (fullNamesOk) return { id: r.id, name: r.name, firstName: r.first_name, lastName: r.last_name, picture: r.picture, role: r.effectiveRole }
       const full = (r.first_name && r.last_name) ? `${r.first_name} ${r.last_name}` : (r.name ?? '')
       const label = full ? initials(full) : null
-      return { id: r.id, name: label, firstName: label, lastName: null, picture: r.picture, role: r.role }
+      return { id: r.id, name: label, firstName: label, lastName: null, picture: r.picture, role: r.effectiveRole }
     }),
   })
 }

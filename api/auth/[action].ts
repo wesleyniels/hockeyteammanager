@@ -7,7 +7,8 @@ import { sendVerificationEmail, sendNewRegistrationEmail, sendPasswordResetEmail
 import { toUser } from '../_lib/users.js'
 import { getAdminEmails } from '../_lib/admin.js'
 import { createNotification } from '../_lib/notifications.js'
-import { ELEVATED_ROLES, isVerifiedStaffName } from '../_lib/team-staff.js'
+import { ELEVATED_ROLES, VALID_ROLES, isVerifiedStaffName } from '../_lib/team-staff.js'
+import type { FollowedTeam } from '../_lib/team-roles.js'
 
 // All /api/auth/* routes are collapsed into this single dynamic-segment file
 // (dispatching on the [action] path piece below) — Vercel's Hobby plan caps
@@ -226,7 +227,9 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
       return
     }
     if (body.followedTeams !== undefined
-      && (!Array.isArray(body.followedTeams) || body.followedTeams.some((t: unknown) => typeof t !== 'string') || body.followedTeams.length > 30)) {
+      && (!Array.isArray(body.followedTeams) || body.followedTeams.length > 30 || body.followedTeams.some((f: unknown) =>
+        !f || typeof f !== 'object' || typeof (f as any).team !== 'string' || !(f as any).team.trim()
+        || typeof (f as any).role !== 'string' || !VALID_ROLES.includes((f as any).role)))) {
       res.status(400).json({ error: 'Invalid followedTeams' })
       return
     }
@@ -242,21 +245,44 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
     const lastName = 'lastName' in body ? (body.lastName || null) : cur.last_name
     const role = 'role' in body ? (body.role || null) : cur.role
     const picture = 'picture' in body ? (body.picture || null) : cur.picture
+    const prevFollowedTeams = (cur.followed_teams ?? []) as FollowedTeam[]
+    // A followed team duplicating defaultTeam is redundant — that
+    // association is already fully covered by defaultTeam/role above — so
+    // it's dropped rather than kept as a second, potentially-conflicting
+    // entry. Later duplicates of the same team win, matching how the client
+    // always resends its full current list.
     const followedTeams = 'followedTeams' in body
-      ? [...new Set((body.followedTeams as string[]).map(t => t.trim()).filter(Boolean))]
-      : (cur.followed_teams ?? [])
-    // Once already elevated, moving between elevated roles needs no
-    // re-verification (e.g. a real coach switching to Trainer & Coach) —
-    // this only gates the first jump away from Speler/Supporter, so nobody
-    // can self-promote by simply typing someone else's job title. The real
-    // roster this checks against lives in team_staff (team-staff-roster.ts,
-    // transcribed from Lisa); GET /api/team-staff lets the client preview
-    // this same check live so the dropdown doesn't offer what this would
-    // reject anyway.
+      ? [...new Map(
+          (body.followedTeams as FollowedTeam[])
+            .map(f => ({ team: f.team.trim(), role: f.role }))
+            .filter(f => f.team && (!defaultTeam || f.team.toLowerCase() !== defaultTeam.toLowerCase()))
+            .map(f => [f.team.toLowerCase(), f] as const),
+        ).values()]
+      : prevFollowedTeams
+    // Once already elevated (for this team), moving between elevated roles
+    // needs no re-verification (e.g. a real coach switching to Trainer &
+    // Coach) — this only gates the first jump away from Speler/Supporter,
+    // so nobody can self-promote by simply typing someone else's job title.
+    // The real roster this checks against lives in team_staff
+    // (team-staff-roster.ts, transcribed from Lisa); GET /api/team-staff
+    // lets the client preview this same check live so the dropdown doesn't
+    // offer what this would reject anyway. Applied identically to the
+    // primary team and every followed team — a Manager of their own team is
+    // no more entitled to claim Coach of a followed one without proof.
     if (ELEVATED_ROLES.includes(role ?? '') && !ELEVATED_ROLES.includes(cur.role ?? '')) {
       const verified = await isVerifiedStaffName(defaultTeam ?? '', firstName ?? '', lastName ?? '')
       if (!verified) {
         res.status(403).json({ error: `Je naam staat bij Lisa niet bekend als trainer, coach of manager van ${defaultTeam ?? 'dit team'}. Controleer je voor- en achternaam, of vraag de club om dit na te kijken.` })
+        return
+      }
+    }
+    for (const f of followedTeams) {
+      if (!ELEVATED_ROLES.includes(f.role)) continue
+      const prev = prevFollowedTeams.find(p => p.team.toLowerCase() === f.team.toLowerCase())
+      if (prev && ELEVATED_ROLES.includes(prev.role)) continue
+      const verified = await isVerifiedStaffName(f.team, firstName ?? '', lastName ?? '')
+      if (!verified) {
+        res.status(403).json({ error: `Je naam staat bij Lisa niet bekend als trainer, coach of manager van ${f.team}. Controleer je voor- en achternaam, of vraag de club om dit na te kijken.` })
         return
       }
     }
@@ -268,7 +294,7 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
         last_name = ${lastName},
         role = ${role},
         picture = ${picture},
-        followed_teams = ${followedTeams}::text[]
+        followed_teams = ${JSON.stringify(followedTeams)}::jsonb
       WHERE id = ${session.id}
       RETURNING id, email, name, picture, default_team, default_club, first_name, last_name, role, followed_teams
     `

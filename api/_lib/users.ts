@@ -1,3 +1,5 @@
+import type { FollowedTeam } from './team-roles.js'
+
 export interface ProfileUser {
   id: string
   email: string
@@ -8,7 +10,7 @@ export interface ProfileUser {
   firstName: string | null
   lastName: string | null
   role: string | null
-  followedTeams: string[]
+  followedTeams: FollowedTeam[]
 }
 
 // Maps a raw `users` table row (snake_case columns) to the camelCase shape
