@@ -2358,14 +2358,18 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
   onMarkUnread: (id: string) => void
   onDeleteNotification: (id: string) => void
 }) {
+  // `games` now also includes any followed teams' matches — Home stays
+  // scoped to the user's own team specifically, same as before following
+  // existed; Wedstrijden/Team are where the rest becomes visible.
+  const ownGames = user.defaultTeam ? games.filter(g => g.team === user.defaultTeam) : games
   // Same "not yet played" signal HistoryView's upcoming list uses — the
   // clock hasn't run yet, regardless of whether a squad's already built.
-  const nextMatch = [...games].filter(g => g.finalTime === 0).sort((a, b) => a.date.localeCompare(b.date))[0] ?? null
+  const nextMatch = [...ownGames].filter(g => g.finalTime === 0).sort((a, b) => a.date.localeCompare(b.date))[0] ?? null
   // A played match's clock should read > 0, but not every recorded result
   // necessarily ran through the live timer for its full duration — a match
   // dated in the past is a more forgiving fallback signal than finalTime
   // alone, so a real result isn't missed here just because it's 0.
-  const lastPlayed = [...games]
+  const lastPlayed = [...ownGames]
     .filter(g => g.finalTime > 0 || g.date < todayStr())
     .sort((a, b) => b.date.localeCompare(a.date))[0] ?? null
   const nextMatchOpponent = nextMatch ? splitClubAndTeam(nextMatch.opponent) : null
@@ -2606,11 +2610,12 @@ function SetupView({ onStart, onProfile, onHome, user, authLoading, unreadNotifi
   // /api/teams/roster would only give them initials anyway, but there's no
   // point even fetching the club's whole roster for an account that isn't
   // meant to see who's on it.
-  const isRosterStaffRole = user?.role === 'Coach' || user?.role === 'Trainer' || user?.role === 'Trainer & Coach' || user?.role === 'Manager'
   const isAdminClient = (user?.email?.toLowerCase() === ADMIN_EMAIL || user?.email?.toLowerCase() === HOCKEY_ONE_EMAIL)
   const selectTeam = (newTeam: string) => {
     setTeam(newTeam)
-    if (!user || !(isRosterStaffRole || isAdminClient)) return
+    const teamRole = effectiveRoleForTeam(user, newTeam)
+    const isRosterStaffForTeam = !!teamRole && (teamRole === 'Coach' || teamRole === 'Trainer' || teamRole === 'Trainer & Coach' || teamRole === 'Manager')
+    if (!user || !(isRosterStaffForTeam || isAdminClient)) return
     fetchTeamRoster(newTeam).then(players => {
       if (players.length) {
         setSquad(players.map(p => ({ id: p.id, name: p.name, photoUrl: p.photoUrl ?? undefined })))
@@ -3181,10 +3186,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
 
   // Only a Coach/Trainer (solo or combined) may reset a match — Manager and
   // below get no say over match state at all, only their own team's player
-  // photos (see TeamPlayerPhotos). Combined with `readOnly` so a coach who's
-  // merely viewing someone else's shared game (permission: 'view') can't
-  // reset it either.
-  const canReset = user?.role === 'Coach' || user?.role === 'Trainer' || user?.role === 'Trainer & Coach'
+  // photos (see TeamPlayerPhotos). Checked against *this match's* team
+  // specifically (default or followed, whichever applies) rather than the
+  // user's global role, so a Trainer of team A can't reset team B's match
+  // just because team B happens to be merely-followed. Combined with
+  // `readOnly` so a coach who's merely viewing someone else's shared game
+  // (permission: 'view') can't reset it either.
+  const gameTeamRole = effectiveRoleForTeam(user, team)
+  const canReset = gameTeamRole === 'Coach' || gameTeamRole === 'Trainer' || gameTeamRole === 'Trainer & Coach'
   // Puts everything that happens *during* a match back to a blank slate —
   // score, field/bench assignments, goals, cards, tactics boards, played
   // time, notes and the clock/period. Squad, media and unavailableIds are
@@ -4734,9 +4743,33 @@ function MatchDetailSections({ g, user, getPlayer, canManageSharing, shares, add
   )
 }
 
-function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, onHome, onCreateMatch, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
+// Shown in Wedstrijden/Team once someone follows more than one team — picks
+// which own-or-followed team's matches/roster those sections display.
+// Renders nothing for a single team so it's a no-op for everyone who hasn't
+// used Profile's "Volgen andere teams" yet.
+function TeamSwitcher({ teams, selected, onSelect }: { teams: string[]; selected: string | null; onSelect: (team: string) => void }) {
+  if (teams.length <= 1) return null
+  return (
+    <div className="flex gap-1.5 overflow-x-auto pb-1 mb-4 -mt-1">
+      {teams.map(t => (
+        <button key={t} onClick={() => onSelect(t)}
+          className="text-xs font-bold px-3 py-1.5 rounded-full shrink-0 whitespace-nowrap"
+          style={t === selected
+            ? { background: 'var(--brand-1a3fab)', color: '#fff' }
+            : { background: '#fff', color: 'var(--brand-3b5299)', border: '1px solid var(--brand-d0dcfa)' }}>
+          {t}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, onHome, onCreateMatch, selectedTeam, followableTeams, onSelectTeam, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
   games: SavedGame[]
   user: AuthUser | null
+  selectedTeam: string | null
+  followableTeams: string[]
+  onSelectTeam: (team: string) => void
   authLoading: boolean
   onDelete: (id: string) => void
   onEdit: (game: SavedGame) => void
@@ -4763,8 +4796,12 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, on
   // already been built for them), so that's a more reliable signal than the
   // date alone. Upcoming matches sort soonest-first; played ones keep the
   // existing newest-first order.
-  const upcomingGames = games.filter(g => g.finalTime === 0).sort((a, b) => a.date.localeCompare(b.date))
-  const playedGames = [...games.filter(g => g.finalTime > 0)].reverse()
+  // Following more than one team means `games` is a mix of all of them —
+  // narrow to whichever one the switcher above has selected before any of
+  // the upcoming/played splitting below.
+  const teamGames = selectedTeam ? games.filter(g => g.team === selectedTeam) : games
+  const upcomingGames = teamGames.filter(g => g.finalTime === 0).sort((a, b) => a.date.localeCompare(b.date))
+  const playedGames = [...teamGames.filter(g => g.finalTime > 0)].reverse()
   const filteredGames = filter === 'upcoming' ? upcomingGames : filter === 'played' ? playedGames : [...upcomingGames, ...playedGames]
 
   return (
@@ -4847,28 +4884,33 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, on
                 Naar profiel →
               </button>
             } />
-        ) : games.length === 0 ? (
-          <EmptyState icon={<IconPitch size={24} />}
-            title="Nog geen wedstrijden"
-            subtitle="Maak je eerste wedstrijd aan om spelers, opstelling en score bij te houden."
-            action={
-              <button onClick={onCreateMatch}
-                className="px-4 py-2.5 rounded-xl font-bold text-sm text-white"
-                style={{ background: 'var(--brand-1a3fab)' }}>
-                + Wedstrijd aanmaken
-              </button>
-            } />
         ) : (
-          <div className="space-y-3">
-            {filteredGames.length === 0 ? (
-              <EmptyState compact icon={<IconCalendar size={20} />}
-                title={filter === 'upcoming' ? 'Geen aankomende wedstrijden' : 'Geen gespeelde wedstrijden'} />
+          <>
+            <TeamSwitcher teams={followableTeams} selected={selectedTeam} onSelect={onSelectTeam} />
+            {teamGames.length === 0 ? (
+              <EmptyState icon={<IconPitch size={24} />}
+                title="Nog geen wedstrijden"
+                subtitle="Maak je eerste wedstrijd aan om spelers, opstelling en score bij te houden."
+                action={
+                  <button onClick={onCreateMatch}
+                    className="px-4 py-2.5 rounded-xl font-bold text-sm text-white"
+                    style={{ background: 'var(--brand-1a3fab)' }}>
+                    + Wedstrijd aanmaken
+                  </button>
+                } />
             ) : (
-              <div className="bg-white rounded-2xl overflow-hidden shadow-sm divide-y" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
-                {filteredGames.map(renderGame)}
+              <div className="space-y-3">
+                {filteredGames.length === 0 ? (
+                  <EmptyState compact icon={<IconCalendar size={20} />}
+                    title={filter === 'upcoming' ? 'Geen aankomende wedstrijden' : 'Geen gespeelde wedstrijden'} />
+                ) : (
+                  <div className="bg-white rounded-2xl overflow-hidden shadow-sm divide-y" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
+                    {filteredGames.map(renderGame)}
+                  </div>
+                )}
               </div>
             )}
-          </div>
+          </>
         )}
       </div>
     </div>
@@ -5389,13 +5431,16 @@ function TeamPlayerPhotos({ team, canEditPhotos, canAddPlayer, canManageRoster, 
 // Roster overview, relocated out of Profiel so it's its own bottom-nav
 // destination — tapping a player opens their profile/stats page.
 
-function TeamView({ user, games, onProfile, onHome, onSelectPlayer, onSelectStaff, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
+function TeamView({ user, games, onProfile, onHome, onSelectPlayer, onSelectStaff, selectedTeam, followableTeams, onSelectTeam, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
   user: AuthUser | null
   games: SavedGame[]
   onProfile: () => void
   onHome: () => void
   onSelectPlayer: (id: string) => void
   onSelectStaff: (id: string) => void
+  selectedTeam: string | null
+  followableTeams: string[]
+  onSelectTeam: (team: string) => void
   unreadNotifications: number
   notifications: AppNotification[]
   onMarkRead: (id: string) => void
@@ -5404,23 +5449,30 @@ function TeamView({ user, games, onProfile, onHome, onSelectPlayer, onSelectStaf
   onDeleteNotification: (id: string) => void
 }) {
   const isAdmin = (user?.email?.toLowerCase() === ADMIN_EMAIL || user?.email?.toLowerCase() === HOCKEY_ONE_EMAIL)
-  // Coach/Trainer/Trainer & Coach/Manager can add a player to their own team
-  // and edit a player's photo — renaming or removing a player entirely is
-  // beheerder-only (see TeamPlayerPhotos' canManageRoster below). Same rule
-  // ProfileView used to compute before this section moved here.
-  const isRosterStaff = user?.role === 'Coach' || user?.role === 'Trainer' || user?.role === 'Trainer & Coach' || user?.role === 'Manager'
+  const team = selectedTeam ?? user?.defaultTeam ?? null
+  // Coach/Trainer/Trainer & Coach/Manager can add a player and edit a
+  // player's photo — for whichever team they actually hold that role for,
+  // default or followed (effectiveRoleForTeam resolves which), same as the
+  // server-side isRosterStaffOfTeamName check it mirrors. Renaming or
+  // removing a player entirely is beheerder-only regardless of team (see
+  // TeamPlayerPhotos' canManageRoster below).
+  const teamRole = effectiveRoleForTeam(user, team)
+  const isRosterStaff = teamRole === 'Coach' || teamRole === 'Trainer' || teamRole === 'Trainer & Coach' || teamRole === 'Manager'
 
   const [staff, setStaff] = useState<TeamStaffMember[]>([])
   useEffect(() => {
-    if (!user?.defaultTeam) { setStaff([]); return }
+    if (!team) { setStaff([]); return }
     let cancelled = false
-    fetchTeamStaff(user.defaultTeam).then(s => { if (!cancelled) setStaff(s) })
+    fetchTeamStaff(team).then(s => { if (!cancelled) setStaff(s) })
     return () => { cancelled = true }
-  }, [user?.defaultTeam])
+  }, [team])
 
-  // Same "played" signal Wedstrijden uses (finalTime > 0) — a scheduled but
-  // not-yet-played match shouldn't count toward the team's record.
-  const playedGames = games.filter(g => g.finalTime > 0)
+  // Following more than one team means `games` is a mix of all of them —
+  // narrow to whichever one the switcher below has selected. Same "played"
+  // signal Wedstrijden uses (finalTime > 0) — a scheduled but not-yet-played
+  // match shouldn't count toward the team's record.
+  const teamGames = team ? games.filter(g => g.team === team) : games
+  const playedGames = teamGames.filter(g => g.finalTime > 0)
   const wins = playedGames.filter(g => g.scoreOwn > g.scoreOpp).length
   const losses = playedGames.filter(g => g.scoreOwn < g.scoreOpp).length
   const draws = playedGames.filter(g => g.scoreOwn === g.scoreOpp).length
@@ -5488,10 +5540,11 @@ function TeamView({ user, games, onProfile, onHome, onSelectPlayer, onSelectStaf
               Naar profiel →
             </button>
           </div>
-        ) : !user.defaultTeam ? (
+        ) : !team ? (
           <p className="text-sm text-center py-20" style={{ color: 'var(--brand-a8bef0)' }}>Stel eerst een team in via je profiel.</p>
         ) : (
           <div className="space-y-4">
+            <TeamSwitcher teams={followableTeams} selected={selectedTeam} onSelect={onSelectTeam} />
             <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
               <h2 className="font-display text-sm font-bold uppercase mb-4" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
                 Teamoverzicht
@@ -5544,12 +5597,12 @@ function TeamView({ user, games, onProfile, onHome, onSelectPlayer, onSelectStaf
 
             <div className="bg-white rounded-2xl p-5 shadow-sm" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
               <h2 className="font-display text-sm font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
-                Spelers — {user.defaultTeam}
+                Spelers — {team}
               </h2>
               <p className="text-xs mb-3" style={{ color: 'var(--brand-a8bef0)' }}>
                 Tik op een speler voor hun profiel en statistieken.
               </p>
-              <TeamPlayerPhotos team={user.defaultTeam}
+              <TeamPlayerPhotos team={team}
                 canEditPhotos={isRosterStaff}
                 canAddPlayer={isRosterStaff}
                 canManageRoster={isAdmin}
@@ -5589,8 +5642,9 @@ function PlayerProfileView({ playerId, team, games, user, onBack }: {
   const player = players?.find(p => p.id === playerId) ?? null
 
   const isAdmin = (user?.email?.toLowerCase() === ADMIN_EMAIL || user?.email?.toLowerCase() === HOCKEY_ONE_EMAIL)
-  const isRosterStaff = user?.role === 'Coach' || user?.role === 'Trainer' || user?.role === 'Trainer & Coach' || user?.role === 'Manager'
-  const canEditPosition = isAdmin || (isRosterStaff && (user?.defaultTeam ?? '').toLowerCase() === team.toLowerCase())
+  const playerTeamRole = effectiveRoleForTeam(user, team)
+  const isRosterStaff = playerTeamRole === 'Coach' || playerTeamRole === 'Trainer' || playerTeamRole === 'Trainer & Coach' || playerTeamRole === 'Manager'
+  const canEditPosition = isAdmin || isRosterStaff
 
   const savePosition = async () => {
     const position = positionDraft.trim()
@@ -5785,6 +5839,57 @@ function StaffProfileView({ staffId, team, onBack }: { staffId: string; team: st
   )
 }
 
+// One row in Profile's "Volgen andere teams" list — its own role picker, with the
+// same live Lisa-eligibility preview (and grandfather-if-already-elevated
+// rule) the primary role picker uses, just scoped to this one followed team
+// instead of defaultTeam. `savedRole` is the last-saved role for this team
+// (or undefined if it's new this session) — that, not the in-progress
+// draft, is what decides whether an elevated pick here is grandfathered in.
+function FollowedTeamRow({ team, role, firstName, lastName, savedRole, onChange, onRemove }: {
+  team: string
+  role: string
+  firstName: string
+  lastName: string
+  savedRole: string | undefined
+  onChange: (role: string) => void
+  onRemove: () => void
+}) {
+  const alreadyElevated = ELEVATED_ROLES.includes(savedRole ?? '')
+  const [staffEligible, setStaffEligible] = useState(false)
+  useEffect(() => {
+    if (alreadyElevated) return
+    if (!firstName.trim() || !lastName.trim()) { setStaffEligible(false); return }
+    let cancelled = false
+    const timer = setTimeout(() => {
+      fetchStaffEligibility(team, firstName, lastName).then(eligible => { if (!cancelled) setStaffEligible(eligible) })
+    }, 400)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [alreadyElevated, team, firstName, lastName])
+  const selectableRoles = alreadyElevated || staffEligible ? ROLE_OPTIONS : ROLE_OPTIONS.filter(r => !ELEVATED_ROLES.includes(r))
+
+  return (
+    <div className="rounded-xl px-3 py-2" style={{ background: 'var(--brand-f8faff)', border: '1px solid var(--brand-e4ecfe)' }}>
+      <div className="flex items-center gap-2">
+        <span className="flex-1 text-sm font-semibold truncate" style={{ color: 'var(--brand-1a2f6b)' }}>{team}</span>
+        <select className="rounded-lg px-2 py-1 text-xs" style={{ border: '1.5px solid var(--brand-d0dcfa)', background: '#fff', color: 'var(--brand-1a2f6b)' }}
+          value={role} onChange={e => onChange(e.target.value)}>
+          {selectableRoles.map(r => <option key={r} value={r}>{r}</option>)}
+        </select>
+        <button type="button" onClick={onRemove} className="text-sm font-bold px-1" style={{ color: 'var(--brand-c8d5f5)' }}
+          onMouseEnter={e => (e.currentTarget.style.color = '#DC2626')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'var(--brand-c8d5f5)')}>
+          ×
+        </button>
+      </div>
+      {!alreadyElevated && !staffEligible && ELEVATED_ROLES.includes(role) && (
+        <p className="text-xs mt-1" style={{ color: 'var(--brand-7b90c8)' }}>
+          Trainer, Coach en Manager zijn alleen te kiezen als je naam bekend is als Ondersteuning van {team} bij Lisa.
+        </p>
+      )}
+    </div>
+  )
+}
+
 function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword, onResendVerification, onForgotPassword, onLogout, onBack, onHistory, onUpdateProfile, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
   user: AuthUser | null
   loading: boolean
@@ -5796,7 +5901,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   onLogout: () => void
   onBack: () => void
   onHistory: () => void
-  onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => Promise<{ ok: true } | { ok: false; error: string }>
+  onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture' | 'followedTeams'>>) => Promise<{ ok: true } | { ok: false; error: string }>
   unreadNotifications: number
   notifications: AppNotification[]
   onMarkRead: (id: string) => void
@@ -5808,6 +5913,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   const [firstName, setFirstName] = useState(user?.firstName ?? '')
   const [lastName, setLastName] = useState(user?.lastName ?? '')
   const [role, setRole] = useState(user?.role ?? '')
+  const [followedDraft, setFollowedDraft] = useState<FollowedTeam[]>(user?.followedTeams ?? [])
   const [saved, setSaved] = useState(false)
   const [detailsError, setDetailsError] = useState<string | null>(null)
   const [photoError, setPhotoError] = useState<string | null>(null)
@@ -5818,7 +5924,8 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
     setFirstName(user?.firstName ?? '')
     setLastName(user?.lastName ?? '')
     setRole(user?.role ?? '')
-  }, [user?.firstName, user?.lastName, user?.role])
+    setFollowedDraft(user?.followedTeams ?? [])
+  }, [user?.firstName, user?.lastName, user?.role, user?.followedTeams])
 
   const [teamNames, setTeamNames] = useState<string[]>([])
   useEffect(() => {
@@ -5847,7 +5954,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
 
   const saveDetails = async () => {
     setDetailsError(null)
-    const result = await onUpdateProfile({ firstName: firstName || null, lastName: lastName || null, role: role || null })
+    const result = await onUpdateProfile({ firstName: firstName || null, lastName: lastName || null, role: role || null, followedTeams: followedDraft })
     if (result.ok) {
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
@@ -6032,16 +6139,63 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
 
               <div>
                 <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Team</label>
-                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: user.defaultTeam ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
-                  value={user.defaultTeam ?? ''}
-                  onChange={e => onUpdateProfile({ defaultTeam: e.target.value || null })}>
-                  <option value="">Kies team…</option>
-                  {/* teamNames is this club's real roster list — only meaningful for SC
-                      Muiden, the only club this app actually manages rosters for. Any
-                      other club falls back to the generic age-category list. */}
-                  {(user.defaultClub === 'SC Muiden' ? teamNames : GENERIC_TEAM_CATEGORIES).map(t => <option key={t} value={t}>{t}</option>)}
+                <div className="grid grid-cols-2 gap-2">
+                  <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: user.defaultTeam ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
+                    value={user.defaultTeam ?? ''}
+                    onChange={e => onUpdateProfile({ defaultTeam: e.target.value || null })}>
+                    <option value="">Kies team…</option>
+                    {/* teamNames is this club's real roster list — only meaningful for SC
+                        Muiden, the only club this app actually manages rosters for. Any
+                        other club falls back to the generic age-category list. */}
+                    {(user.defaultClub === 'SC Muiden' ? teamNames : GENERIC_TEAM_CATEGORIES).map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                  <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: role ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
+                    value={role} onChange={e => setRole(e.target.value)}>
+                    <option value="">Kies rol…</option>
+                    {selectableRoles.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+                <p className="text-xs mt-1.5" style={{ color: 'var(--brand-7b90c8)' }}>Team wordt automatisch geselecteerd bij het starten van een wedstrijd; rol wordt opgeslagen met Opslaan hieronder.</p>
+                {!alreadyElevated && !staffEligible && (
+                  <p className="text-xs mt-1" style={{ color: 'var(--brand-7b90c8)' }}>
+                    Trainer, Coach en Manager zijn alleen te kiezen als je voor- en achternaam bekend zijn als
+                    Ondersteuning van je team bij Lisa.
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Volgen andere teams</label>
+                {followedDraft.length > 0 && (
+                  <div className="space-y-1.5 mb-2">
+                    {followedDraft.map(f => (
+                      <FollowedTeamRow key={f.team} team={f.team} role={f.role} firstName={firstName} lastName={lastName}
+                        savedRole={user.followedTeams.find(sf => sf.team.toLowerCase() === f.team.toLowerCase())?.role}
+                        onChange={newRole => setFollowedDraft(d => d.map(x => x.team === f.team ? { ...x, role: newRole } : x))}
+                        onRemove={() => setFollowedDraft(d => d.filter(x => x.team !== f.team))} />
+                    ))}
+                  </div>
+                )}
+                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: 'var(--brand-7b90c8)' }}
+                  value=""
+                  onChange={e => {
+                    if (!e.target.value) return
+                    setFollowedDraft(d => [...d, { team: e.target.value, role: 'Supporter' }])
+                  }}>
+                  <option value="">+ Team volgen…</option>
+                  {/* Not-yet-followed teams only — picking one adds it as
+                      Supporter to start; its own row above then lets you
+                      change the role, same live-eligibility picker the
+                      primary role uses. Following never grants edit/roster
+                      rights beyond whatever role you actually pick and get
+                      verified for. */}
+                  {(user.defaultClub === 'SC Muiden' ? teamNames : GENERIC_TEAM_CATEGORIES)
+                    .filter(t => t !== user.defaultTeam && !followedDraft.some(f => f.team === t))
+                    .map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
-                <p className="text-xs mt-1.5" style={{ color: 'var(--brand-7b90c8)' }}>Wordt automatisch geselecteerd bij het starten van een wedstrijd.</p>
+                <p className="text-xs mt-1.5" style={{ color: 'var(--brand-7b90c8)' }}>
+                  Bekijk wedstrijden en spelers van extra teams, elk met je eigen rol daar. Klik op Opslaan om te bevestigen.
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -6055,20 +6209,6 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                   <input className="w-full rounded-xl px-3 py-2.5 text-sm" style={inputStyle}
                     value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Achternaam" />
                 </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Rol</label>
-                <select className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, color: role ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)' }}
-                  value={role} onChange={e => setRole(e.target.value)}>
-                  <option value="">Kies rol…</option>
-                  {selectableRoles.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
-                {!alreadyElevated && !staffEligible && (
-                  <p className="text-xs mt-1.5" style={{ color: 'var(--brand-7b90c8)' }}>
-                    Trainer, Coach en Manager zijn alleen te kiezen als je voor- en achternaam bekend zijn als
-                    Ondersteuning van je team bij Lisa.
-                  </p>
-                )}
               </div>
               <div className="flex items-center gap-3">
                 <button onClick={saveDetails}
@@ -6346,6 +6486,8 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
 // Session lives in an HttpOnly cookie set by /api/auth/google; the frontend
 // only ever sees the decoded user info, never a token it has to manage.
 
+interface FollowedTeam { team: string; role: string }
+
 interface AuthUser {
   id: string
   email: string
@@ -6356,6 +6498,22 @@ interface AuthUser {
   firstName: string | null
   lastName: string | null
   role: string | null
+  // Extra teams followed for browsing Wedstrijden/Team, beyond defaultTeam —
+  // each with its own role (e.g. Manager of your own team, Supporter of
+  // another). An elevated role here is Lisa-verified per team server-side,
+  // same as the primary role/defaultTeam pair — see effectiveRoleForTeam,
+  // the one place both this and the primary role get resolved for a given
+  // team, everywhere permissions are checked client-side.
+  followedTeams: FollowedTeam[]
+}
+
+// Mirrors effectiveRoleForTeam in api/_lib/team-roles.ts — kept in sync by
+// hand since the client bundle can't import server files.
+function effectiveRoleForTeam(user: AuthUser | null, team: string | null): string | null {
+  if (!user || !team) return null
+  if (user.defaultTeam && user.defaultTeam.toLowerCase() === team.toLowerCase()) return user.role
+  const f = user.followedTeams.find(f => f.team.toLowerCase() === team.toLowerCase())
+  return f ? f.role : null
 }
 
 function useAuth() {
@@ -6459,7 +6617,7 @@ function useAuth() {
   // Persists profile fields (team preference, name, role, photo) so they're
   // available next time this coach logs in, on any device. Only the fields
   // passed in are changed — the API leaves the rest untouched.
-  const updateProfile = useCallback(async (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture'>>) => {
+  const updateProfile = useCallback(async (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture' | 'followedTeams'>>) => {
     const res = await fetch('/api/auth/me', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -7450,8 +7608,21 @@ export default function App() {
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null)
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null)
   const { user, loading: authLoading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, forgotPassword, resetPassword, logout, updateProfile } = useAuth()
-  const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user, user?.defaultTeam ?? null)
+  const followableTeams = user ? [...new Set([user.defaultTeam, ...user.followedTeams.map(f => f.team)].filter((t): t is string => !!t))] : []
+  const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user, followableTeams.join('|'))
   const notif = useNotificationCenter(!!user)
+
+  // Which of the user's own-or-followed teams Wedstrijden/Team are currently
+  // showing — only meaningful (and only shown as a switcher) once someone
+  // follows more than one. Defaults to their own team, and snaps back to a
+  // valid choice if the current pick stops being followed (e.g. unfollowed
+  // from Profile in another tab).
+  const [selectedTeam, setSelectedTeam] = useState<string | null>(null)
+  useEffect(() => {
+    if (selectedTeam && followableTeams.includes(selectedTeam)) return
+    setSelectedTeam(user?.defaultTeam ?? followableTeams[0] ?? null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.defaultTeam, followableTeams.join('|')])
 
   // The live match view (GameView) gets the full screen to itself — every
   // other view gets the bar, plus a same-height spacer so the last bit of
@@ -7542,6 +7713,9 @@ export default function App() {
         onProfile={() => setView('profile')}
         onHome={() => setView('home')}
         onCreateMatch={() => setView('setup')}
+        selectedTeam={selectedTeam}
+        followableTeams={followableTeams}
+        onSelectTeam={setSelectedTeam}
         unreadNotifications={notif.unreadNotifications}
         notifications={notif.notifications}
         onMarkRead={notif.markRead}
@@ -7587,6 +7761,9 @@ export default function App() {
         onHome={() => setView('home')}
         onSelectPlayer={id => { setSelectedPlayerId(id); setView('playerProfile') }}
         onSelectStaff={id => { setSelectedStaffId(id); setView('staffProfile') }}
+        selectedTeam={selectedTeam}
+        followableTeams={followableTeams}
+        onSelectTeam={setSelectedTeam}
         unreadNotifications={notif.unreadNotifications}
         notifications={notif.notifications}
         onMarkRead={notif.markRead}
@@ -7596,11 +7773,11 @@ export default function App() {
       />
     )
   if (view === 'playerProfile') {
-    if (!selectedPlayerId || !user?.defaultTeam) { setView('team'); return null }
+    if (!selectedPlayerId || !selectedTeam) { setView('team'); return null }
     return withBottomBar(
       <PlayerProfileView
         playerId={selectedPlayerId}
-        team={user.defaultTeam}
+        team={selectedTeam}
         games={games}
         user={user}
         onBack={() => setView('team')}
@@ -7608,11 +7785,11 @@ export default function App() {
     )
   }
   if (view === 'staffProfile') {
-    if (!selectedStaffId || !user?.defaultTeam) { setView('team'); return null }
+    if (!selectedStaffId || !selectedTeam) { setView('team'); return null }
     return withBottomBar(
       <StaffProfileView
         staffId={selectedStaffId}
-        team={user.defaultTeam}
+        team={selectedTeam}
         onBack={() => setView('team')}
       />
     )

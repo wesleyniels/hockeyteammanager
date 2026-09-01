@@ -245,6 +245,35 @@ export function ensureSchema() {
       sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false`,
       sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_logins INT NOT NULL DEFAULT 0`,
       sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS login_locked_until TIMESTAMPTZ`,
+      // Extra teams a user wants to browse (Wedstrijden/Team) beyond their
+      // own default_team, each with its own role (e.g. Manager of your own
+      // team, Supporter of another) — see effectiveRoleForTeam in
+      // team-roles.ts, the single place that resolves "what role does this
+      // user hold for team X" across default_team and this list. An elevated
+      // role here needs the same Lisa verification default_team/role does
+      // (isVerifiedStaffName, checked per team in PUT /api/auth/me).
+      // JSONB array of {team, role}; started out as a plain TEXT[] of team
+      // names before roles-per-followed-team existed, hence the one-time
+      // ARRAY->JSONB conversion below (dev-only data at the time, so
+      // discarding old contents on that single transition is fine).
+      sql`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'users' AND column_name = 'followed_teams'
+          ) THEN
+            ALTER TABLE users ADD COLUMN followed_teams JSONB NOT NULL DEFAULT '[]'::jsonb;
+          ELSIF (
+            SELECT data_type FROM information_schema.columns
+            WHERE table_name = 'users' AND column_name = 'followed_teams'
+          ) = 'ARRAY' THEN
+            ALTER TABLE users ALTER COLUMN followed_teams DROP DEFAULT;
+            ALTER TABLE users ALTER COLUMN followed_teams TYPE JSONB USING '[]'::jsonb;
+            ALTER TABLE users ALTER COLUMN followed_teams SET DEFAULT '[]'::jsonb;
+          END IF;
+        END $$;
+      `,
       sql`
         CREATE TABLE IF NOT EXISTS games (
           id TEXT PRIMARY KEY,

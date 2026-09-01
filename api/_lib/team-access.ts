@@ -1,5 +1,6 @@
 import { sql } from './db.js'
 import type { SessionUser } from './session.js'
+import { effectiveRoleForTeam } from './team-roles.js'
 
 // Adding a player and editing their photo are the full extent of what any
 // non-admin can do to a roster — renaming or removing a player entirely is
@@ -10,10 +11,11 @@ import type { SessionUser } from './session.js'
 export const ROSTER_STAFF_ROLES = ['Coach', 'Trainer', 'Trainer & Coach', 'Manager']
 
 export async function isRosterStaffOfTeamName(userId: string, teamName: string): Promise<boolean> {
-  const rows = await sql`SELECT role, default_team FROM users WHERE id = ${userId}`
+  const rows = await sql`SELECT role, default_team, followed_teams FROM users WHERE id = ${userId}`
   const u = rows[0]
   if (!u) return false
-  return ROSTER_STAFF_ROLES.includes(u.role) && !!u.default_team && u.default_team.toLowerCase() === teamName.toLowerCase()
+  const role = effectiveRoleForTeam(u.default_team, u.role, u.followed_teams ?? [], teamName)
+  return !!role && ROSTER_STAFF_ROLES.includes(role)
 }
 
 export async function getPlayerTeamName(playerId: string): Promise<string | null> {

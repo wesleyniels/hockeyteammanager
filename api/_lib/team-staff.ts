@@ -6,6 +6,12 @@ import { sql } from './db.js'
 // permissions for already-set roles, and doesn't include Manager).
 export const ELEVATED_ROLES = ['Trainer', 'Coach', 'Trainer & Coach', 'Manager']
 
+// Every role selectable anywhere in Profile, primary or per-followed-team —
+// mirrors the client's ROLE_OPTIONS (src/App.tsx). Used to validate
+// followedTeams entries server-side; the primary `role` field itself has
+// never been enum-validated here (pre-existing, left as is).
+export const VALID_ROLES = [...ELEVATED_ROLES, 'Speler', 'Supporter']
+
 export async function isVerifiedStaffName(teamName: string, firstName: string, lastName: string): Promise<boolean> {
   const fn = firstName.trim()
   const ln = lastName.trim()
