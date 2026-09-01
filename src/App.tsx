@@ -4746,7 +4746,7 @@ function MatchDetailSections({ g, user, getPlayer, canManageSharing, shares, add
 // Shown in Wedstrijden/Team once someone follows more than one team — picks
 // which own-or-followed team's matches/roster those sections display.
 // Renders nothing for a single team so it's a no-op for everyone who hasn't
-// used Profile's "Gevolgde teams" yet.
+// used Profile's "Volgen andere teams" yet.
 function TeamSwitcher({ teams, selected, onSelect }: { teams: string[]; selected: string | null; onSelect: (team: string) => void }) {
   if (teams.length <= 1) return null
   return (
@@ -5839,7 +5839,7 @@ function StaffProfileView({ staffId, team, onBack }: { staffId: string; team: st
   )
 }
 
-// One row in Profile's "Gevolgde teams" list — its own role picker, with the
+// One row in Profile's "Volgen andere teams" list — its own role picker, with the
 // same live Lisa-eligibility preview (and grandfather-if-already-elevated
 // rule) the primary role picker uses, just scoped to this one followed team
 // instead of defaultTeam. `savedRole` is the last-saved role for this team
@@ -6165,7 +6165,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Gevolgde teams</label>
+                <label className="block text-xs font-bold uppercase mb-1.5" style={{ color: 'var(--brand-6b82b8)', letterSpacing: '0.12em' }}>Volgen andere teams</label>
                 {followedDraft.length > 0 && (
                   <div className="space-y-1.5 mb-2">
                     {followedDraft.map(f => (

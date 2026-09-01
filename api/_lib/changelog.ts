@@ -6,7 +6,7 @@
 // production. Bump this by hand alongside package.json's "version" (and the
 // src/App.tsx footer's import, which goes through Vite's bundler instead
 // and doesn't have this risk) whenever shipping a new release.
-export const CURRENT_VERSION = '1.1.0'
+export const CURRENT_VERSION = '1.2.0'
 
 // Human-readable "what's new" notes, broadcast to every account's Meldingen
 // the first time the app boots on a version not yet announced (see
@@ -24,4 +24,11 @@ export const RELEASE_NOTES: Record<string, string> = {
 - Tactiekbord opgeruimd: het tekengereedschap zit nu direct op het veld
 - Senioren teams (Dames 1, Dames 2, Heren 1) toegevoegd
 - Spelers en supporters zien voortaan alleen voorletters van teamgenoten, coaches en managers — coaches en managers blijven volledige namen zien`,
+  '1.2.0': `**Nieuw in Hockey One (v1.2.0)**
+- Volg meerdere teams tegelijk, elk met je eigen rol — bijvoorbeeld Manager van je eigen team en Supporter van een ander (in te stellen bij Profiel)
+- Kaarten geven nu een strafbank: de speler gaat automatisch naar de bank, met een aftellende timer en een melding zodra die voorbij is
+- De wedstrijdklok loopt niet meer uit de pas als je de app op de achtergrond zet of je telefoon vergrendelt
+- Bug in het strafcornerbord opgelost: een speler kiezen en neerzetten werkte daar niet goed
+- Starten van een wedstrijd verbeterd, met een Herstel-knop om een foutje snel terug te draaien
+- Tik overal op een wedstrijdkaart of het logo bovenin om sneller te navigeren`,
 }
