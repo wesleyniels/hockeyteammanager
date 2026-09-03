@@ -964,7 +964,10 @@ function renderFormattedText(text: string): React.ReactNode {
       return
     }
     flushList()
-    if (line.trim() === '') return
+    if (line.trim() === '') {
+      blocks.push(<div key={`gap-${blocks.length}`} className="h-2" />)
+      return
+    }
     blocks.push(<div key={`line-${blocks.length}`}>{renderInlineFormatting(line, `line-${blocks.length}`)}</div>)
   })
   flushList()
