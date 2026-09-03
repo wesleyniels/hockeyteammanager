@@ -6,6 +6,7 @@ import { SEED_TEAMS } from './seed-teams.js'
 import { TEAM_FIXTURES, ageGroupFromTeamName } from './team-fixtures.js'
 import { TEAM_STAFF } from './team-staff-roster.js'
 import { CURRENT_VERSION, RELEASE_NOTES } from './changelog.js'
+import { sendNotificationEmail } from './email.js'
 
 export const sql = neon(process.env.POSTGRES_URL!)
 
@@ -188,7 +189,7 @@ async function announceReleaseIfNeeded() {
   if (last[0]?.value === CURRENT_VERSION) return
   const note = RELEASE_NOTES[CURRENT_VERSION]
   if (note) {
-    const users = await sql`SELECT id FROM users`
+    const users = await sql`SELECT id, email, first_name, name FROM users`
     if (users.length > 0) {
       const ids = users.map(() => randomUUID())
       const userIds = users.map(u => u.id as string)
@@ -198,6 +199,17 @@ async function announceReleaseIfNeeded() {
         INSERT INTO notifications (id, user_id, type, body)
         SELECT * FROM unnest(${ids}::text[], ${userIds}::text[], ${types}::text[], ${bodies}::text[])
       `
+      // Every registered user at once — sendNotificationEmail's own
+      // concurrency limit (email.ts) keeps this from blasting the shared
+      // SMTP mailbox all at once; one failed recipient doesn't stop the
+      // rest. This does mean the very first request after a release-note
+      // deploy waits for every email to finish (best-effort, but still
+      // awaited) — acceptable since it only happens once per version.
+      await Promise.all(users.map((u, i) => {
+        if (!u.email) return
+        return sendNotificationEmail(u.email, u.first_name ?? u.name ?? null, note, ids[i])
+          .catch(err => console.error('Failed to email release notification', err))
+      }))
     }
   }
   await sql`
