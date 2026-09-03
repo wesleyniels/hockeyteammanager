@@ -7625,6 +7625,33 @@ export default function App() {
   const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user, followableTeams.join('|'))
   const notif = useNotificationCenter(!!user)
 
+  // A notification email (sendNotificationEmail, api/_lib/email.ts) links
+  // back with ?notification=<id> — there's no dedicated notification-detail
+  // page (notifications only ever live in the bell dropdown), so this
+  // replicates what tapping it there already does: mark it read, and jump
+  // to Wedstrijden if it points at a game. Strips the param immediately
+  // (before the lookup even resolves) so refreshing never repeats it; the
+  // lookup itself only runs once auth has resolved, and only once ever.
+  const handledNotificationLinkRef = useRef(false)
+  useEffect(() => {
+    if (authLoading || handledNotificationLinkRef.current) return
+    const id = new URLSearchParams(window.location.search).get('notification')
+    if (!id) return
+    handledNotificationLinkRef.current = true
+    const params = new URLSearchParams(window.location.search)
+    params.delete('notification')
+    const qs = params.toString()
+    window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''))
+    if (!user) return
+    fetchNotifications().then(({ notifications }) => {
+      const n = notifications.find(x => x.id === id)
+      if (!n) return
+      if (!n.read) notif.markRead(n.id)
+      if (n.gameId) setView('history')
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, user])
+
   // Which of the user's own-or-followed teams Wedstrijden/Team are currently
   // showing — only meaningful (and only shown as a switcher) once someone
   // follows more than one. Defaults to their own team, and snaps back to a
