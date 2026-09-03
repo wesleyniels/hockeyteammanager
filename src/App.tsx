@@ -7364,6 +7364,7 @@ function MessagesView({ user, onProfile, onHome, onRefreshUnread, unreadNotifica
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [loadingThread, setLoadingThread] = useState(false)
   const [composeText, setComposeText] = useState('')
+  const composeRef = useRef<HTMLTextAreaElement>(null)
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
 
@@ -7406,6 +7407,7 @@ function MessagesView({ user, onProfile, onHome, onRefreshUnread, unreadNotifica
     const result = await sendMessage(activeId, body)
     if (result.ok) {
       setComposeText('')
+      if (composeRef.current) composeRef.current.style.height = 'auto'
       fetchThread(activeId).then(setMessages)
       loadConversations()
     } else {
@@ -7491,9 +7493,15 @@ function MessagesView({ user, onProfile, onHome, onRefreshUnread, unreadNotifica
             )}
             {sendError && <p className="text-xs font-semibold" style={{ color: '#DC2626' }}>{sendError}</p>}
             {canSend ? (
-              <div className="flex gap-2 sticky bottom-2 pt-2">
-                <input className="flex-1 rounded-xl px-3 py-2.5 text-sm" style={{ border: '1.5px solid var(--brand-d0dcfa)', background: '#fff', outline: 'none' }}
-                  value={composeText} onChange={e => setComposeText(e.target.value)}
+              <div className="flex gap-2 items-end sticky bottom-2 pt-2">
+                <textarea ref={composeRef} className="flex-1 rounded-xl px-3 py-2.5 text-sm resize-none" rows={1}
+                  style={{ border: '1.5px solid var(--brand-d0dcfa)', background: '#fff', outline: 'none', maxHeight: 120 }}
+                  value={composeText}
+                  onChange={e => {
+                    setComposeText(e.target.value)
+                    e.target.style.height = 'auto'
+                    e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`
+                  }}
                   placeholder="Typ een bericht…"
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} />
                 <button onClick={send} disabled={sending || !composeText.trim()}
