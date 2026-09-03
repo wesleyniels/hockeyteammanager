@@ -8,12 +8,22 @@ import nodemailer from 'nodemailer'
 const SMTP_HOST = 'smtp.transip.email'
 const SMTP_PORT = 465
 
-// Fixed rather than derived from a request's Host header — createNotification
-// (notifications.ts) and the release-note broadcast (db.ts's
-// announceReleaseIfNeeded) fire from many call sites, several with no
-// request object at all to read an origin from. Same reasoning as the
-// hardcoded admin@hockeyone.nl elsewhere in this codebase.
-const APP_URL = 'https://app.hockeyone.nl'
+// Resolved from Vercel's own env vars rather than a request's Host header —
+// createNotification (notifications.ts) and the release-note broadcast
+// (db.ts's announceReleaseIfNeeded) fire from many call sites, several with
+// no request object at all to read an origin from. Vercel sets VERCEL_URL
+// to the *current* deployment's own domain for every environment (preview
+// included), so a notification created while testing on a preview
+// deployment correctly links back to that preview instead of production —
+// VERCEL_URL is always the raw *.vercel.app address even in production
+// though (never the custom domain), so production specifically prefers the
+// real one. Falls back to the production domain if neither is set (e.g.
+// plain local dev without `vercel dev`).
+function resolveAppUrl(): string {
+  if (process.env.VERCEL_ENV === 'production') return 'https://app.hockeyone.nl'
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
+  return 'https://app.hockeyone.nl'
+}
 
 let transporter: ReturnType<typeof nodemailer.createTransport> | null = null
 
@@ -160,10 +170,11 @@ function formatNotificationBodyHtml(body: string): string {
 // points at a game — the same thing tapping it in the dropdown already does.
 export async function sendNotificationEmail(to: string, name: string | null, body: string, notificationId: string) {
   const greeting = name ? `Hoi ${name},` : 'Hoi,'
-  const link = `${APP_URL}/?notification=${notificationId}`
+  const appUrl = resolveAppUrl()
+  const link = `${appUrl}/?notification=${notificationId}`
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px; color: #1A2F6B;">
-      <img src="${APP_URL}/hockey-one-splash.png" alt="Hockey One" width="120" style="display: block; width: 120px; margin: 0 0 20px; border-radius: 12px;" />
+      <img src="${appUrl}/hockey-one-splash.png" alt="Hockey One" width="120" style="display: block; width: 120px; margin: 0 0 20px; border-radius: 12px;" />
       <p style="font-size: 14px; line-height: 1.6;">${greeting}</p>
       <p style="font-size: 14px; line-height: 1.6; font-weight: bold;">Nieuwe melding</p>
       ${formatNotificationBodyHtml(body)}
