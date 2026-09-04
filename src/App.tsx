@@ -6536,14 +6536,35 @@ function useAuth() {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
 
+  // A transient network failure right as the app opens (common on mobile —
+  // cold PWA launch before connectivity is fully up, a flaky handoff between
+  // wifi/cellular) must not permanently strand the user in a logged-out-
+  // looking state for the rest of the session: with no retry, one failed
+  // fetch here used to mean no bottom bar (and no user-gated UI at all)
+  // until a manual reload happened to catch a working network. A real "not
+  // logged in" (401) still resolves immediately, same as before — only
+  // network/server errors get retried.
   useEffect(() => {
     let cancelled = false
-    fetch('/api/auth/me')
-      .then(res => (res.ok ? res.json() : null))
-      .then(data => { if (!cancelled) setUser(data?.user ?? null) })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
+    let attempt = 0
+    let timer: ReturnType<typeof setTimeout>
+    const load = () => {
+      fetch('/api/auth/me')
+        .then(res => {
+          if (res.ok) return res.json()
+          if (res.status === 401 || res.status === 403) return null
+          throw new Error(`HTTP ${res.status}`)
+        })
+        .then(data => { if (!cancelled) { setUser(data?.user ?? null); setLoading(false) } })
+        .catch(() => {
+          if (cancelled) return
+          attempt++
+          if (attempt <= 4) timer = setTimeout(load, attempt * 1000)
+          else setLoading(false)
+        })
+    }
+    load()
+    return () => { cancelled = true; clearTimeout(timer) }
   }, [])
 
   // /api/auth/verify-email redirects back here with ?verify=ok|error after
