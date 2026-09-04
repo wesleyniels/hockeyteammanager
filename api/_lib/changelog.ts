@@ -6,7 +6,7 @@
 // production. Bump this by hand alongside package.json's "version" (and the
 // src/App.tsx footer's import, which goes through Vite's bundler instead
 // and doesn't have this risk) whenever shipping a new release.
-export const CURRENT_VERSION = '1.2.0'
+export const CURRENT_VERSION = '1.2.1'
 
 // Human-readable "what's new" notes, broadcast to every account's Meldingen
 // the first time the app boots on a version not yet announced (see
@@ -31,4 +31,6 @@ export const RELEASE_NOTES: Record<string, string> = {
 - Bug in het strafcornerbord opgelost: een speler kiezen en neerzetten werkte daar niet goed
 - Starten van een wedstrijd verbeterd, met een Herstel-knop om een foutje snel terug te draaien
 - Tik overal op een wedstrijdkaart of het logo bovenin om sneller te navigeren`,
+  '1.2.1': `**Bugfix (v1.2.1)**
+- Het balkje onderin de app verscheen soms niet bij het openen — dit is verholpen`,
 }
