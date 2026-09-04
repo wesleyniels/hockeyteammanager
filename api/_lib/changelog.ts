@@ -34,3 +34,8 @@ export const RELEASE_NOTES: Record<string, string> = {
   '1.2.1': `**Bugfix (v1.2.1)**
 - Het balkje onderin de app verscheen soms niet bij het openen — dit is verholpen`,
 }
+
+// Versions announced only in-app, with no accompanying email — for a release
+// note too minor to justify an inbox ping (see announceReleaseIfNeeded in
+// db.ts). Everything else with a RELEASE_NOTES entry emails by default.
+export const RELEASE_NOTES_SKIP_EMAIL = new Set<string>(['1.2.1'])
