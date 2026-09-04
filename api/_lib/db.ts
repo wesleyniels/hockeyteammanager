@@ -5,7 +5,7 @@ import { slugify } from './slug.js'
 import { SEED_TEAMS } from './seed-teams.js'
 import { TEAM_FIXTURES, ageGroupFromTeamName } from './team-fixtures.js'
 import { TEAM_STAFF } from './team-staff-roster.js'
-import { CURRENT_VERSION, RELEASE_NOTES } from './changelog.js'
+import { CURRENT_VERSION, RELEASE_NOTES, RELEASE_NOTES_SKIP_EMAIL } from './changelog.js'
 import { sendNotificationEmail } from './email.js'
 
 export const sql = neon(process.env.POSTGRES_URL!)
@@ -205,11 +205,13 @@ async function announceReleaseIfNeeded() {
       // rest. This does mean the very first request after a release-note
       // deploy waits for every email to finish (best-effort, but still
       // awaited) — acceptable since it only happens once per version.
-      await Promise.all(users.map((u, i) => {
-        if (!u.email) return
-        return sendNotificationEmail(u.email, u.first_name ?? u.name ?? null, note, ids[i])
-          .catch(err => console.error('Failed to email release notification', err))
-      }))
+      if (!RELEASE_NOTES_SKIP_EMAIL.has(CURRENT_VERSION)) {
+        await Promise.all(users.map((u, i) => {
+          if (!u.email) return
+          return sendNotificationEmail(u.email, u.first_name ?? u.name ?? null, note, ids[i])
+            .catch(err => console.error('Failed to email release notification', err))
+        }))
+      }
     }
   }
   await sql`
