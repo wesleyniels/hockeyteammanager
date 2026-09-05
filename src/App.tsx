@@ -921,6 +921,23 @@ const fmtHM = (s: number) => {
   return h > 0 ? `${h}u ${m}m` : `${m}m`
 }
 const todayStr = () => new Date().toISOString().slice(0, 10)
+
+// A match only counts as "played" once it's unambiguously over — either the
+// day itself has passed, or the clock actually ran out its final period.
+// `finalTime > 0` alone (the old signal) went true the instant the clock
+// was started, so a match still being played live — score changing,
+// minutes still ticking — showed up as an already-finished result the
+// moment the first second elapsed. Shared by Home, Wedstrijden and Team
+// so a live match reads as "still going" consistently everywhere, not
+// just wherever this got fixed first.
+function isGameFinished(g: SavedGame): boolean {
+  if (g.date < todayStr()) return true
+  const { periods, periodSec } = AGE_CONFIG[g.ageGroup]
+  const currentPeriod = g.currentPeriod ?? 1
+  const periodStart = g.periodStartSec ?? 0
+  const remainingInPeriod = periodSec - (g.finalTime - periodStart)
+  return currentPeriod >= periods && remainingInPeriod <= 0
+}
 function formatRelativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime()
   const min = Math.round(diffMs / 60000)
@@ -2390,15 +2407,12 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
   // scoped to the user's own team specifically, same as before following
   // existed; Wedstrijden/Team are where the rest becomes visible.
   const ownGames = user.defaultTeam ? games.filter(g => g.team === user.defaultTeam) : games
-  // Same "not yet played" signal HistoryView's upcoming list uses — the
-  // clock hasn't run yet, regardless of whether a squad's already built.
-  const nextMatch = [...ownGames].filter(g => g.finalTime === 0).sort((a, b) => a.date.localeCompare(b.date))[0] ?? null
-  // A played match's clock should read > 0, but not every recorded result
-  // necessarily ran through the live timer for its full duration — a match
-  // dated in the past is a more forgiving fallback signal than finalTime
-  // alone, so a real result isn't missed here just because it's 0.
+  // A match still being played today stays "next", not "last played" —
+  // isGameFinished only flips once the day's over or the final period has
+  // actually run out.
+  const nextMatch = [...ownGames].filter(g => !isGameFinished(g)).sort((a, b) => a.date.localeCompare(b.date))[0] ?? null
   const lastPlayed = [...ownGames]
-    .filter(g => g.finalTime > 0 || g.date < todayStr())
+    .filter(isGameFinished)
     .sort((a, b) => b.date.localeCompare(a.date))[0] ?? null
   const nextMatchOpponent = nextMatch ? splitClubAndTeam(nextMatch.opponent) : null
   const lastPlayedOpponent = lastPlayed ? splitClubAndTeam(lastPlayed.opponent) : null
@@ -4850,17 +4864,17 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, on
   const canManageSharing = !!expandedGame && (expandedGame.ownerId ?? user?.id) === user?.id
   const { shares, addShare, removeShare } = useGameShares(canManageSharing ? expanded : null)
 
-  // A game is "played" once its clock has actually run — seeded fixtures and
-  // freshly-scheduled manual matches start at finalTime 0 (even if a squad's
-  // already been built for them), so that's a more reliable signal than the
-  // date alone. Upcoming matches sort soonest-first; played ones keep the
+  // isGameFinished keeps a match in progress right now under "upcoming"
+  // until today's over or its final period has actually run out — plain
+  // finalTime > 0 flipped a match to "played" the instant its clock
+  // started. Upcoming matches sort soonest-first; played ones keep the
   // existing newest-first order.
   // Following more than one team means `games` is a mix of all of them —
   // narrow to whichever one the switcher above has selected before any of
   // the upcoming/played splitting below.
   const teamGames = selectedTeam ? games.filter(g => g.team === selectedTeam) : games
-  const upcomingGames = teamGames.filter(g => g.finalTime === 0).sort((a, b) => a.date.localeCompare(b.date))
-  const playedGames = [...teamGames.filter(g => g.finalTime > 0)].reverse()
+  const upcomingGames = teamGames.filter(g => !isGameFinished(g)).sort((a, b) => a.date.localeCompare(b.date))
+  const playedGames = [...teamGames.filter(isGameFinished)].reverse()
   const filteredGames = filter === 'upcoming' ? upcomingGames : filter === 'played' ? playedGames : [...upcomingGames, ...playedGames]
 
   return (
@@ -5532,11 +5546,11 @@ function TeamView({ user, games, onProfile, onHome, onSelectPlayer, onSelectStaf
   }, [team])
 
   // Following more than one team means `games` is a mix of all of them —
-  // narrow to whichever one the switcher below has selected. Same "played"
-  // signal Wedstrijden uses (finalTime > 0) — a scheduled but not-yet-played
-  // match shouldn't count toward the team's record.
+  // narrow to whichever one the switcher below has selected. Same
+  // isGameFinished signal Wedstrijden uses — a match still being played
+  // right now shouldn't count toward the team's record yet either.
   const teamGames = team ? games.filter(g => g.team === team) : games
-  const playedGames = teamGames.filter(g => g.finalTime > 0)
+  const playedGames = teamGames.filter(isGameFinished)
   const wins = playedGames.filter(g => g.scoreOwn > g.scoreOpp).length
   const losses = playedGames.filter(g => g.scoreOwn < g.scoreOpp).length
   const draws = playedGames.filter(g => g.scoreOwn === g.scoreOpp).length
