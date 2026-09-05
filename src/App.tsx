@@ -120,6 +120,9 @@ interface SavedGame {
   // instead of just vanishing from the roster. Optional because older saved
   // games predate this field; missing means "no one was marked unavailable".
   unavailableIds?: string[]
+  // This match's captain — optional because older saved games predate the
+  // field, and because a match need not have one assigned at all.
+  captainId?: string | null
   tacticsBoards: TacticsBoard[]
   playedSeconds: Record<string, number>
   media: MediaItem[]
@@ -1551,6 +1554,8 @@ interface FieldViewProps {
   // Optional — when given, occupied markers show how long that player has
   // been on the field this match (mirrors the bench's elapsed-time badge).
   playedSeconds?: Record<string, number>
+  // Optional — when given, the matching player's avatar gets a "C" badge.
+  captainId?: string | null
 }
 
 function nearestSlot(slots: PositionSlot[], x: number, y: number, excludeId?: string) {
@@ -1564,7 +1569,7 @@ function nearestSlot(slots: PositionSlot[], x: number, y: number, excludeId?: st
   return best && bestDist <= SNAP_THRESHOLD ? best : null
 }
 
-function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, dragPreview, fieldRef, onFieldClick, onBackgroundClick, onMarkerPointerDown, onOppMarkerPointerDown, onOppMarkerClick, playedSeconds }: FieldViewProps) {
+function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, dragPreview, fieldRef, onFieldClick, onBackgroundClick, onMarkerPointerDown, onOppMarkerPointerDown, onOppMarkerClick, playedSeconds, captainId }: FieldViewProps) {
   const isDual = ageGroup === 'U7' || ageGroup === 'U8'
   const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
   const draggedBenchPlayer = dragPreview?.type === 'bench' ? getPlayer(dragPreview.id) : null
@@ -1607,6 +1612,16 @@ function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, 
                   background: 'rgba(13,20,43,0.65)', padding: '1.5px 4px', borderRadius: '5px',
                 }}>
                 {fmtSec(playedSeconds[player.id] ?? 0)}
+              </div>
+            )}
+            {player && player.id === captainId && (
+              <div className="absolute flex items-center justify-center font-bold text-white"
+                style={{
+                  top: '-3px', right: '-3px', width: '16px', height: '16px', fontSize: '9px',
+                  background: '#D97706', border: '1.5px solid #fff', borderRadius: '50%', zIndex: 1,
+                }}
+                title="Aanvoerder">
+                C
               </div>
             )}
             <div
@@ -1739,7 +1754,7 @@ function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, 
 // percentage-positioned markers as FieldView, with every drag/click/selection
 // affordance stripped out since nothing here is editable.
 
-function ReadOnlyFieldView({ ageGroup, slots, squad }: { ageGroup: AgeGroup; slots: PositionSlot[]; squad: Player[] }) {
+function ReadOnlyFieldView({ ageGroup, slots, squad, captainId }: { ageGroup: AgeGroup; slots: PositionSlot[]; squad: Player[]; captainId?: string | null }) {
   const isDual = ageGroup === 'U7' || ageGroup === 'U8'
   const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
   // Width-driven sizing (never an explicit height) so the aspect-ratio always
@@ -1762,6 +1777,16 @@ function ReadOnlyFieldView({ ageGroup, slots, squad }: { ageGroup: AgeGroup; slo
         return (
           <div key={slot.posId} className="absolute transform -translate-x-1/2 -translate-y-1/2"
             style={{ left: `${slot.x}%`, top: `${slot.y}%`, zIndex: 10 }}>
+            {player && player.id === captainId && (
+              <div className="absolute flex items-center justify-center font-bold text-white"
+                style={{
+                  top: '-3px', right: '-3px', width: '16px', height: '16px', fontSize: '9px',
+                  background: '#D97706', border: '1.5px solid #fff', borderRadius: '50%', zIndex: 1,
+                }}
+                title="Aanvoerder">
+                C
+              </div>
+            )}
             <div style={{
               width: player ? '46px' : '36px',
               height: player ? '46px' : '36px',
@@ -2377,6 +2402,11 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
     .sort((a, b) => b.date.localeCompare(a.date))[0] ?? null
   const nextMatchOpponent = nextMatch ? splitClubAndTeam(nextMatch.opponent) : null
   const lastPlayedOpponent = lastPlayed ? splitClubAndTeam(lastPlayed.opponent) : null
+  // Players/supporters have nothing to prepare — the squad/formation is a
+  // coach's job — so the upcoming-match card takes them straight to the
+  // read-only match detail instead of the live editor, same as "Bekijk
+  // wedstrijd" already does for a played match above.
+  const isPlayerOrSupporter = user.role === 'Speler' || user.role === 'Supporter'
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
@@ -2414,7 +2444,7 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
 
       <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
         {nextMatch && nextMatchOpponent && (
-          <section onClick={() => onEditGame(nextMatch)} className="rounded-2xl p-5 text-white shadow-lg cursor-pointer" style={{ background: 'var(--brand-0d2b7a)' }}>
+          <section onClick={() => isPlayerOrSupporter ? onOpenMatch(nextMatch.id) : onEditGame(nextMatch)} className="rounded-2xl p-5 text-white shadow-lg cursor-pointer" style={{ background: 'var(--brand-0d2b7a)' }}>
             <h2 className="font-display text-xs font-bold uppercase mb-3" style={{ color: 'var(--brand-a8bef0)', letterSpacing: '0.14em' }}>
               Volgende wedstrijd
             </h2>
@@ -2441,8 +2471,10 @@ function HomeView({ user, games, onEditGame, onOpenHistory, onOpenMatch, onCreat
               </div>
             </div>
             <div className="w-full mt-3 py-2.5 rounded-xl font-display font-bold uppercase tracking-wide text-sm text-center"
-              style={{ background: '#fff', color: 'var(--brand-0d2b7a)' }}>
-              Wedstrijd voorbereiden
+              style={isPlayerOrSupporter
+                ? { background: 'var(--brand-1a3fab)', color: '#fff' }
+                : { background: '#fff', color: 'var(--brand-0d2b7a)' }}>
+              {isPlayerOrSupporter ? 'Bekijk wedstrijd' : 'Wedstrijd voorbereiden'}
             </div>
           </section>
         )}
@@ -2981,6 +3013,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
     if (readOnly) return
     setUnavailableIds(ids => ids.includes(playerId) ? ids.filter(id => id !== playerId) : [...ids, playerId])
   }
+  const [captainId, setCaptainId] = useState<string | null>(() => initial?.captainId ?? null)
   // A brand-new board starts seeded with whoever's currently on the field
   // (their live slot positions) instead of blank — without this, the tactics
   // board looked empty and un-interactive on first open (the live squad shown
@@ -3108,7 +3141,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   // change pushes the state *before* that change onto a stack; Herstel pops
   // and restores it, one click per change, all the way back to the state
   // the match started in.
-  const tracked = { slots, bench, subs, oppMarkers, goals, cards, unavailableIds, tacticsBoards, notes, scoreOwn, scoreOpp, currentPeriod, periodStartSec }
+  const tracked = { slots, bench, subs, oppMarkers, goals, cards, unavailableIds, captainId, tacticsBoards, notes, scoreOwn, scoreOpp, currentPeriod, periodStartSec }
   const historyRef = useRef<(typeof tracked)[]>([])
   const lastTrackedRef = useRef(tracked)
   const isFirstTrackRef = useRef(true)
@@ -3137,7 +3170,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
     lastTrackedRef.current = tracked
     scheduleSave()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slots, bench, subs, oppMarkers, goals, cards, unavailableIds, tacticsBoards, notes, scoreOwn, scoreOpp, currentPeriod, periodStartSec])
+  }, [slots, bench, subs, oppMarkers, goals, cards, unavailableIds, captainId, tacticsBoards, notes, scoreOwn, scoreOpp, currentPeriod, periodStartSec])
 
   const isFirstMediaRef = useRef(true)
   useEffect(() => {
@@ -3179,6 +3212,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
     setGoals(prev.goals)
     setCards(prev.cards)
     setUnavailableIds(prev.unavailableIds)
+    setCaptainId(prev.captainId)
     setTacticsBoards(prev.tacticsBoards)
     setNotes(prev.notes)
     setScoreOwn(prev.scoreOwn)
@@ -3741,7 +3775,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   const buildSnapshot = (): SavedGame => ({
     id: gameId,
     date: gameDate,
-    club, team, ageGroup, opponent, homeAway, squad, slots, subs, oppMarkers, goals, cards, unavailableIds, tacticsBoards, playedSeconds, media, notes, result,
+    club, team, ageGroup, opponent, homeAway, squad, slots, subs, oppMarkers, goals, cards, unavailableIds, captainId, tacticsBoards, playedSeconds, media, notes, result,
     scoreOwn, scoreOpp,
     finalTime: gameSec,
     currentPeriod, periodStartSec,
@@ -3882,6 +3916,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                 squad={squad}
                 oppMarkers={oppMarkers}
                 playedSeconds={playedSeconds}
+                captainId={captainId}
                 selected={selected}
                 dragOverPos={dragOverPos}
                 dragPreview={dragPreview}
@@ -3989,6 +4024,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                   squad={squad}
                   oppMarkers={oppMarkers}
                   playedSeconds={playedSeconds}
+                  captainId={captainId}
                   selected={selected}
                   dragOverPos={dragOverPos}
                   dragPreview={dragPreview}
@@ -4188,6 +4224,17 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                   </div>
                 </div>
               </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Aanvoerder</label>
+              <select className="w-full rounded-xl px-3 py-2 text-sm" disabled={readOnly}
+                style={{ border: '1.5px solid var(--brand-d0dcfa)', background: 'var(--brand-f8faff)', color: captainId ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', outline: 'none' }}
+                value={captainId ?? ''} onChange={e => setCaptainId(e.target.value || null)}>
+                <option value="">Geen aanvoerder</option>
+                {sortPlayers(squad).map(p => (
+                  <option key={p.id} value={p.id}>{p.number ? `#${p.number} ` : ''}{p.name}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Doelpuntenmakers</label>
@@ -5183,6 +5230,11 @@ function MatchDetailView({ game, user, onEdit, onDelete }: {
             <p className="text-xs leading-tight mt-0.5" style={{ color: 'var(--brand-a8bef0)' }}>
               {new Date(game.date).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })} · {game.homeAway === 'Thuis' ? 'Thuis' : 'Uit'} · {game.scoreOwn} - {game.scoreOpp}
             </p>
+            {game.captainId && getPlayer(game.captainId) && (
+              <p className="text-xs leading-tight mt-0.5 truncate" style={{ color: 'var(--brand-a8bef0)' }}>
+                Aanvoerder: {getPlayer(game.captainId)!.name}
+              </p>
+            )}
           </div>
           <ClubLogo club={matchKnhbClub(game.opponent)} size={32} />
         </div>
@@ -5192,7 +5244,7 @@ function MatchDetailView({ game, user, onEdit, onDelete }: {
         {tab === 'stats' && <MatchStats game={game} />}
         {tab === 'lineup' && (
           <div className="bg-white rounded-2xl p-4 shadow-sm" style={{ boxShadow: '0 2px 12px rgba(13, 31, 74, 0.08)' }}>
-            <ReadOnlyFieldView ageGroup={game.ageGroup} slots={game.slots} squad={game.squad} />
+            <ReadOnlyFieldView ageGroup={game.ageGroup} slots={game.slots} squad={game.squad} captainId={game.captainId} />
           </div>
         )}
         {tab === 'timeline' && (
@@ -5688,6 +5740,7 @@ function PlayerProfileView({ playerId, team, games, user, onBack }: {
   // anywhere in the app to attribute more precisely than that.
   const totalSubs = games.reduce((n, g) => n + (g.subs ?? []).filter(s => s.playerInId === playerId || s.playerOutId === playerId).length, 0)
   const totalPlaytimeSec = games.reduce((n, g) => n + ((g.playedSeconds ?? {})[playerId] ?? 0), 0)
+  const totalCaptainGames = games.filter(g => g.captainId === playerId).length
   const lastGameWithPlaytime = [...playerGames].sort((a, b) => b.date.localeCompare(a.date))[0] ?? null
   const secLastGame = lastGameWithPlaytime ? ((lastGameWithPlaytime.playedSeconds ?? {})[playerId] ?? 0) : 0
   const last5 = [...playerGames].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5).reverse()
@@ -5755,6 +5808,7 @@ function PlayerProfileView({ playerId, team, games, user, onBack }: {
               {stat('Min. laatste wedstrijd', Math.round(secLastGame / 60))}
               {stat('Kaarten', totalCards)}
               {stat('Aantal wissels', totalSubs)}
+              {stat('Keer aanvoerder', totalCaptainGames)}
             </div>
           </div>
 
