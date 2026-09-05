@@ -3277,12 +3277,14 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   // A visibilitychange/focus listener also forces an immediate catch-up tick
   // the moment the app comes back, rather than waiting on the next interval.
   //
-  // A gap longer than this is treated as "phone got locked/forgotten", not
-  // real elapsed match time — a coach unlocking their phone after a few
-  // hours should find the match paused where they left it, not a clock that
-  // just silently jumped by however long they were away (this is exactly
-  // what produced multi-hour finalTime values in Wedstrijden).
-  const MAX_CATCHUP_SEC = 120
+  // Once started, the clock must never pause itself for any reason — a
+  // coach backgrounding the app or locking their phone mid-match should
+  // come back to find it caught all the way up, not stopped. An earlier
+  // version auto-paused past a threshold to guard against runaway
+  // finalTime values from a match left running by mistake, but that
+  // meant a perfectly normal few-minutes-backgrounded gap during a real
+  // match would silently stop the clock — worse than the overcounting
+  // risk it was guarding against.
   const lastTickRef = useRef<number | null>(null)
   useEffect(() => {
     if (!running) { if (intervalRef.current) clearInterval(intervalRef.current); return }
@@ -3291,12 +3293,6 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
       const last = lastTickRef.current ?? now
       const elapsed = Math.floor((now - last) / 1000)
       if (elapsed <= 0) return
-      if (elapsed > MAX_CATCHUP_SEC) {
-        lastTickRef.current = null
-        setRunning(false)
-        triggerFlash('⏸️', 'Wedstrijd gepauzeerd (lang inactief)', '#D97706')
-        return
-      }
       lastTickRef.current = last + elapsed * 1000
       setGameSec(s => s + elapsed)
       setPlayedSeconds(ps => {
