@@ -376,10 +376,10 @@ interface FormationVariant {
 const POS_DUAL: PosDef[] = [
   { id: 'a_b', label: 'VD', x: 22.5, y: 82 },
   { id: 'a_m', label: 'MV', x: 22.5, y: 50 },
-  { id: 'a_f', label: 'ST', x: 22.5, y: 18 },
+  { id: 'a_f', label: 'SP', x: 22.5, y: 18 },
   { id: 'b_b', label: 'VD', x: 77.5, y: 82 },
   { id: 'b_m', label: 'MV', x: 77.5, y: 50 },
-  { id: 'b_f', label: 'ST', x: 77.5, y: 18 },
+  { id: 'b_f', label: 'SP', x: 77.5, y: 18 },
 ]
 
 // U9 (KNHB O9, 6-tegen-6) — GK + 5 outfield, in three common shapes
@@ -387,13 +387,13 @@ const POS_U9_2_2_1: PosDef[] = [
   { id: 'gk', label: 'K',  x: 50, y: 86 },
   { id: 'd1', label: 'RB', x: 72, y: 66 }, { id: 'd2', label: 'LB', x: 28, y: 66 },
   { id: 'm1', label: 'RM', x: 72, y: 40 }, { id: 'm2', label: 'LM', x: 28, y: 40 },
-  { id: 'f1', label: 'ST', x: 50, y: 20 },
+  { id: 'f1', label: 'SP', x: 50, y: 20 },
 ]
 const POS_U9_1_3_1: PosDef[] = [
   { id: 'gk', label: 'K',  x: 50, y: 86 },
   { id: 'd1', label: 'CB', x: 50, y: 68 },
   { id: 'm1', label: 'RM', x: 80, y: 45 }, { id: 'm2', label: 'CM', x: 50, y: 45 }, { id: 'm3', label: 'LM', x: 20, y: 45 },
-  { id: 'f1', label: 'ST', x: 50, y: 20 },
+  { id: 'f1', label: 'SP', x: 50, y: 20 },
 ]
 const POS_U9_2_1_2: PosDef[] = [
   { id: 'gk', label: 'K',  x: 50, y: 86 },
@@ -419,7 +419,7 @@ const POS_U10_2_2_3: PosDef[] = [
   { id: 'gk', label: 'K',  x: 50, y: 86 },
   { id: 'd1', label: 'RB', x: 72, y: 68 }, { id: 'd2', label: 'LB', x: 28, y: 68 },
   { id: 'm1', label: 'RH', x: 72, y: 46 }, { id: 'm2', label: 'LH', x: 28, y: 46 },
-  { id: 'f1', label: 'RW', x: 80, y: 24 }, { id: 'f2', label: 'ST', x: 50, y: 18 }, { id: 'f3', label: 'LW', x: 20, y: 24 },
+  { id: 'f1', label: 'RW', x: 80, y: 24 }, { id: 'f2', label: 'SP', x: 50, y: 18 }, { id: 'f3', label: 'LW', x: 20, y: 24 },
 ]
 
 // U11 — GK + 8 outfield
@@ -427,7 +427,7 @@ const POS_U11_2_3_3: PosDef[] = [
   { id: 'gk', label: 'K',  x: 50, y: 86 },
   { id: 'd1', label: 'RB', x: 72, y: 70 }, { id: 'd2', label: 'LB', x: 28, y: 70 },
   { id: 'm1', label: 'RH', x: 84, y: 50 }, { id: 'm2', label: 'MH', x: 50, y: 50 }, { id: 'm3', label: 'LH', x: 16, y: 50 },
-  { id: 'f1', label: 'RW', x: 78, y: 28 }, { id: 'f2', label: 'ST', x: 50, y: 21 }, { id: 'f3', label: 'LW', x: 22, y: 28 },
+  { id: 'f1', label: 'RW', x: 78, y: 28 }, { id: 'f2', label: 'SP', x: 50, y: 21 }, { id: 'f3', label: 'LW', x: 22, y: 28 },
 ]
 const POS_U11_3_3_2: PosDef[] = [
   { id: 'gk', label: 'K',  x: 50, y: 86 },
@@ -439,7 +439,7 @@ const POS_U11_3_2_3: PosDef[] = [
   { id: 'gk', label: 'K',  x: 50, y: 86 },
   { id: 'd1', label: 'RB', x: 82, y: 70 }, { id: 'd2', label: 'CB', x: 50, y: 72 }, { id: 'd3', label: 'LB', x: 18, y: 70 },
   { id: 'm1', label: 'RH', x: 70, y: 48 }, { id: 'm2', label: 'LH', x: 30, y: 48 },
-  { id: 'f1', label: 'RW', x: 78, y: 22 }, { id: 'f2', label: 'ST', x: 50, y: 18 }, { id: 'f3', label: 'LW', x: 22, y: 22 },
+  { id: 'f1', label: 'RW', x: 78, y: 22 }, { id: 'f2', label: 'SP', x: 50, y: 18 }, { id: 'f3', label: 'LW', x: 22, y: 22 },
 ]
 
 // U12+ (11-a-side) — GK + 10 outfield, shared by U12/U14/U16/U18/Senioren
@@ -447,19 +447,19 @@ const POS_11_4_3_3: PosDef[] = [
   { id: 'gk', label: 'K',   x: 50, y: 86 },
   { id: 'd1', label: 'RB',  x: 85, y: 70 }, { id: 'd2', label: 'CB', x: 38, y: 70 }, { id: 'd3', label: 'CB', x: 62, y: 70 }, { id: 'd4', label: 'LB', x: 15, y: 70 },
   { id: 'm1', label: 'RH',  x: 78, y: 50 }, { id: 'm2', label: 'CH', x: 50, y: 50 }, { id: 'm3', label: 'LH', x: 22, y: 50 },
-  { id: 'f1', label: 'RW',  x: 78, y: 27 }, { id: 'f2', label: 'ST', x: 50, y: 20 }, { id: 'f3', label: 'LW', x: 22, y: 27 },
+  { id: 'f1', label: 'RW',  x: 78, y: 27 }, { id: 'f2', label: 'SP', x: 50, y: 20 }, { id: 'f3', label: 'LW', x: 22, y: 27 },
 ]
 const POS_11_4_4_2: PosDef[] = [
   { id: 'gk', label: 'K',   x: 50, y: 86 },
   { id: 'd1', label: 'RB',  x: 85, y: 70 }, { id: 'd2', label: 'CB', x: 38, y: 70 }, { id: 'd3', label: 'CB', x: 62, y: 70 }, { id: 'd4', label: 'LB', x: 15, y: 70 },
   { id: 'm1', label: 'RM',  x: 85, y: 48 }, { id: 'm2', label: 'CM', x: 38, y: 48 }, { id: 'm3', label: 'CM', x: 62, y: 48 }, { id: 'm4', label: 'LM', x: 15, y: 48 },
-  { id: 'f1', label: 'ST',  x: 35, y: 22 }, { id: 'f2', label: 'ST', x: 65, y: 22 },
+  { id: 'f1', label: 'SP',  x: 35, y: 22 }, { id: 'f2', label: 'SP', x: 65, y: 22 },
 ]
 const POS_11_3_4_3: PosDef[] = [
   { id: 'gk', label: 'K',   x: 50, y: 86 },
   { id: 'd1', label: 'CB',  x: 25, y: 70 }, { id: 'd2', label: 'CB', x: 50, y: 72 }, { id: 'd3', label: 'CB', x: 75, y: 70 },
   { id: 'm1', label: 'RM',  x: 85, y: 48 }, { id: 'm2', label: 'CM', x: 38, y: 48 }, { id: 'm3', label: 'CM', x: 62, y: 48 }, { id: 'm4', label: 'LM', x: 15, y: 48 },
-  { id: 'f1', label: 'RW',  x: 78, y: 22 }, { id: 'f2', label: 'ST', x: 50, y: 18 }, { id: 'f3', label: 'LW', x: 22, y: 22 },
+  { id: 'f1', label: 'RW',  x: 78, y: 22 }, { id: 'f2', label: 'SP', x: 50, y: 18 }, { id: 'f3', label: 'LW', x: 22, y: 22 },
 ]
 
 const FORMATIONS_11: FormationVariant[] = [
@@ -6596,6 +6596,18 @@ function effectiveRoleForTeam(user: AuthUser | null, team: string | null): strin
   return f ? f.role : null
 }
 
+// A plain `fetch` has no timeout of its own — on a flaky mobile connection
+// a request can sit pending indefinitely instead of erroring, which left
+// the initial auth/games load stuck forever (no bottom bar, no data) with
+// nothing to retry against, since the retry logic below only reacts to a
+// rejected promise. Aborting after `ms` turns "hung forever" into "fails
+// like any other network error", so the existing retry takes over.
+function fetchWithTimeout(url: string, ms: number): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), ms)
+  return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer))
+}
+
 function useAuth() {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
@@ -6613,7 +6625,7 @@ function useAuth() {
     let attempt = 0
     let timer: ReturnType<typeof setTimeout>
     const load = () => {
-      fetch('/api/auth/me')
+      fetchWithTimeout('/api/auth/me', 8000)
         .then(res => {
           if (res.ok) return res.json()
           if (res.status === 401 || res.status === 403) return null
@@ -6989,24 +7001,34 @@ function useRemoteGames(enabled: boolean, teamKey: string | null) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Same reasoning as useAuth's retry: a hung request (no timeout) used to
+  // leave `loading` true and the match cards empty forever, with nothing to
+  // retry against since a pending fetch never rejects on its own.
   useEffect(() => {
     if (!enabled) { setGames([]); setLoading(false); return }
     let cancelled = false
+    let attempt = 0
+    let timer: ReturnType<typeof setTimeout>
     setLoading(true)
-    ;(async () => {
-      try {
-        const res = await fetch('/api/games')
-        if (res.status === 401) { if (!cancelled) setGames([]); return }
-        if (!res.ok) throw new Error(`GET /api/games: ${res.status}`)
-        const remote = (await res.json()) as SavedGame[]
-        if (!cancelled) setGames(remote)
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e))
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => { cancelled = true }
+    setError(null)
+    const load = () => {
+      fetchWithTimeout('/api/games', 8000)
+        .then(async res => {
+          if (res.status === 401) { if (!cancelled) { setGames([]); setLoading(false) }; return }
+          if (!res.ok) throw new Error(`GET /api/games: ${res.status}`)
+          const remote = (await res.json()) as SavedGame[]
+          if (!cancelled) { setGames(remote); setLoading(false) }
+        })
+        .catch(e => {
+          if (cancelled) return
+          attempt++
+          if (attempt <= 4) { timer = setTimeout(load, attempt * 1000); return }
+          setError(e instanceof Error ? e.message : String(e))
+          setLoading(false)
+        })
+    }
+    load()
+    return () => { cancelled = true; clearTimeout(timer) }
   }, [enabled, teamKey])
 
   const addGame = useCallback((g: SavedGame) => {
