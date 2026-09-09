@@ -141,6 +141,17 @@ interface SavedGame {
   // hasn't been advanced past period 1 yet".
   currentPeriod?: number
   periodStartSec?: number
+  // Wall-clock time (Date.now()) the clock was last started, or null/absent
+  // while paused — the one piece of state that survives the match view
+  // being torn down and rebuilt from scratch: a locked/backgrounded phone
+  // whose tab gets discarded by the OS, or navigating away and back, both
+  // remount GameView with a fresh `running` React state that would
+  // otherwise default to false regardless of what was actually happening.
+  // Persisting *when* it was started (rather than just a running boolean)
+  // lets a fresh mount recompute exactly how much real time passed while
+  // the view didn't exist and catch the clock up in one jump, the same way
+  // backgrounding-while-mounted already catches up via visibilitychange.
+  clockRunningSince?: number | null
   // Populated by the API from games/game_shares — absent on a game that
   // hasn't been saved/fetched yet. Missing means "treat as fully owned",
   // which is correct for anything created locally before its first save.
@@ -3076,6 +3087,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   const advancePeriod = () => {
     if (readOnly || currentPeriod >= totalPeriods) return
     setRunning(false)
+    setClockRunningSince(null)
     setPeriodStartSec(gameSec)
     setCurrentPeriod(p => p + 1)
   }
@@ -3087,10 +3099,16 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   const regressPeriod = () => {
     if (readOnly || currentPeriod <= 1) return
     setRunning(false)
+    setClockRunningSince(null)
     setPeriodStartSec(gameSec)
     setCurrentPeriod(p => p - 1)
   }
-  const [running, setRunning] = useState(false)
+  // clockRunningSince anchors `running` across a full remount (see the
+  // SavedGame field's comment) — a fresh mount resumes running immediately
+  // whenever the saved state says the clock was left going, instead of
+  // always starting paused.
+  const [clockRunningSince, setClockRunningSince] = useState<number | null>(() => initial?.clockRunningSince ?? null)
+  const [running, setRunning] = useState(() => (initial?.clockRunningSince ?? null) != null)
   const [selected, setSelected] = useState<Selected>(null)
   // Bottom tab bar — replaces the old side panel entirely. Wedstrijd is the
   // default/home tab (the full pitch); Bank/Score/Tactiek/Media are each a
@@ -3206,9 +3224,13 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameSec])
 
+  // Flushed immediately (not debounced) on *either* transition — starting
+  // the clock is exactly the moment a phone is most likely to get locked
+  // or pocketed a second later, so clockRunningSince needs to reach the
+  // server right away, not after the usual 600ms debounce.
   const prevRunningRef = useRef(running)
   useEffect(() => {
-    if (prevRunningRef.current && !running) scheduleSave()
+    if (prevRunningRef.current !== running) flushSave()
     prevRunningRef.current = running
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running])
@@ -3259,6 +3281,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
     if (!confirm('Weet u zeker dat u de wedstrijd wilt resetten?')) return
     const freshBoardId = uid()
     setRunning(false)
+    setClockRunningSince(null)
     setSlots(normalizeSlots(undefined, ageGroup, activeVariant))
     setBench(squad.map(p => ({ playerId: p.id, sinceGameSec: 0 })))
     setSubs([])
@@ -3299,6 +3322,18 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   // meant a perfectly normal few-minutes-backgrounded gap during a real
   // match would silently stop the clock — worse than the overcounting
   // risk it was guarding against.
+  //
+  // Backgrounding-while-mounted is only half of it, though: a locked phone
+  // often gets its tab fully discarded by the OS to save memory (common on
+  // mobile Safari especially), and navigating away and back does the same
+  // — both tear GameView down and rebuild it from scratch, which would
+  // reset `running` to whatever its initial value is and lose all of this
+  // effect's in-memory state. Seeding `lastTickRef` from the *persisted*
+  // clockRunningSince (rather than always Date.now()) means the very
+  // first tick after any such remount — not just after a background/
+  // foreground cycle — measures the real gap since the clock was last
+  // known to be running and catches up in one jump, exactly like the
+  // visibilitychange case already did.
   const lastTickRef = useRef<number | null>(null)
   useEffect(() => {
     if (!running) { if (intervalRef.current) clearInterval(intervalRef.current); return }
@@ -3317,7 +3352,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
         return next
       })
     }
-    lastTickRef.current = Date.now()
+    lastTickRef.current = clockRunningSince ?? Date.now()
+    tick()
     intervalRef.current = setInterval(tick, 1000)
     const onWake = () => { if (document.visibilityState === 'visible') tick() }
     document.addEventListener('visibilitychange', onWake)
@@ -3327,7 +3363,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
       document.removeEventListener('visibilitychange', onWake)
       window.removeEventListener('focus', onWake)
     }
-  }, [running])
+  }, [running, clockRunningSince])
 
   const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
 
@@ -3789,6 +3825,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
     scoreOwn, scoreOpp,
     finalTime: gameSec,
     currentPeriod, periodStartSec,
+    clockRunningSince,
     ownerId: initial?.ownerId ?? user!.id,
     permission: initial?.permission ?? 'owner',
   })
@@ -3897,17 +3934,29 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                   </span>
                 )}
                 {!readOnly && (
-                  <button onClick={() => {
-                    setRunning(r => {
-                      if (!r) triggerFlash('▶️', currentPeriod === 1 && gameSec === 0 ? 'Wedstrijd gestart' : 'Hervat', 'var(--brand-0d2b7a)')
-                      return !r
-                    })
-                  }}
-                    className="flex items-center gap-1.5 rounded-lg text-xs font-bold px-3 py-1 shrink-0"
-                    style={{ background: running ? '#D97706' : '#16A34A', color: '#fff' }}>
-                    {running ? <IconPause size={14} /> : <IconPlay size={14} />}
-                    {running ? 'Pauzeer' : 'Start'}
-                  </button>
+                  <>
+                    <button onClick={() => {
+                      if (running) return
+                      setClockRunningSince(Date.now())
+                      setRunning(true)
+                      triggerFlash('▶️', currentPeriod === 1 && gameSec === 0 ? 'Wedstrijd gestart' : 'Hervat', 'var(--brand-0d2b7a)')
+                    }}
+                      disabled={running}
+                      className="flex items-center gap-1.5 rounded-lg text-xs font-bold px-3 py-1 shrink-0 disabled:opacity-40"
+                      style={{ background: '#16A34A', color: '#fff' }}>
+                      <IconPlay size={14} /> Start
+                    </button>
+                    <button onClick={() => {
+                      if (!running) return
+                      setClockRunningSince(null)
+                      setRunning(false)
+                    }}
+                      disabled={!running}
+                      className="flex items-center gap-1.5 rounded-lg text-xs font-bold px-3 py-1 shrink-0 disabled:opacity-40"
+                      style={{ background: '#D97706', color: '#fff' }}>
+                      <IconPause size={14} /> Stop
+                    </button>
+                  </>
                 )}
                 {!readOnly && (
                   <button onClick={herstel} disabled={historyLen === 0}
