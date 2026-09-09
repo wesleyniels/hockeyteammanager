@@ -7479,8 +7479,34 @@ function BottomBar({ view, user, unreadMessages, onMessages, onOpenHistory, onHo
     </button>
   )
 
+  // This is the only `position: fixed` element in the app, and iOS Safari
+  // has a long-standing bug where a fixed element left backgrounded for a
+  // while (screen locked, app switched away from) comes back mispositioned
+  // or effectively invisible until something forces a fresh layout — which
+  // is exactly why a hard refresh "fixes" it. `translateZ(0)` pins it to
+  // its own compositing layer, the standard mitigation; the visibility
+  // listener is a second line of defense that forces a synchronous reflow
+  // the moment the tab is looked at again, in case the layer hint alone
+  // isn't enough on a given iOS version.
+  const barRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const nudge = () => {
+      if (document.visibilityState !== 'visible' || !barRef.current) return
+      const el = barRef.current
+      el.style.display = 'none'
+      void el.offsetHeight
+      el.style.display = ''
+    }
+    document.addEventListener('visibilitychange', nudge)
+    window.addEventListener('pageshow', nudge)
+    return () => {
+      document.removeEventListener('visibilitychange', nudge)
+      window.removeEventListener('pageshow', nudge)
+    }
+  }, [])
+
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-30 shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
+    <div ref={barRef} className="fixed bottom-0 left-0 right-0 z-30 shadow-lg" style={{ background: 'var(--brand-0d2b7a)', transform: 'translateZ(0)' }}>
       <div className="max-w-2xl mx-auto grid grid-cols-5">
         {tab(view === 'home', onHome, <IconHome size={20} />, 'Thuis')}
         {tab(view === 'history', onOpenHistory, <IconCalendar size={20} />, 'Wedstrijden')}
