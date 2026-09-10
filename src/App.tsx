@@ -18,6 +18,11 @@ interface Player {
   // team_players DB row — see fetchTeamRoster(). Not persisted directly;
   // re-resolved whenever a team is (re)loaded.
   photoUrl?: string
+  // Set when this player was pulled in from another team's roster for this
+  // match specifically (see GameView's "Speler toevoegen" — KNHB play-up
+  // rules allow borrowing from one age group up or down). Undefined for a
+  // squad's own players and for manually-typed names, same as those.
+  borrowedFromTeam?: string
 }
 
 interface PositionSlot {
@@ -338,6 +343,23 @@ function ageGroupFromTeamName(team: string): AgeGroup {
   const m = team.match(/^[MJ]O(\d+)/i)
   const candidate = m ? (`U${m[1]}` as AgeGroup) : null
   return candidate && candidate in AGE_CONFIG ? candidate : 'U7'
+}
+
+// KNHB play-up/play-down rules let a team borrow a player from one age
+// group up or one down — but "one age group" means the club's actual next
+// category, not a raw ±1 on the number: there's no U13/U15/U17 team to
+// borrow from, so e.g. U12's neighbors are U11 and U14, not U11/U13. Walks
+// the same ordered categories AGE_CONFIG covers (Senioren excluded — its
+// "S1/S2" numbering is squad strength, not age, so "one up/down" has no
+// equivalent meaning there).
+const YOUTH_AGE_NUMBERS = [7, 8, 9, 10, 11, 12, 14, 16, 18]
+function adjacentAgeTeamNumbers(team: string): { gender: 'M' | 'J'; numbers: number[] } | null {
+  const m = team.match(/^([MJ])O(\d+)/i)
+  if (!m) return null
+  const idx = YOUTH_AGE_NUMBERS.indexOf(parseInt(m[2], 10))
+  if (idx === -1) return null
+  const numbers = [YOUTH_AGE_NUMBERS[idx - 1], YOUTH_AGE_NUMBERS[idx + 1]].filter((n): n is number => n != null)
+  return { gender: m[1].toUpperCase() as 'M' | 'J', numbers }
 }
 
 // Generic age/gender categories (no specific team, no real roster) shown to
@@ -2992,7 +3014,7 @@ function reassignSlotsForVariant(oldSlots: PositionSlot[], ageGroup: AgeGroup, v
   return { slots, benched }
 }
 
-function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initial, user, onSave, onBack }: GameParams & {
+function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, date, initial, user, onSave, onBack }: GameParams & {
   initial?: SavedGame
   user: AuthUser | null
   onSave: (g: SavedGame) => void
@@ -3009,6 +3031,12 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   // of updating the same one.
   const [gameId] = useState(() => initial?.id ?? uid())
   const [gameDate] = useState(() => initial?.date ?? date ?? todayStr())
+  // Mutable so a coach can add a late arrival or a borrowed player (see
+  // "Speler toevoegen" in the Bank tab) once the match is already under
+  // way — `squadProp` is only ever the starting point (freshly built in
+  // SetupView for a new match, or the already-saved squad when reopening
+  // one startEdit set up to match).
+  const [squad, setSquad] = useState<Player[]>(() => squadProp)
 
   const formationVariants = getFormationVariants(ageGroup)
   const [variantId, setVariantId] = useState(() => findVariantForSlots(ageGroup, initial?.slots).id)
@@ -3038,6 +3066,58 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
     if (readOnly) return
     setUnavailableIds(ids => ids.includes(playerId) ? ids.filter(id => id !== playerId) : [...ids, playerId])
   }
+
+  // "Speler toevoegen" (Bank tab) — a squad built before the match started
+  // can still be missing someone: a late arrival (added by name, same as
+  // SetupView's own manual-add), or a player borrowed from an adjacent age
+  // group under KNHB's play-up/play-down rule (adjacentAgeTeamNumbers finds
+  // which real team names that covers; empty for Senioren, whose "S1/S2"
+  // numbering isn't an age ladder).
+  const [showAddPlayer, setShowAddPlayer] = useState(false)
+  const [newPlayerName, setNewPlayerName] = useState('')
+  const [borrowTeams, setBorrowTeams] = useState<string[]>([])
+  const [borrowTeam, setBorrowTeam] = useState('')
+  const [borrowRoster, setBorrowRoster] = useState<RosterPlayer[] | null>(null)
+  const [loadingBorrowRoster, setLoadingBorrowRoster] = useState(false)
+
+  useEffect(() => {
+    const adjacent = adjacentAgeTeamNumbers(team)
+    if (!adjacent) { setBorrowTeams([]); return }
+    let cancelled = false
+    fetchTeamNames().then(names => {
+      if (cancelled) return
+      const pattern = new RegExp(`^${adjacent.gender}O(?:${adjacent.numbers.join('|')})(?:[^0-9]|$)`, 'i')
+      setBorrowTeams(names.filter(n => pattern.test(n)).sort())
+    })
+    return () => { cancelled = true }
+  }, [team])
+
+  useEffect(() => {
+    if (!borrowTeam) { setBorrowRoster(null); return }
+    let cancelled = false
+    setLoadingBorrowRoster(true)
+    fetchTeamRoster(borrowTeam).then(players => {
+      if (!cancelled) { setBorrowRoster(players); setLoadingBorrowRoster(false) }
+    })
+    return () => { cancelled = true }
+  }, [borrowTeam])
+
+  const addPlayerToSquad = (p: Player) => {
+    setSquad(s => [...s, p])
+    setBench(b => [...b, { playerId: p.id, sinceGameSec: gameSec }])
+    showToast(`${p.name}${p.borrowedFromTeam ? ` (${p.borrowedFromTeam})` : ''} toegevoegd aan de selectie`)
+  }
+  const addManualPlayer = () => {
+    const name = newPlayerName.trim()
+    if (readOnly || !name) return
+    addPlayerToSquad({ id: uid(), name })
+    setNewPlayerName('')
+  }
+  const addBorrowedPlayer = (rp: RosterPlayer) => {
+    if (readOnly || !borrowTeam) return
+    addPlayerToSquad({ id: uid(), name: rp.name, photoUrl: rp.photoUrl ?? undefined, borrowedFromTeam: borrowTeam })
+  }
+
   const [captainId, setCaptainId] = useState<string | null>(() => initial?.captainId ?? null)
   // A brand-new board starts seeded with whoever's currently on the field
   // (their live slot positions) instead of blank — without this, the tactics
@@ -3173,7 +3253,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
   // change pushes the state *before* that change onto a stack; Herstel pops
   // and restores it, one click per change, all the way back to the state
   // the match started in.
-  const tracked = { slots, bench, subs, oppMarkers, goals, cards, unavailableIds, captainId, tacticsBoards, notes, scoreOwn, scoreOpp, currentPeriod, periodStartSec }
+  const tracked = { squad, slots, bench, subs, oppMarkers, goals, cards, unavailableIds, captainId, tacticsBoards, notes, scoreOwn, scoreOpp, currentPeriod, periodStartSec }
   const historyRef = useRef<(typeof tracked)[]>([])
   const lastTrackedRef = useRef(tracked)
   const isFirstTrackRef = useRef(true)
@@ -3202,7 +3282,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
     lastTrackedRef.current = tracked
     scheduleSave()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slots, bench, subs, oppMarkers, goals, cards, unavailableIds, captainId, tacticsBoards, notes, scoreOwn, scoreOpp, currentPeriod, periodStartSec])
+  }, [squad, slots, bench, subs, oppMarkers, goals, cards, unavailableIds, captainId, tacticsBoards, notes, scoreOwn, scoreOpp, currentPeriod, periodStartSec])
 
   const isFirstMediaRef = useRef(true)
   useEffect(() => {
@@ -3241,6 +3321,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
     if (!prev) return
     setHistoryLen(historyRef.current.length)
     restoringRef.current = true
+    setSquad(prev.squad)
     setSlots(prev.slots)
     setBench(prev.bench)
     setSubs(prev.subs)
@@ -4175,7 +4256,10 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                               title={`${penaltyCard.color === 'green' ? 'Groene' : 'Gele'} kaart — strafbank`} />
                           )}
                         </div>
-                        <span className="text-xs font-semibold truncate w-full text-center" style={{ color: 'var(--brand-1a2f6b)' }}>{firstName(player.name)}</span>
+                        <span className="text-xs font-semibold truncate w-full text-center" style={{ color: 'var(--brand-1a2f6b)' }}>
+                          {firstName(player.name)}
+                          {player.borrowedFromTeam && <span title={`Geleend van ${player.borrowedFromTeam}`}> ↗</span>}
+                        </span>
                         {isUnavailable ? (
                           <span className="text-[10px] font-bold" style={{ color: '#6B7280' }}>Afwezig</span>
                         ) : penaltyCard && penaltyRemaining != null ? (
@@ -4202,6 +4286,67 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                 </>
               )}
             </div>
+
+            {!readOnly && (
+              <div className="mt-5 pt-3 mx-auto" style={{ maxWidth: '420px', borderTop: '1px solid var(--brand-e8effd)' }}>
+                <button onClick={() => setShowAddPlayer(s => !s)}
+                  className="flex items-center gap-1.5 text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
+                  <span style={{ fontSize: '14px', lineHeight: 1 }}>{showAddPlayer ? '−' : '+'}</span> Speler toevoegen
+                </button>
+                {showAddPlayer && (
+                  <div className="mt-2.5 space-y-3">
+                    <div>
+                      <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>Handmatig</label>
+                      <div className="flex gap-2">
+                        <input value={newPlayerName} onChange={e => setNewPlayerName(e.target.value)}
+                          placeholder="Naam speler" onKeyDown={e => e.key === 'Enter' && addManualPlayer()}
+                          className="flex-1 rounded-xl px-3 py-2 text-sm" style={{ border: '1.5px solid var(--brand-d0dcfa)', background: '#fff', outline: 'none' }} />
+                        <button onClick={addManualPlayer} disabled={!newPlayerName.trim()}
+                          className="px-4 rounded-xl font-bold text-white text-lg shrink-0 disabled:opacity-50" style={{ background: 'var(--brand-1a3fab)' }}>
+                          +
+                        </button>
+                      </div>
+                    </div>
+                    {borrowTeams.length > 0 && (
+                      <div>
+                        <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>
+                          Van ander team (1 leeftijdsgroep hoger/lager)
+                        </label>
+                        <select value={borrowTeam} onChange={e => setBorrowTeam(e.target.value)}
+                          className="w-full rounded-xl px-3 py-2 text-sm mb-2"
+                          style={{ border: '1.5px solid var(--brand-d0dcfa)', background: '#fff', color: borrowTeam ? 'var(--brand-1a2f6b)' : 'var(--brand-7b90c8)', outline: 'none' }}>
+                          <option value="">Kies team…</option>
+                          {borrowTeams.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                        {borrowTeam && (
+                          loadingBorrowRoster ? (
+                            <Spinner />
+                          ) : borrowRoster && borrowRoster.length > 0 ? (
+                            <div className="space-y-1.5">
+                              {borrowRoster.map(rp => {
+                                const alreadyAdded = squad.some(p => p.borrowedFromTeam === borrowTeam && p.name === rp.name)
+                                return (
+                                  <div key={rp.id} className="flex items-center justify-between rounded-lg px-2.5 py-1.5"
+                                    style={{ background: 'var(--brand-f8faff)' }}>
+                                    <span className="text-sm font-semibold" style={{ color: 'var(--brand-1a2f6b)' }}>{rp.name}</span>
+                                    <button onClick={() => addBorrowedPlayer(rp)} disabled={alreadyAdded}
+                                      className="text-xs font-bold px-3 py-1 rounded-lg text-white shrink-0 disabled:opacity-40" style={{ background: 'var(--brand-1a3fab)' }}>
+                                      {alreadyAdded ? 'Toegevoegd' : '+ Toevoegen'}
+                                    </button>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-center py-3" style={{ color: 'var(--brand-a8bef0)' }}>Geen spelers gevonden voor dit team</p>
+                          )
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="mt-5 pt-3 mx-auto" style={{ maxWidth: '420px', borderTop: '1px solid var(--brand-e8effd)' }}>
               <span className="text-xs font-bold uppercase" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.08em' }}>
@@ -4245,6 +4390,9 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad, date, initi
                       <span style={{ color: 'var(--brand-1a2f6b)' }}>
                         {onField && <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5" style={{ background: '#16A34A' }} />}
                         {p.number ? `#${p.number} ` : ''}{p.name}
+                        {p.borrowedFromTeam && (
+                          <span className="text-xs font-semibold ml-1" style={{ color: 'var(--brand-a8bef0)' }}>({p.borrowedFromTeam})</span>
+                        )}
                       </span>
                       <span className="font-mono font-bold" style={{ color: 'var(--brand-3b5299)' }}>{fmtSec(playedSeconds[p.id] ?? 0)}</span>
                     </div>
