@@ -7479,34 +7479,19 @@ function BottomBar({ view, user, unreadMessages, onMessages, onOpenHistory, onHo
     </button>
   )
 
-  // This is the only `position: fixed` element in the app, and iOS Safari
-  // has a long-standing bug where a fixed element left backgrounded for a
-  // while (screen locked, app switched away from) comes back mispositioned
-  // or effectively invisible until something forces a fresh layout — which
-  // is exactly why a hard refresh "fixes" it. `translateZ(0)` pins it to
-  // its own compositing layer, the standard mitigation; the visibility
-  // listener is a second line of defense that forces a synchronous reflow
-  // the moment the tab is looked at again, in case the layer hint alone
-  // isn't enough on a given iOS version.
-  const barRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const nudge = () => {
-      if (document.visibilityState !== 'visible' || !barRef.current) return
-      const el = barRef.current
-      el.style.display = 'none'
-      void el.offsetHeight
-      el.style.display = ''
-    }
-    document.addEventListener('visibilitychange', nudge)
-    window.addEventListener('pageshow', nudge)
-    return () => {
-      document.removeEventListener('visibilitychange', nudge)
-      window.removeEventListener('pageshow', nudge)
-    }
-  }, [])
-
+  // Deliberately NOT `position: fixed` — a previous version was, made it
+  // the only fixed-position element in the app, and iOS Safari has a
+  // long-standing bug where a fixed element left backgrounded for a while
+  // (screen locked, app switched away from) comes back mispositioned or
+  // effectively invisible until something forces a fresh layout, which is
+  // exactly why a hard refresh "fixed" it. A compositing-layer hint plus a
+  // visibility-triggered reflow nudge didn't stop it recurring. Rendering
+  // it as a normal in-flow flex child instead (see withBottomBar, which
+  // makes the page a column with this as its last, non-scrolling item)
+  // removes fixed positioning — and this whole category of bug — entirely
+  // rather than trying to patch around whichever exact iOS quirk it was.
   return (
-    <div ref={barRef} className="fixed bottom-0 left-0 right-0 z-30 shadow-lg" style={{ background: 'var(--brand-0d2b7a)', transform: 'translateZ(0)' }}>
+    <div className="shrink-0 shadow-lg" style={{ background: 'var(--brand-0d2b7a)' }}>
       <div className="max-w-2xl mx-auto grid grid-cols-5">
         {tab(view === 'home', onHome, <IconHome size={20} />, 'Thuis')}
         {tab(view === 'history', onOpenHistory, <IconCalendar size={20} />, 'Wedstrijden')}
@@ -7858,29 +7843,37 @@ export default function App() {
   }, [user?.defaultTeam, followableTeams.join('|')])
 
   // The live match view (GameView) gets the full screen to itself — every
-  // other view gets the bar, plus a same-height spacer so the last bit of
-  // real content never sits behind the fixed bar.
+  // other view gets the bar.
+  //
+  // The bar itself is a normal in-flow flex child, not `position: fixed`
+  // overlaid on an independently-scrolling page — see BottomBar's comment
+  // for why. That means THIS wrapper has to be the one true scroll
+  // container: a column exactly `100dvh` tall, with the view's own content
+  // scrolling in the middle and the bar as a final, never-scrolled item.
+  // Each view keeps its own `min-h-screen` root div (harmless here — it
+  // just means short content still fills the scoll area's background),
+  // but no longer needs a manual spacer to avoid sitting behind the bar,
+  // since there's nothing left to overlay.
   const showBottomBar = !!user && view !== 'game'
   const withBottomBar = (content: React.ReactNode) => (
-    <>
-      {content}
+    <div className="flex flex-col" style={{ height: '100dvh' }}>
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {content}
+      </div>
       <ToastHost />
       {showBottomBar && (
-        <>
-          <div style={{ height: 64 }} />
-          <BottomBar
-            view={view}
-            user={user!}
-            unreadMessages={notif.unreadMessages}
-            onMessages={() => setView('messages')}
-            onOpenHistory={() => setView('history')}
-            onHome={() => setView('home')}
-            onProfile={() => setView('profile')}
-            onTeam={() => setView('team')}
-          />
-        </>
+        <BottomBar
+          view={view}
+          user={user!}
+          unreadMessages={notif.unreadMessages}
+          onMessages={() => setView('messages')}
+          onOpenHistory={() => setView('history')}
+          onHome={() => setView('home')}
+          onProfile={() => setView('profile')}
+          onTeam={() => setView('team')}
+        />
       )}
-    </>
+    </div>
   )
 
   // Recolors the app to the selected club's logo — see applyClubTheme/
