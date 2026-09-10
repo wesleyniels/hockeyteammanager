@@ -4021,13 +4021,17 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
                   <>
                     <button onClick={() => {
                       if (running) return
+                      if (slots.some(s => !s.playerId)) {
+                        triggerFlash('⚠️', 'Vul eerst alle posities op het veld', '#D97706')
+                        return
+                      }
                       setClockRunningSince(Date.now())
                       setRunning(true)
                       triggerFlash('▶️', currentPeriod === 1 && gameSec === 0 ? 'Wedstrijd gestart' : 'Hervat', 'var(--brand-0d2b7a)')
                     }}
                       disabled={running}
                       className="flex items-center gap-1.5 rounded-lg text-xs font-bold px-3 py-1 shrink-0 disabled:opacity-40"
-                      style={{ background: '#16A34A', color: '#fff' }}>
+                      style={{ background: !running && slots.some(s => !s.playerId) ? 'var(--brand-b8c8f0)' : '#16A34A', color: '#fff' }}>
                       <IconPlay size={14} /> Start
                     </button>
                     <button onClick={() => {
