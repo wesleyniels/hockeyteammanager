@@ -17,7 +17,7 @@
     "@vercel/blob": "^2.6.1",
     "google-auth-library": "^11.0.0",
     "jsonwebtoken": "^9.0.3",
-    "nodemailer": "^9.0.5",
+    "nodemailer": "^9.1.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
