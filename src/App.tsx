@@ -345,20 +345,22 @@ function ageGroupFromTeamName(team: string): AgeGroup {
   return candidate && candidate in AGE_CONFIG ? candidate : 'U7'
 }
 
-// KNHB play-up/play-down rules let a team borrow a player from one age
-// group up or one down — but "one age group" means the club's actual next
-// category, not a raw ±1 on the number: there's no U13/U15/U17 team to
-// borrow from, so e.g. U12's neighbors are U11 and U14, not U11/U13. Walks
-// the same ordered categories AGE_CONFIG covers (Senioren excluded — its
-// "S1/S2" numbering is squad strength, not age, so "one up/down" has no
-// equivalent meaning there).
+// A team can borrow a player from another team of the same age (e.g.
+// MO11-Wit from MO11-Blauw) freely, or — under KNHB's play-up/play-down
+// rule — from one age group up or one down. "One age group" means the
+// club's actual next category, not a raw ±1 on the number: there's no
+// U13/U15/U17 team to borrow from, so e.g. U12's neighbors are U11 and
+// U14, not U11/U13. Walks the same ordered categories AGE_CONFIG covers
+// (Senioren excluded — its "S1/S2" numbering is squad strength, not age,
+// so "one up/down" has no equivalent meaning there).
 const YOUTH_AGE_NUMBERS = [7, 8, 9, 10, 11, 12, 14, 16, 18]
-function adjacentAgeTeamNumbers(team: string): { gender: 'M' | 'J'; numbers: number[] } | null {
+function borrowEligibleTeamNumbers(team: string): { gender: 'M' | 'J'; numbers: number[] } | null {
   const m = team.match(/^([MJ])O(\d+)/i)
   if (!m) return null
-  const idx = YOUTH_AGE_NUMBERS.indexOf(parseInt(m[2], 10))
+  const current = parseInt(m[2], 10)
+  const idx = YOUTH_AGE_NUMBERS.indexOf(current)
   if (idx === -1) return null
-  const numbers = [YOUTH_AGE_NUMBERS[idx - 1], YOUTH_AGE_NUMBERS[idx + 1]].filter((n): n is number => n != null)
+  const numbers = [YOUTH_AGE_NUMBERS[idx - 1], current, YOUTH_AGE_NUMBERS[idx + 1]].filter((n): n is number => n != null)
   return { gender: m[1].toUpperCase() as 'M' | 'J', numbers }
 }
 
@@ -3069,8 +3071,9 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
 
   // "Speler toevoegen" (Bank tab) — a squad built before the match started
   // can still be missing someone: a late arrival (added by name, same as
-  // SetupView's own manual-add), or a player borrowed from an adjacent age
-  // group under KNHB's play-up/play-down rule (adjacentAgeTeamNumbers finds
+  // SetupView's own manual-add), or a player borrowed from another team of
+  // the same age (e.g. MO11-Wit from MO11-Blauw) or one age group up/down
+  // under KNHB's play-up/play-down rule (borrowEligibleTeamNumbers finds
   // which real team names that covers; empty for Senioren, whose "S1/S2"
   // numbering isn't an age ladder).
   const [showAddPlayer, setShowAddPlayer] = useState(false)
@@ -3081,13 +3084,13 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
   const [loadingBorrowRoster, setLoadingBorrowRoster] = useState(false)
 
   useEffect(() => {
-    const adjacent = adjacentAgeTeamNumbers(team)
-    if (!adjacent) { setBorrowTeams([]); return }
+    const eligible = borrowEligibleTeamNumbers(team)
+    if (!eligible) { setBorrowTeams([]); return }
     let cancelled = false
     fetchTeamNames().then(names => {
       if (cancelled) return
-      const pattern = new RegExp(`^${adjacent.gender}O(?:${adjacent.numbers.join('|')})(?:[^0-9]|$)`, 'i')
-      setBorrowTeams(names.filter(n => pattern.test(n)).sort())
+      const pattern = new RegExp(`^${eligible.gender}O(?:${eligible.numbers.join('|')})(?:[^0-9]|$)`, 'i')
+      setBorrowTeams(names.filter(n => pattern.test(n) && n.toLowerCase() !== team.toLowerCase()).sort())
     })
     return () => { cancelled = true }
   }, [team])
@@ -4310,7 +4313,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
                     {borrowTeams.length > 0 && (
                       <div>
                         <label className="block text-xs font-bold uppercase mb-1" style={{ color: 'var(--brand-7b90c8)', letterSpacing: '0.1em' }}>
-                          Van ander team (1 leeftijdsgroep hoger/lager)
+                          Van ander team (zelfde leeftijd, of 1 groep hoger/lager)
                         </label>
                         <select value={borrowTeam} onChange={e => setBorrowTeam(e.target.value)}
                           className="w-full rounded-xl px-3 py-2 text-sm mb-2"
