@@ -3915,7 +3915,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
   })
 
   return (
-    <div className="flex flex-col" style={{ height: '100dvh', background: 'var(--brand-eef3ff)' }}
+    <div className="flex flex-col" style={{ height: '100svh', background: 'var(--brand-eef3ff)' }}
       onClick={() => setSelected(null)}>
 
       {flash && (
@@ -7582,8 +7582,15 @@ function SplashScreen({ onContinue }: { onContinue: () => void }) {
     return () => cancelAnimationFrame(raf)
   }, [])
 
+  // Not `position: fixed` (this used to be `fixed inset-0`) — the same
+  // iOS WebKit bug that made the bottom bar disappear can leave a fixed
+  // full-screen overlay not actually covering the full screen either,
+  // showing a strip of the plain body background underneath it. This is
+  // the very first thing rendered on a cold load, so it's a plain sized
+  // div in normal document flow instead — see withBottomBar's comment for
+  // why `100svh` specifically, not `100dvh`.
   return (
-    <div className="fixed inset-0 flex flex-col items-center justify-center gap-8" style={{ background: '#000' }}>
+    <div className="flex flex-col items-center justify-center gap-8" style={{ height: '100svh', background: '#000' }}>
       <img src="/hockey-one-splash.png" alt="Hockey One"
         className="w-full max-w-xs px-10"
         style={{ opacity: visible ? 1 : 0, transition: 'opacity 0.4s ease-out' }} />
@@ -8003,15 +8010,25 @@ export default function App() {
   // The bar itself is a normal in-flow flex child, not `position: fixed`
   // overlaid on an independently-scrolling page — see BottomBar's comment
   // for why. That means THIS wrapper has to be the one true scroll
-  // container: a column exactly `100dvh` tall, with the view's own content
+  // container: a column exactly `100svh` tall, with the view's own content
   // scrolling in the middle and the bar as a final, never-scrolled item.
+  // Deliberately `svh` (the viewport height with the browser's chrome
+  // fully expanded — the smallest it gets), not `dvh`: `dvh` recalculates
+  // live as the address bar shows/hides while scrolling, which made this
+  // column's height a moving target mid-scroll and left the bar (its last,
+  // bottom-anchored item) intermittently clipped below the visible area or
+  // showing a gap of bare body background beneath it, depending on exactly
+  // when the browser's toolbar animation and the resize landed relative to
+  // each other. `svh` trades the sliver of extra space that appears once
+  // the toolbar auto-hides for a height that never moves underneath the
+  // layout, which is what actually stopped the bar disappearing.
   // Each view keeps its own `min-h-screen` root div (harmless here — it
   // just means short content still fills the scoll area's background),
   // but no longer needs a manual spacer to avoid sitting behind the bar,
   // since there's nothing left to overlay.
   const showBottomBar = !!user && view !== 'game'
   const withBottomBar = (content: React.ReactNode) => (
-    <div className="flex flex-col" style={{ height: '100dvh' }}>
+    <div className="flex flex-col" style={{ height: '100svh' }}>
       <div className="flex-1 min-h-0 overflow-y-auto">
         {content}
       </div>
