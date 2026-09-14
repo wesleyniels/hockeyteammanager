@@ -3146,6 +3146,11 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
   const [scoreOwn, setScoreOwn] = useState(initial?.scoreOwn ?? 0)
   const [scoreOpp, setScoreOpp] = useState(initial?.scoreOpp ?? 0)
   const [gameSec, setGameSec] = useState(initial?.finalTime ?? 0)
+  // Read inside the tick effect below, whose closure can't see later
+  // `gameSec` updates without re-subscribing the whole interval — kept in
+  // sync on every render instead, same pattern as `slotsRef` further down.
+  const gameSecRef = useRef(gameSec)
+  gameSecRef.current = gameSec
   // Green/yellow are a timed penalty (2/5 min) rather than permanent — this
   // recomputes every render off `gameSec`, so a player is automatically
   // free to sub back in the moment their time expires, no separate
@@ -3418,15 +3423,27 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
   // foreground cycle — measures the real gap since the clock was last
   // known to be running and catches up in one jump, exactly like the
   // visibilitychange case already did.
+  //
+  // Never pausing itself doesn't mean never bounded, though: a match has a
+  // real maximum length (periods × periodSec — 70 minutes for U11's 4×17.5),
+  // and nobody can validly have played more than that. Without a cap here,
+  // forgetting to press Stop after the final whistle (or a very long
+  // background gap landing after it) would otherwise inflate finalTime and
+  // every on-field player's played time arbitrarily far past a real match's
+  // length — this only ever clamps how much of a tick's elapsed time gets
+  // *added*, it never touches `running` itself.
+  const maxGameSec = totalPeriods * periodSec
   const lastTickRef = useRef<number | null>(null)
   useEffect(() => {
     if (!running) { if (intervalRef.current) clearInterval(intervalRef.current); return }
     const tick = () => {
       const now = Date.now()
       const last = lastTickRef.current ?? now
-      const elapsed = Math.floor((now - last) / 1000)
+      const rawElapsed = Math.floor((now - last) / 1000)
+      if (rawElapsed <= 0) return
+      lastTickRef.current = last + rawElapsed * 1000
+      const elapsed = Math.max(0, Math.min(rawElapsed, maxGameSec - gameSecRef.current))
       if (elapsed <= 0) return
-      lastTickRef.current = last + elapsed * 1000
       setGameSec(s => s + elapsed)
       setPlayedSeconds(ps => {
         const onField = slotsRef.current.filter(s => s.playerId)
