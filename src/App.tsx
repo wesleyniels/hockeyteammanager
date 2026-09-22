@@ -3170,6 +3170,10 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
   const { periods: totalPeriods, periodSec } = AGE_CONFIG[ageGroup]
   const [currentPeriod, setCurrentPeriod] = useState(() => initial?.currentPeriod ?? 1)
   const [periodStartSec, setPeriodStartSec] = useState(() => initial?.periodStartSec ?? 0)
+  // Same reasoning as gameSecRef: the tick effect below needs the current
+  // period boundary without re-subscribing its interval every time it moves.
+  const periodStartSecRef = useRef(periodStartSec)
+  periodStartSecRef.current = periodStartSec
   const remainingInPeriod = Math.max(0, periodSec - (gameSec - periodStartSec))
   const periodLabel = totalPeriods === 2 ? 'Helft' : 'Kwart'
   const advancePeriod = () => {
@@ -3424,15 +3428,21 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
   // known to be running and catches up in one jump, exactly like the
   // visibilitychange case already did.
   //
-  // Never pausing itself doesn't mean never bounded, though: a match has a
-  // real maximum length (periods × periodSec — 70 minutes for U11's 4×17.5),
-  // and nobody can validly have played more than that. Without a cap here,
-  // forgetting to press Stop after the final whistle (or a very long
-  // background gap landing after it) would otherwise inflate finalTime and
-  // every on-field player's played time arbitrarily far past a real match's
-  // length — this only ever clamps how much of a tick's elapsed time gets
-  // *added*, it never touches `running` itself.
-  const maxGameSec = totalPeriods * periodSec
+  // Never pausing itself doesn't mean never bounded, though: nobody can
+  // validly play more than periodSec worth of time *within the current
+  // period* (17.5 min per kwart for U11, so 35 at most after kwart 2, 70
+  // after the final one) — capping only at the whole match's total wasn't
+  // enough, since forgetting to advance the period (or a background gap
+  // landing mid-period) let a single kwart's played time run past its own
+  // 17.5 minutes even while still under the match-wide cap. Capping at
+  // periodStartSec + periodSec instead ties the limit to whichever period
+  // is actually current, so counting auto-stops at each kwart boundary and
+  // only resumes once the coach advances to the next one (which moves
+  // periodStartSec forward and reopens a fresh periodSec allowance) — this
+  // naturally covers the final period too, since periodStartSec + periodSec
+  // there already equals the match's full length. Only clamps how much of
+  // a tick's elapsed time gets *added*, same as before — never touches
+  // `running` itself.
   const lastTickRef = useRef<number | null>(null)
   useEffect(() => {
     if (!running) { if (intervalRef.current) clearInterval(intervalRef.current); return }
@@ -3442,7 +3452,8 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
       const rawElapsed = Math.floor((now - last) / 1000)
       if (rawElapsed <= 0) return
       lastTickRef.current = last + rawElapsed * 1000
-      const elapsed = Math.max(0, Math.min(rawElapsed, maxGameSec - gameSecRef.current))
+      const periodCapGameSec = periodStartSecRef.current + periodSec
+      const elapsed = Math.max(0, Math.min(rawElapsed, periodCapGameSec - gameSecRef.current))
       if (elapsed <= 0) return
       setGameSec(s => s + elapsed)
       setPlayedSeconds(ps => {
