@@ -3590,7 +3590,10 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
     const outId = pos?.playerId ?? null
     setSlots(sl => sl.map(s => s.posId === posId ? { ...s, playerId: inId } : s))
     setBench(b => b.filter(e => e.playerId !== inId).concat(outId ? [{ playerId: outId, sinceGameSec: gameSec }] : []))
-    if (outId) {
+    // Swapping who's in a position before kickoff (gameSec still 0) is just
+    // picking the starting lineup, not a substitution — only log it (and
+    // flash "Wissel") once the clock has actually run.
+    if (outId && gameSec > 0) {
       setSubs(s => [...s, { gameTimeSec: gameSec, playerInId: inId, playerOutId: outId, posLabel: pos?.label ?? '' }])
       const inName = getPlayer(inId)?.name.split(' ')[0]
       const outName = getPlayer(outId)?.name.split(' ')[0]
