@@ -162,6 +162,12 @@ interface SavedGame {
   // which is correct for anything created locally before its first save.
   ownerId?: string
   permission?: 'owner' | 'edit' | 'view'
+  // Server-assigned, from the `games` row's `updated_at` — round-tripped on
+  // every save as the optimistic-concurrency guard (see PUT /api/games):
+  // the server only applies an update if this still matches what it has,
+  // so two sessions editing the same match can't silently overwrite each
+  // other. Absent for a game that's never been saved/fetched yet.
+  updatedAt?: string
 }
 
 interface GameParams {
@@ -3019,7 +3025,7 @@ function reassignSlotsForVariant(oldSlots: PositionSlot[], ageGroup: AgeGroup, v
 function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, date, initial, user, onSave, onBack }: GameParams & {
   initial?: SavedGame
   user: AuthUser | null
-  onSave: (g: SavedGame) => void
+  onSave: (g: SavedGame) => Promise<SaveResult>
   onBack: () => void
 }) {
   const isDual = ageGroup === 'U7' || ageGroup === 'U8'
@@ -3272,15 +3278,29 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
   const restoringRef = useRef(false)
   const [historyLen, setHistoryLen] = useState(0)
 
+  // The updatedAt this session believes the server currently has — sent on
+  // every save as the optimistic-concurrency guard (see PUT /api/games) and
+  // advanced after each one that actually lands. `saveConflict` latches on
+  // the first time the server reports someone else has saved this match in
+  // between (a real 409): further autosaves stop firing rather than
+  // repeatedly failing the same way, and the UI warns the coach to reload
+  // instead of continuing to make changes it can no longer persist.
+  const [knownUpdatedAt, setKnownUpdatedAt] = useState<string | undefined>(initial?.updatedAt)
+  const [saveConflict, setSaveConflict] = useState(false)
+  const doSave = async () => {
+    const result = await onSave(buildSnapshot())
+    if (result.ok) setKnownUpdatedAt(result.game.updatedAt)
+    else if (result.conflict) setSaveConflict(true)
+  }
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scheduleSave = () => {
-    if (readOnly || !user) return
+    if (readOnly || !user || saveConflict) return
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = setTimeout(() => onSave(buildSnapshot()), 600)
+    saveTimerRef.current = setTimeout(() => { void doSave() }, 600)
   }
   const flushSave = () => {
     if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
-    if (!readOnly && user) onSave(buildSnapshot())
+    if (!readOnly && user && !saveConflict) void doSave()
   }
 
   useEffect(() => {
@@ -3943,6 +3963,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
     clockRunningSince,
     ownerId: initial?.ownerId ?? user!.id,
     permission: initial?.permission ?? 'owner',
+    updatedAt: knownUpdatedAt,
   })
 
   return (
@@ -4014,6 +4035,18 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
           </div>
         )}
       </div>
+
+      {/* Shown once a save comes back with a conflict — another session has
+          written to this same match since this one last read it (see
+          PUT /api/games and doSave above). Stays up regardless of which tab
+          is open, since it's about the whole match, not whatever's on
+          screen right now — and autosaving has already stopped by this
+          point, so anything changed here from now on won't be kept. */}
+      {saveConflict && (
+        <div className="shrink-0 text-center text-xs font-bold px-3 py-2" style={{ background: '#FEF3C7', color: '#92400E' }}>
+          ⚠️ Deze wedstrijd is zojuist op een ander toestel opgeslagen. Herlaad de pagina om de laatste versie te zien — wijzigingen hierna worden niet meer bewaard.
+        </div>
+      )}
 
       {/* Body — back now lives in the header, so this is just the scrollable
           tab content (Wedstrijd's play/pause button sits beside the pitch). */}
@@ -7227,6 +7260,13 @@ function ResetPasswordView({ token, onSubmit, onDone }: {
 // Saved matches are private per account now, so this only fetches once a
 // session exists — logging out clears the list rather than erroring.
 
+// What a save attempt resolved to — GameView needs this (not just a fire-
+// and-forget call) to track the updatedAt it should send on its *next*
+// save (see doSave there), and to know when to stop autosaving and warn
+// the coach that another session has moved the match on (a real 409, not
+// a network hiccup, which retries instead — see updateGame below).
+type SaveResult = { ok: true; game: SavedGame } | { ok: false; conflict: boolean }
+
 // `teamKey` isn't read inside the effect — it's only here so switching teams
 // (which changes which Hockey-One fixtures the API returns, see games.ts)
 // re-runs the fetch instead of leaving the previous team's games on screen
@@ -7266,16 +7306,44 @@ function useRemoteGames(enabled: boolean, teamKey: string | null) {
     return () => { cancelled = true; clearTimeout(timer) }
   }, [enabled, teamKey])
 
-  const addGame = useCallback((g: SavedGame) => {
+  const addGame = useCallback((g: SavedGame): Promise<SaveResult> => {
     setGames(gs => [...gs, g])
-    fetch('/api/games', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(g) })
-      .catch(e => setError(e instanceof Error ? e.message : String(e)))
+    return fetch('/api/games', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(g) })
+      .then(async res => {
+        if (!res.ok) { setError(`POST /api/games: ${res.status}`); return { ok: false as const, conflict: false } }
+        const saved = await res.json() as SavedGame
+        setGames(gs => gs.map(x => x.id === saved.id ? saved : x))
+        return { ok: true as const, game: saved }
+      })
+      .catch(e => {
+        setError(e instanceof Error ? e.message : String(e))
+        return { ok: false as const, conflict: false }
+      })
   }, [])
 
-  const updateGame = useCallback((g: SavedGame) => {
+  const updateGame = useCallback((g: SavedGame): Promise<SaveResult> => {
     setGames(gs => gs.map(x => x.id === g.id ? g : x))
-    fetch('/api/games', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(g) })
-      .catch(e => setError(e instanceof Error ? e.message : String(e)))
+    return fetch('/api/games', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(g) })
+      .then(async res => {
+        if (res.status === 409) {
+          // Another session saved this match in between — the server left
+          // it untouched and handed back what it actually has now. Adopt
+          // that here too, so this session's own view of the match (and
+          // any other open view reading from `games`) reflects reality
+          // instead of the stale copy that just failed to save.
+          const fresh = await res.json().catch(() => null) as SavedGame | null
+          if (fresh) setGames(gs => gs.map(x => x.id === fresh.id ? fresh : x))
+          return { ok: false as const, conflict: true }
+        }
+        if (!res.ok) { setError(`PUT /api/games: ${res.status}`); return { ok: false as const, conflict: false } }
+        const saved = await res.json() as SavedGame
+        setGames(gs => gs.map(x => x.id === saved.id ? saved : x))
+        return { ok: true as const, game: saved }
+      })
+      .catch(e => {
+        setError(e instanceof Error ? e.message : String(e))
+        return { ok: false as const, conflict: false }
+      })
   }, [])
 
   const deleteGame = useCallback((id: string) => {
@@ -8229,7 +8297,7 @@ export default function App() {
         {...gameParams}
         initial={editingGame ?? undefined}
         user={user}
-        onSave={g => { if (games.some(x => x.id === g.id)) updateGame(g); else addGame(g) }}
+        onSave={g => (games.some(x => x.id === g.id) ? updateGame(g) : addGame(g))}
         onBack={() => { setEditingGame(null); setView('home') }}
       />
     )
