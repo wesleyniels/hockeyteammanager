@@ -29,7 +29,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const primaryRole = me[0]?.role ?? null
     const visibleTeams = [...new Set([defaultTeam, ...followedTeams.map(f => f.team)].filter((t): t is string => !!t))]
     const rows = await sql`
-      SELECT g.data, g.user_id AS owner_id, gs.permission AS share_permission
+      SELECT g.data, g.user_id AS owner_id, g.updated_at, gs.permission AS share_permission
       FROM games g
       LEFT JOIN game_shares gs ON gs.game_id = g.id AND gs.user_id = ${user.id}
       WHERE g.user_id = ${user.id}
@@ -82,7 +82,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!canSeeFullNames(teamRole, adminFlag) && Array.isArray(data.squad)) {
         data = { ...data, squad: data.squad.map((p: { name?: string }) => (p.name ? { ...p, name: initials(p.name) } : p)) }
       }
-      return { ...data, ownerId: r.owner_id, permission }
+      return { ...data, ownerId: r.owner_id, permission, updatedAt: new Date(r.updated_at).toISOString() }
     }))
     return
   }
@@ -91,8 +91,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const game = req.body
     if (!game?.id) { res.status(400).json({ error: 'Missing id' }); return }
     const safeGame = JSON.parse(JSON.stringify(game))
-    await sql`INSERT INTO games (id, data, user_id) VALUES (${safeGame.id}, ${JSON.stringify(safeGame)}::jsonb, ${user.id})`
-    res.status(201).json({ ...safeGame, ownerId: user.id, permission: 'owner' })
+    // Explicit millisecond truncation, here and on the PUT below — Postgres
+    // `now()` carries microsecond precision, but a JS Date (and the
+    // updatedAt string round-tripped through it) only ever has millisecond
+    // precision, so the untruncated column default would never exactly
+    // match what a client sends back, and the optimistic-concurrency guard
+    // on PUT would treat every save as a conflict with itself.
+    const rows = await sql`
+      INSERT INTO games (id, data, user_id, updated_at) VALUES (${safeGame.id}, ${JSON.stringify(safeGame)}::jsonb, ${user.id}, date_trunc('milliseconds', now()))
+      RETURNING updated_at
+    `
+    res.status(201).json({ ...safeGame, ownerId: user.id, permission: 'owner', updatedAt: new Date(rows[0].updated_at).toISOString() })
     return
   }
 
@@ -107,18 +116,56 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // hold that role for — their own default_team, or a followed team with
     // an elevated role — not just Hockey-One-owned fixtures (see the
     // matching GET branch above for the read-side rule this mirrors).
+    //
+    // `expectedUpdatedAt` guards against two sessions editing the same match
+    // at once — e.g. a phone left open on a match from before kickoff,
+    // still sitting there hours later while someone else has been recording
+    // the real score/played time on another device. Without this, the
+    // UPDATE below is a blind overwrite: whichever save lands last wins
+    // completely, silently erasing everything the other session wrote —
+    // this is how a whole match's score and played time can come back
+    // reset after the game. A client that sends its last-known updatedAt
+    // only succeeds if nobody else has saved in between; otherwise the row
+    // is left untouched and the client gets the current server data back
+    // with a 409 instead of clobbering it. Null (an older client, or a
+    // brand-new match's very first save) skips the guard.
+    const expectedUpdatedAt = typeof game.updatedAt === 'string' ? game.updatedAt : null
     const rows = await sql`
-      UPDATE games g SET data = ${JSON.stringify(game)}::jsonb, updated_at = now()
+      UPDATE games g SET data = ${JSON.stringify(game)}::jsonb, updated_at = date_trunc('milliseconds', now())
       WHERE g.id = ${game.id}
+        AND (${expectedUpdatedAt}::timestamptz IS NULL OR g.updated_at = ${expectedUpdatedAt}::timestamptz)
         AND (
           g.user_id = ${user.id}
           OR EXISTS (SELECT 1 FROM game_shares gs WHERE gs.game_id = g.id AND gs.user_id = ${user.id} AND gs.permission = 'edit')
           OR (${eligible} AND g.data->>'team' = ${game.team})
         )
-      RETURNING data, g.user_id AS owner_id
+      RETURNING data, g.user_id AS owner_id, g.updated_at
     `
-    if (rows.length === 0) { res.status(404).json({ error: 'Not found' }); return }
-    res.status(200).json({ ...rows[0].data, ownerId: rows[0].owner_id, permission: rows[0].owner_id === user.id ? 'owner' : 'edit' })
+    if (rows.length === 0) {
+      // Either genuinely not found/not permitted, or it exists but
+      // updated_at moved on since this client last read it — tell those
+      // two apart by re-running the same permission check without the
+      // guard, so a real 404 doesn't get reported as a conflict.
+      const check = await sql`
+        SELECT data, g.user_id AS owner_id, g.updated_at FROM games g
+        WHERE g.id = ${game.id}
+          AND (
+            g.user_id = ${user.id}
+            OR EXISTS (SELECT 1 FROM game_shares gs WHERE gs.game_id = g.id AND gs.user_id = ${user.id} AND gs.permission = 'edit')
+            OR (${eligible} AND g.data->>'team' = ${game.team})
+          )
+      `
+      if (check.length === 0) { res.status(404).json({ error: 'Not found' }); return }
+      res.status(409).json({
+        error: 'Conflict',
+        ...check[0].data,
+        ownerId: check[0].owner_id,
+        permission: check[0].owner_id === user.id ? 'owner' : 'edit',
+        updatedAt: new Date(check[0].updated_at).toISOString(),
+      })
+      return
+    }
+    res.status(200).json({ ...rows[0].data, ownerId: rows[0].owner_id, permission: rows[0].owner_id === user.id ? 'owner' : 'edit', updatedAt: new Date(rows[0].updated_at).toISOString() })
     return
   }
 
