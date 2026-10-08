@@ -133,7 +133,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const rows = await sql`
       UPDATE games g SET data = ${JSON.stringify(game)}::jsonb, updated_at = date_trunc('milliseconds', now())
       WHERE g.id = ${game.id}
-        AND (${expectedUpdatedAt}::timestamptz IS NULL OR g.updated_at = ${expectedUpdatedAt}::timestamptz)
+        -- Compared at millisecond precision: rows last written before the
+        -- date_trunc above still carry microseconds, which the client can
+        -- never echo back exactly, so a plain equality would make every
+        -- save to an older match a spurious conflict.
+        AND (${expectedUpdatedAt}::timestamptz IS NULL OR date_trunc('milliseconds', g.updated_at) = ${expectedUpdatedAt}::timestamptz)
         AND (
           g.user_id = ${user.id}
           OR EXISTS (SELECT 1 FROM game_shares gs WHERE gs.game_id = g.id AND gs.user_id = ${user.id} AND gs.permission = 'edit')
