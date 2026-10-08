@@ -3285,12 +3285,36 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
   // between (a real 409): further autosaves stop firing rather than
   // repeatedly failing the same way, and the UI warns the coach to reload
   // instead of continuing to make changes it can no longer persist.
-  const [knownUpdatedAt, setKnownUpdatedAt] = useState<string | undefined>(initial?.updatedAt)
+  //
+  // Saves are serialized: only one request is ever in flight per session.
+  // Two overlapping saves (a debounced one still pending on a slow network
+  // when the clock-start flush fires, say) would otherwise both carry the
+  // same updatedAt, the first would advance it, and the second would come
+  // back as a 409 — this session conflicting with *itself* and then
+  // silently dropping every later change. A save requested while one is in
+  // flight just marks `savePendingRef`, and runs once the first lands —
+  // with the fresh updatedAt and the latest state (hence the refs: the
+  // closures captured when the save started are stale by then).
+  const knownUpdatedAtRef = useRef<string | undefined>(initial?.updatedAt)
   const [saveConflict, setSaveConflict] = useState(false)
+  const savingRef = useRef(false)
+  const savePendingRef = useRef(false)
+  const buildSnapshotRef = useRef<() => SavedGame>(() => { throw new Error('buildSnapshot not ready') })
+  const onSaveRef = useRef(onSave)
+  onSaveRef.current = onSave
   const doSave = async () => {
-    const result = await onSave(buildSnapshot())
-    if (result.ok) setKnownUpdatedAt(result.game.updatedAt)
-    else if (result.conflict) setSaveConflict(true)
+    if (savingRef.current) { savePendingRef.current = true; return }
+    savingRef.current = true
+    try {
+      do {
+        savePendingRef.current = false
+        const result = await onSaveRef.current(buildSnapshotRef.current())
+        if (result.ok) knownUpdatedAtRef.current = result.game.updatedAt
+        else if (result.conflict) { setSaveConflict(true); return }
+      } while (savePendingRef.current)
+    } finally {
+      savingRef.current = false
+    }
   }
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scheduleSave = () => {
@@ -3963,8 +3987,9 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
     clockRunningSince,
     ownerId: initial?.ownerId ?? user!.id,
     permission: initial?.permission ?? 'owner',
-    updatedAt: knownUpdatedAt,
+    updatedAt: knownUpdatedAtRef.current,
   })
+  buildSnapshotRef.current = buildSnapshot
 
   return (
     <div className="flex flex-col" style={{ height: '100svh', background: 'var(--brand-eef3ff)' }}
