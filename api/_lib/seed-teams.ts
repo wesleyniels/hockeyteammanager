@@ -53,10 +53,12 @@ export const SEED_TEAMS: Record<string, string[]> = {
     'Fleur Bangma', 'Kiki Groeneveld', 'Philou Huisman', 'Stella Matthijssens', 'Bente Meijer',
     'Julia Prinsen', 'Elisa Timmer', 'Bo Vonderbank', 'Loren Willems',
   ],
+  'MO9-Rood': [],
   'MO9-Wit': [
     'Lauren De Rijk Marschalk', 'Yuli van Erk', 'Loeka van t Hek', 'Jans Houwen', "Rim M'rabti",
     'Coco Quak', 'Fien Siemerink', 'Izzie van Spronsen', 'Philippa kate Wiggers', 'Lauren van Woerkum',
   ],
+  'MO7-Wit': [],
   'MO8-Blauw': [
     'Emilie Aerts', 'Amy Bautz', 'Diana Bloemarts', 'Kiki Eikelboom', 'Maren van Heumen',
     'Mayran Koning', 'Tess van den Nieuwboer', 'Jules de Rijk', 'Charlotte Teeuwen',
