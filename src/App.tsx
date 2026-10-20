@@ -3131,18 +3131,27 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
   // — a typo or a wrong pick shouldn't be permanent. Manual adds have no flag
   // of their own, but uid()'s short random ids are distinguishable from a
   // roster player's UUID, which also covers ones added before this existed.
-  // Only while they're on the bench with nothing recorded against them, so
-  // removal can never orphan a goal, card, substitution or played time.
+  // Works at any point in the match (a duplicate may already have been
+  // subbed on, or have played time), clearing the player's slot, substitution
+  // log entries and played time along with them. Goals and cards stay
+  // blocked: they feed the score and card lists, so those are removed from
+  // the Score tab first rather than silently changing the result here.
   const isAddedPlayer = (p: Player) => !!p.borrowedFromTeam || /^[a-z0-9]{1,9}$/.test(p.id)
-  const canRemoveAddedPlayer = (p: Player) =>
-    !readOnly && isAddedPlayer(p)
-    && !goals.some(g => g.playerId === p.id)
-    && !cards.some(c => c.playerId === p.id)
-    && !subs.some(s => s.playerInId === p.id || s.playerOutId === p.id)
-    && (playedSeconds[p.id] ?? 0) <= 0
+  const canRemoveAddedPlayer = (p: Player) => !readOnly && isAddedPlayer(p)
   const removeAddedPlayer = (p: Player) => {
-    if (!canRemoveAddedPlayer(p) || !confirm(`${p.name} uit de selectie verwijderen?`)) return
+    if (!canRemoveAddedPlayer(p)) return
+    if (goals.some(g => g.playerId === p.id) || cards.some(c => c.playerId === p.id)) {
+      alert(`${p.name} heeft nog een doelpunt of kaart. Verwijder die eerst in het tabblad Score.`)
+      return
+    }
+    const onField = slots.some(s => s.playerId === p.id)
+    const hasHistory = (playedSeconds[p.id] ?? 0) > 0 || subs.some(s => s.playerInId === p.id || s.playerOutId === p.id)
+    const extra = onField ? ' Deze speler staat op het veld; die positie wordt leeg.' : hasHistory ? ' Speeltijd en wissels van deze speler worden ook gewist.' : ''
+    if (!confirm(`${p.name} uit de selectie verwijderen?${extra}`)) return
     setSquad(s => s.filter(x => x.id !== p.id))
+    setSlots(sl => sl.map(s => (s.playerId === p.id ? { ...s, playerId: null } : s)))
+    setSubs(ss => ss.filter(s => s.playerInId !== p.id && s.playerOutId !== p.id))
+    setPlayedSeconds(ps => { const { [p.id]: _removed, ...rest } = ps; return rest })
     setBench(b => b.filter(e => e.playerId !== p.id))
     setUnavailableIds(ids => ids.filter(id => id !== p.id))
     setCaptainId(c => (c === p.id ? null : c))
@@ -4523,7 +4532,15 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
                           <span className="text-xs font-semibold ml-1" style={{ color: 'var(--brand-a8bef0)' }}>({p.borrowedFromTeam})</span>
                         )}
                       </span>
-                      <span className="font-mono font-bold" style={{ color: 'var(--brand-3b5299)' }}>{fmtSec(playedSeconds[p.id] ?? 0)}</span>
+                      <span className="flex items-center gap-2">
+                        <span className="font-mono font-bold" style={{ color: 'var(--brand-3b5299)' }}>{fmtSec(playedSeconds[p.id] ?? 0)}</span>
+                        {canRemoveAddedPlayer(p) && (
+                          <button onClick={() => removeAddedPlayer(p)} title="Verwijder uit de selectie"
+                            className="w-5 h-5 rounded-full flex items-center justify-center text-white shrink-0" style={{ background: '#DC2626' }}>
+                            <span style={{ fontSize: '12px', lineHeight: 1 }}>×</span>
+                          </button>
+                        )}
+                      </span>
                     </div>
                   )
                 })}
