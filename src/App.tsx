@@ -3127,6 +3127,30 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
     addPlayerToSquad({ id: uid(), name: rp.name, photoUrl: rp.photoUrl ?? undefined, borrowedFromTeam: borrowTeam })
   }
 
+  // Players added here ("Handmatig" or borrowed) can be taken back out again
+  // — a typo or a wrong pick shouldn't be permanent. Manual adds have no flag
+  // of their own, but uid()'s short random ids are distinguishable from a
+  // roster player's UUID, which also covers ones added before this existed.
+  // Only while they're on the bench with nothing recorded against them, so
+  // removal can never orphan a goal, card, substitution or played time.
+  const isAddedPlayer = (p: Player) => !!p.borrowedFromTeam || /^[a-z0-9]{1,9}$/.test(p.id)
+  const canRemoveAddedPlayer = (p: Player) =>
+    !readOnly && isAddedPlayer(p)
+    && !goals.some(g => g.playerId === p.id)
+    && !cards.some(c => c.playerId === p.id)
+    && !subs.some(s => s.playerInId === p.id || s.playerOutId === p.id)
+    && (playedSeconds[p.id] ?? 0) <= 0
+  const removeAddedPlayer = (p: Player) => {
+    if (!canRemoveAddedPlayer(p) || !confirm(`${p.name} uit de selectie verwijderen?`)) return
+    setSquad(s => s.filter(x => x.id !== p.id))
+    setBench(b => b.filter(e => e.playerId !== p.id))
+    setUnavailableIds(ids => ids.filter(id => id !== p.id))
+    setCaptainId(c => (c === p.id ? null : c))
+    setTacticsBoards(bs => bs.map(b => ({ ...b, markers: b.markers.filter(m => m.playerId !== p.id) })))
+    setSelected(null)
+    showToast(`${p.name} verwijderd uit de selectie`)
+  }
+
   const [captainId, setCaptainId] = useState<string | null>(() => initial?.captainId ?? null)
   // A brand-new board starts seeded with whoever's currently on the field
   // (their live slot positions) instead of blank — without this, the tactics
@@ -4334,6 +4358,15 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
                               ? { background: '#6B7280', color: '#fff' }
                               : { background: '#fff', border: '1.5px solid var(--brand-d0dcfa)' }}>
                             {isUnavailable && <span style={{ fontSize: '9px', lineHeight: 1 }}>×</span>}
+                          </button>
+                        )}
+                        {canRemoveAddedPlayer(player) && (
+                          <button onClick={e => { e.stopPropagation(); removeAddedPlayer(player) }}
+                            onPointerDown={e => e.stopPropagation()}
+                            title="Verwijder uit de selectie"
+                            className="absolute top-0 left-1 z-10 w-4 h-4 rounded-full flex items-center justify-center"
+                            style={{ background: '#DC2626', color: '#fff' }}>
+                            <span style={{ fontSize: '10px', lineHeight: 1 }}>×</span>
                           </button>
                         )}
                         <div className="relative w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden"

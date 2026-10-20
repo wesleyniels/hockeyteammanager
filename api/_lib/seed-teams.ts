@@ -30,11 +30,11 @@ export const SEED_TEAMS: Record<string, string[]> = {
     'Philippine Verhoeff', 'Puck de Weerdt', 'Cato Wenning', 'Emma marie Werner',
   ],
   'MO11-Blauw': [
-    'Felien Bruning', 'Mabel Eerhardt', 'Micky Geersing', 'Sienna Jacques', 'Eva de Jong',
+    'Veda Bleeker', 'Felien Bruning', 'Mabel Eerhardt', 'Micky Geersing', 'Sienna Jacques', 'Eva de Jong',
     'Anna Smeets', 'Faye Stoop', 'Annika Teeuwen', 'Jolien Toom', 'Roos Verbeek', 'Nouk van de Weijer',
   ],
   'MO11-Wit': [
-    'Saar Barrero Galesloot', 'Maya Bleeker', 'Bobbie Bosman', 'Bo Gille', 'Sofia Koppenens',
+    'Saar Barrero Galesloot', 'Maya Bleeker', 'Bobbie Bosman', 'Felice Dinant', 'Bo Gille', 'Sofia Koppenens',
     'Sophie Kroezen', 'Gigi Niels', 'Juune van Os', 'Celine Sarryeh', 'Pippa van Daalen', 'Evi Wolfs',
   ],
   'MO10-Blauw': [
