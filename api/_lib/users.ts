@@ -11,6 +11,7 @@ export interface ProfileUser {
   lastName: string | null
   role: string | null
   followedTeams: FollowedTeam[]
+  emailNotifications: boolean
 }
 
 // Maps a raw `users` table row (snake_case columns) to the camelCase shape
@@ -27,5 +28,6 @@ export function toUser(row: any): ProfileUser {
     lastName: row.last_name,
     role: row.role,
     followedTeams: row.followed_teams ?? [],
+    emailNotifications: row.email_notifications ?? true,
   }
 }

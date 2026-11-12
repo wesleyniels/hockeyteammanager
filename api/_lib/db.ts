@@ -189,7 +189,7 @@ async function announceReleaseIfNeeded() {
   if (last[0]?.value === CURRENT_VERSION) return
   const note = RELEASE_NOTES[CURRENT_VERSION]
   if (note) {
-    const users = await sql`SELECT id, email, first_name, name FROM users`
+    const users = await sql`SELECT id, email, first_name, name, email_notifications FROM users`
     if (users.length > 0) {
       const ids = users.map(() => randomUUID())
       const userIds = users.map(u => u.id as string)
@@ -207,8 +207,8 @@ async function announceReleaseIfNeeded() {
       // awaited) — acceptable since it only happens once per version.
       if (!RELEASE_NOTES_SKIP_EMAIL.has(CURRENT_VERSION)) {
         await Promise.all(users.map((u, i) => {
-          if (!u.email) return
-          return sendNotificationEmail(u.email, u.first_name ?? u.name ?? null, note, ids[i])
+          if (!u.email || !u.email_notifications) return
+          return sendNotificationEmail(u.id, u.email, u.first_name ?? u.name ?? null, note, ids[i])
             .catch(err => console.error('Failed to email release notification', err))
         }))
       }
@@ -257,6 +257,7 @@ export function ensureSchema() {
       sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT`,
       sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_expires TIMESTAMPTZ`,
       sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false`,
+      sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_notifications BOOLEAN NOT NULL DEFAULT true`,
       sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_logins INT NOT NULL DEFAULT 0`,
       sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS login_locked_until TIMESTAMPTZ`,
       // Extra teams a user wants to browse (Wedstrijden/Team) beyond their

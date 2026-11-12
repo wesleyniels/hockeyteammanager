@@ -18,9 +18,9 @@ export async function createNotification(userId: string, type: string, body: str
     VALUES (${id}, ${userId}, ${type}, ${body}, ${gameId ?? null})
   `
   try {
-    const rows = await sql`SELECT email, first_name, name FROM users WHERE id = ${userId}`
+    const rows = await sql`SELECT email, first_name, name, email_notifications FROM users WHERE id = ${userId}`
     const u = rows[0]
-    if (u?.email) await sendNotificationEmail(u.email, u.first_name ?? u.name ?? null, body, id)
+    if (u?.email && u.email_notifications) await sendNotificationEmail(userId, u.email, u.first_name ?? u.name ?? null, body, id)
   } catch (err) {
     console.error('Failed to email notification', err)
   }
