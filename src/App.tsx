@@ -6324,7 +6324,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   onLogout: () => void
   onBack: () => void
   onHistory: () => void
-  onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture' | 'followedTeams'>>) => Promise<{ ok: true } | { ok: false; error: string }>
+  onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture' | 'followedTeams' | 'emailNotifications'>>) => Promise<{ ok: true } | { ok: false; error: string }>
   unreadNotifications: number
   notifications: AppNotification[]
   onMarkRead: (id: string) => void
@@ -6633,6 +6633,16 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                     value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Achternaam" />
                 </div>
               </div>
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input type="checkbox" className="mt-0.5 w-4 h-4 shrink-0" checked={user.emailNotifications}
+                  onChange={e => { void onUpdateProfile({ emailNotifications: e.target.checked }) }} />
+                <span>
+                  <span className="block text-sm font-semibold" style={{ color: 'var(--brand-1a2f6b)' }}>E-mails over meldingen ontvangen</span>
+                  <span className="block text-xs mt-0.5" style={{ color: 'var(--brand-7b90c8)' }}>
+                    Meldingen blijven altijd zichtbaar in de app. Wachtwoord- en verificatie-e-mails krijg je hoe dan ook.
+                  </span>
+                </span>
+              </label>
               <div className="flex items-center gap-3">
                 <button onClick={saveDetails}
                   className="px-4 py-2.5 rounded-xl font-bold text-sm text-white"
@@ -6921,6 +6931,10 @@ interface AuthUser {
   firstName: string | null
   lastName: string | null
   role: string | null
+  // Whether notifications (Meldingen) are also sent by email — see the
+  // toggle in Profiel and the unsubscribe link in those emails. Transactional
+  // mails (verification, password reset) ignore this.
+  emailNotifications: boolean
   // Extra teams followed for browsing Wedstrijden/Team, beyond defaultTeam —
   // each with its own role (e.g. Manager of your own team, Supporter of
   // another). An elevated role here is Lisa-verified per team server-side,
@@ -7073,7 +7087,7 @@ function useAuth() {
   // Persists profile fields (team preference, name, role, photo) so they're
   // available next time this coach logs in, on any device. Only the fields
   // passed in are changed — the API leaves the rest untouched.
-  const updateProfile = useCallback(async (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture' | 'followedTeams'>>) => {
+  const updateProfile = useCallback(async (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture' | 'followedTeams' | 'emailNotifications'>>) => {
     const res = await fetch('/api/auth/me', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

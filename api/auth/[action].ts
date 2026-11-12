@@ -3,7 +3,7 @@ import { OAuth2Client } from 'google-auth-library'
 import { sql, ensureSchema } from '../_lib/db.js'
 import { hashPassword, verifyPassword, newToken, randomUUID } from '../_lib/crypto.js'
 import { signSession, sessionCookieHeader, clearSessionCookieHeader, getSessionFromCookies } from '../_lib/session.js'
-import { sendVerificationEmail, sendNewRegistrationEmail, sendPasswordResetEmail } from '../_lib/email.js'
+import { sendVerificationEmail, sendNewRegistrationEmail, sendPasswordResetEmail, verifyUnsubscribeSignature, escapeHtml } from '../_lib/email.js'
 import { toUser } from '../_lib/users.js'
 import { getAdminEmails } from '../_lib/admin.js'
 import { createNotification } from '../_lib/notifications.js'
@@ -127,13 +127,13 @@ async function handleGoogle(req: VercelRequest, res: VercelResponse) {
         picture = COALESCE(picture, ${picture}),
         email_verified = email_verified OR ${verified}
       WHERE id = ${id}
-      RETURNING id, email, name, picture, default_team, default_club, first_name, last_name, role, followed_teams
+      RETURNING id, email, name, picture, default_team, default_club, first_name, last_name, role, followed_teams, email_notifications
     `
   } else {
     rows = await sql`
       INSERT INTO users (id, email, name, picture, email_verified)
       VALUES (${payload.sub}, ${email}, ${name}, ${picture}, ${verified})
-      RETURNING id, email, name, picture, default_team, default_club, first_name, last_name, role, followed_teams
+      RETURNING id, email, name, picture, default_team, default_club, first_name, last_name, role, followed_teams, email_notifications
     `
     await notifyAdminsOfNewRegistration(email, name)
     await sendWelcomeNotification(payload.sub, name)
@@ -208,7 +208,7 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
   if (!session) { res.status(401).json({ error: 'Not authenticated' }); return }
 
   if (req.method === 'GET') {
-    const rows = await sql`SELECT id, email, name, picture, default_team, default_club, first_name, last_name, role, followed_teams FROM users WHERE id = ${session.id}`
+    const rows = await sql`SELECT id, email, name, picture, default_team, default_club, first_name, last_name, role, followed_teams, email_notifications FROM users WHERE id = ${session.id}`
     if (rows.length === 0) { res.status(401).json({ error: 'Not authenticated' }); return }
     res.status(200).json({ user: toUser(rows[0]) })
     return
@@ -233,7 +233,11 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
       res.status(400).json({ error: 'Invalid followedTeams' })
       return
     }
-    const current = await sql`SELECT default_team, default_club, first_name, last_name, role, picture, followed_teams FROM users WHERE id = ${session.id}`
+    if (body.emailNotifications !== undefined && typeof body.emailNotifications !== 'boolean') {
+      res.status(400).json({ error: 'Invalid emailNotifications' })
+      return
+    }
+    const current = await sql`SELECT default_team, default_club, first_name, last_name, role, picture, followed_teams, email_notifications FROM users WHERE id = ${session.id}`
     if (current.length === 0) { res.status(401).json({ error: 'Not authenticated' }); return }
     const cur = current[0]
     // A key only changes if the caller actually sent it — this lets Setup's
@@ -245,6 +249,7 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
     const lastName = 'lastName' in body ? (body.lastName || null) : cur.last_name
     const role = 'role' in body ? (body.role || null) : cur.role
     const picture = 'picture' in body ? (body.picture || null) : cur.picture
+    const emailNotifications = typeof body.emailNotifications === 'boolean' ? body.emailNotifications : cur.email_notifications
     const prevFollowedTeams = (cur.followed_teams ?? []) as FollowedTeam[]
     // A followed team duplicating defaultTeam is redundant — that
     // association is already fully covered by defaultTeam/role above — so
@@ -294,9 +299,10 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
         last_name = ${lastName},
         role = ${role},
         picture = ${picture},
-        followed_teams = ${JSON.stringify(followedTeams)}::jsonb
+        followed_teams = ${JSON.stringify(followedTeams)}::jsonb,
+        email_notifications = ${emailNotifications}
       WHERE id = ${session.id}
-      RETURNING id, email, name, picture, default_team, default_club, first_name, last_name, role, followed_teams
+      RETURNING id, email, name, picture, default_team, default_club, first_name, last_name, role, followed_teams, email_notifications
     `
     if (rows.length === 0) { res.status(401).json({ error: 'Not authenticated' }); return }
     res.status(200).json({ user: toUser(rows[0]) })
@@ -434,7 +440,7 @@ async function handleResetPassword(req: VercelRequest, res: VercelResponse) {
       failed_logins = 0,
       login_locked_until = NULL
     WHERE id = ${row.id}
-    RETURNING id, email, name, picture, default_team, default_club, first_name, last_name, role, followed_teams
+    RETURNING id, email, name, picture, default_team, default_club, first_name, last_name, role, followed_teams, email_notifications
   `
 
   res.setHeader('Set-Cookie', sessionCookieHeader(signSession({ id: row.id, email: row.email, name: row.name, picture: row.picture })))
@@ -462,6 +468,52 @@ async function handleVerifyEmail(req: VercelRequest, res: VercelResponse) {
   res.redirect(302, `${appUrl}/?verify=ok`)
 }
 
+// Reached from the link in every notification email, so there's no session:
+// the signed user id in the query string is the authorization (see
+// unsubscribeSignature in email.ts). GET only shows a confirm button rather
+// than unsubscribing outright, since mail-security scanners and link
+// previews fetch every link in a message — a GET that changed state would
+// quietly unsubscribe people who never clicked. The POST does the actual
+// opt-out, and is also what mail clients send for one-click unsubscribe
+// (RFC 8058, see the List-Unsubscribe-Post header).
+function unsubscribePage(title: string, message: string, form?: string): string {
+  return `<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title} — Hockey One</title></head>
+<body style="margin:0;background:#F0F5FF;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1A2F6B;">
+<div style="max-width:420px;margin:48px auto;padding:32px 24px;background:#fff;border-radius:16px;box-shadow:0 2px 12px rgba(13,31,74,0.08);text-align:center;">
+<h1 style="font-size:20px;margin:0 0 12px;color:#0D2B7A;">${title}</h1>
+<p style="font-size:14px;line-height:1.6;margin:0 0 20px;">${message}</p>
+${form ?? ''}
+<p style="margin:24px 0 0;"><a href="/" style="color:#1A3FAB;font-size:13px;">Naar Hockey One</a></p>
+</div></body></html>`
+}
+
+async function handleUnsubscribe(req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8')
+  res.setHeader('Cache-Control', 'no-store')
+  const userId = typeof req.query.u === 'string' ? req.query.u : ''
+  const signature = typeof req.query.t === 'string' ? req.query.t : ''
+  if (!userId || !signature || !verifyUnsubscribeSignature(userId, signature)) {
+    res.status(400).send(unsubscribePage('Ongeldige link', 'Deze afmeldlink is niet geldig. Je kunt e-mails ook uitzetten bij Profiel in de app.'))
+    return
+  }
+
+  if (req.method === 'POST') {
+    await sql`UPDATE users SET email_notifications = false WHERE id = ${userId}`
+    res.status(200).send(unsubscribePage('Afgemeld', 'Je ontvangt geen e-mails meer van Hockey One over meldingen. Je ziet ze nog wel in de app, en je kunt e-mails weer aanzetten bij Profiel.'))
+    return
+  }
+
+  if (req.method === 'GET') {
+    const rows = await sql`SELECT email FROM users WHERE id = ${userId}`
+    const email = rows[0]?.email ? ` voor <strong>${escapeHtml(rows[0].email)}</strong>` : ''
+    res.status(200).send(unsubscribePage('Geen e-mails meer ontvangen?', `Bevestig dat je geen e-mails over meldingen meer wilt ontvangen${email}.`,
+      '<form method="POST" action=""><button type="submit" style="background:#1A3FAB;color:#fff;border:0;padding:12px 24px;border-radius:10px;font-weight:bold;font-size:14px;cursor:pointer;">Afmelden</button></form>'))
+    return
+  }
+
+  res.status(405).send(unsubscribePage('Niet toegestaan', 'Deze actie wordt niet ondersteund.'))
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   await ensureSchema()
 
@@ -475,6 +527,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     case 'verify-email': return handleVerifyEmail(req, res)
     case 'forgot-password': return handleForgotPassword(req, res)
     case 'reset-password': return handleResetPassword(req, res)
+    case 'unsubscribe': return handleUnsubscribe(req, res)
     default: res.status(404).json({ error: 'Not found' })
   }
 }

@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer'
+import { createHmac, timingSafeEqual } from 'node:crypto'
 
 // Switched from Resend's HTTP API to TransIP's own mailbox over SMTP —
 // Resend (via Amazon SES) couldn't reliably reach TransIP-hosted addresses,
@@ -65,10 +66,31 @@ async function withSendSlot<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-async function sendMail(to: string | string[], subject: string, html: string) {
+async function sendMail(to: string | string[], subject: string, html: string, headers?: Record<string, string>) {
   const from = process.env.EMAIL_FROM
   if (!from) throw new Error('EMAIL_FROM is not configured')
-  await withSendSlot(() => getTransporter().sendMail({ from, to, subject, html }))
+  await withSendSlot(() => getTransporter().sendMail({ from, to, subject, html, headers }))
+}
+
+// The unsubscribe link has to work from the email alone, with no login, so
+// it carries an HMAC of the user id (keyed with SESSION_SECRET) instead of a
+// stored token — nothing to persist or expire, and it can't be forged for
+// another user's id. Only the optional notification emails use it;
+// verification and password-reset mails are always sent.
+function unsubscribeSignature(userId: string): string {
+  const secret = process.env.SESSION_SECRET
+  if (!secret) throw new Error('SESSION_SECRET is not set')
+  return createHmac('sha256', secret).update(`unsubscribe:${userId}`).digest('hex')
+}
+
+export function verifyUnsubscribeSignature(userId: string, signature: string): boolean {
+  const expected = Buffer.from(unsubscribeSignature(userId), 'hex')
+  const given = Buffer.from(signature, 'hex')
+  return expected.length === given.length && timingSafeEqual(expected, given)
+}
+
+function unsubscribeUrl(userId: string): string {
+  return `${resolveAppUrl()}/api/auth/unsubscribe?u=${encodeURIComponent(userId)}&t=${unsubscribeSignature(userId)}`
 }
 
 export async function sendVerificationEmail(to: string, name: string | null, verifyUrl: string, origin: string) {
@@ -168,10 +190,11 @@ function formatNotificationBodyHtml(body: string): string {
 // dropdown), so the link is handled client-side: App.tsx reads
 // ?notification=<id> on load, marks it read, and jumps to Wedstrijden if it
 // points at a game — the same thing tapping it in the dropdown already does.
-export async function sendNotificationEmail(to: string, name: string | null, body: string, notificationId: string) {
+export async function sendNotificationEmail(userId: string, to: string, name: string | null, body: string, notificationId: string) {
   const greeting = name ? `Hoi ${name},` : 'Hoi,'
   const appUrl = resolveAppUrl()
   const link = `${appUrl}/?notification=${notificationId}`
+  const unsubscribe = unsubscribeUrl(userId)
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px; color: #1A2F6B;">
       <img src="${appUrl}/hockey-one-splash.png" alt="Hockey One" width="120" style="display: block; width: 120px; margin: 0 0 20px; border-radius: 12px;" />
@@ -187,7 +210,15 @@ export async function sendNotificationEmail(to: string, name: string | null, bod
         Werkt de knop niet? Kopieer deze link: <br />
         <a href="${link}" style="color: #1A3FAB;">${link}</a>
       </p>
+      <p style="font-size: 12px; line-height: 1.6; color: #7B90C8; margin-top: 24px; border-top: 1px solid #E4ECFE; padding-top: 16px;">
+        Je ontvangt deze e-mail omdat je een Hockey One-account hebt.
+        <a href="${unsubscribe}" style="color: #1A3FAB;">Geen e-mails meer ontvangen</a>
+        (je kunt dit ook aanpassen bij Profiel in de app).
+      </p>
     </div>
   `
-  await sendMail(to, 'Nieuwe melding — Hockey One', html)
+  await sendMail(to, 'Nieuwe melding — Hockey One', html, {
+    'List-Unsubscribe': `<${unsubscribe}>`,
+    'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+  })
 }
