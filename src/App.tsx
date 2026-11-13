@@ -6313,7 +6313,7 @@ function FollowedTeamRow({ team, role, firstName, lastName, savedRole, onChange,
   )
 }
 
-function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword, onResendVerification, onForgotPassword, onLogout, onBack, onHistory, onUpdateProfile, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
+function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword, onResendVerification, onForgotPassword, onLogout, onDeleteAccount, onBack, onHistory, onUpdateProfile, unreadNotifications, notifications, onMarkRead, onMarkAllRead, onMarkUnread, onDeleteNotification }: {
   user: AuthUser | null
   loading: boolean
   onCredential: (credential: string) => void
@@ -6322,6 +6322,7 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   onResendVerification: (email: string) => Promise<void>
   onForgotPassword: (email: string) => Promise<{ ok: true } | { ok: false; error: string }>
   onLogout: () => void
+  onDeleteAccount: (confirmEmail: string) => Promise<{ ok: true } | { ok: false; error: string }>
   onBack: () => void
   onHistory: () => void
   onUpdateProfile: (fields: Partial<Pick<AuthUser, 'defaultTeam' | 'defaultClub' | 'firstName' | 'lastName' | 'role' | 'picture' | 'followedTeams' | 'emailNotifications'>>) => Promise<{ ok: true } | { ok: false; error: string }>
@@ -6339,6 +6340,10 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
   const [followedDraft, setFollowedDraft] = useState<FollowedTeam[]>(user?.followedTeams ?? [])
   const [saved, setSaved] = useState(false)
   const [detailsError, setDetailsError] = useState<string | null>(null)
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false)
+  const [deleteEmail, setDeleteEmail] = useState('')
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deletingAccount, setDeletingAccount] = useState(false)
   const [photoError, setPhotoError] = useState<string | null>(null)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const photoInputRef = useRef<HTMLInputElement>(null)
@@ -6384,6 +6389,14 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
     } else {
       setDetailsError(result.error)
     }
+  }
+
+  const confirmDeleteAccount = async () => {
+    setDeleteError(null)
+    setDeletingAccount(true)
+    const result = await onDeleteAccount(deleteEmail)
+    setDeletingAccount(false)
+    if (!result.ok) setDeleteError(result.error)
   }
 
   const pickPhoto = async (file: File | undefined) => {
@@ -6651,6 +6664,39 @@ function ProfileView({ user, loading, onCredential, onRegister, onLoginPassword,
                 </button>
                 {saved && <span className="text-sm font-semibold" style={{ color: '#16A34A' }}>Opgeslagen!</span>}
                 {detailsError && <span className="text-sm font-semibold" style={{ color: '#DC2626' }}>{detailsError}</span>}
+              </div>
+
+              <div className="pt-4" style={{ borderTop: '1px solid var(--brand-e8effd)' }}>
+                {!showDeleteAccount ? (
+                  <button onClick={() => setShowDeleteAccount(true)} className="text-xs font-bold" style={{ color: '#DC2626' }}>
+                    Account verwijderen
+                  </button>
+                ) : (
+                  <div className="space-y-2.5 rounded-xl p-4" style={{ background: '#FEF2F2', border: '1px solid #FCA5A5' }}>
+                    <p className="text-sm font-bold" style={{ color: '#991B1B' }}>Account definitief verwijderen</p>
+                    <p className="text-xs leading-relaxed" style={{ color: '#7F1D1D' }}>
+                      Dit verwijdert je account, je meldingen en berichten, en alle wedstrijden die je zelf hebt aangemaakt, ook voor anderen in je team die ze zien. Dit kan niet ongedaan worden gemaakt.
+                    </p>
+                    <label className="block text-xs font-semibold" style={{ color: '#7F1D1D' }}>
+                      Typ ter bevestiging je e-mailadres ({user.email})
+                    </label>
+                    <input className="w-full rounded-xl px-3 py-2.5 text-sm" style={{ ...inputStyle, background: '#fff' }}
+                      type="email" autoComplete="off" value={deleteEmail} onChange={e => setDeleteEmail(e.target.value)} placeholder={user.email} />
+                    {deleteError && <p className="text-xs font-semibold" style={{ color: '#DC2626' }}>{deleteError}</p>}
+                    <div className="flex items-center gap-3">
+                      <button onClick={confirmDeleteAccount}
+                        disabled={deletingAccount || deleteEmail.trim().toLowerCase() !== user.email.toLowerCase()}
+                        className="px-4 py-2.5 rounded-xl font-bold text-sm text-white disabled:opacity-40"
+                        style={{ background: '#DC2626' }}>
+                        {deletingAccount ? 'Verwijderen…' : 'Definitief verwijderen'}
+                      </button>
+                      <button onClick={() => { setShowDeleteAccount(false); setDeleteEmail(''); setDeleteError(null) }}
+                        className="text-sm font-semibold" style={{ color: 'var(--brand-7b90c8)' }}>
+                        Annuleren
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
@@ -7084,6 +7130,17 @@ function useAuth() {
     setUser(null)
   }, [])
 
+  const deleteAccount = useCallback(async (confirmEmail: string) => {
+    const res = await fetch('/api/auth/me', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirmEmail }),
+    })
+    if (res.ok) { setUser(null); return { ok: true as const } }
+    const body = await res.json().catch(() => ({}))
+    return { ok: false as const, error: body.error ?? 'Account verwijderen mislukt' }
+  }, [])
+
   // Persists profile fields (team preference, name, role, photo) so they're
   // available next time this coach logs in, on any device. Only the fields
   // passed in are changed — the API leaves the rest untouched.
@@ -7098,7 +7155,7 @@ function useAuth() {
     return { ok: false as const, error: body.error ?? 'Opslaan mislukt' }
   }, [])
 
-  return { user, loading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, forgotPassword, resetPassword, logout, updateProfile }
+  return { user, loading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, forgotPassword, resetPassword, logout, updateProfile, deleteAccount }
 }
 
 // Renders Google's own "Sign in with Google" button into a div once the GSI
@@ -8148,7 +8205,7 @@ export default function App() {
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null)
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null)
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null)
-  const { user, loading: authLoading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, forgotPassword, resetPassword, logout, updateProfile } = useAuth()
+  const { user, loading: authLoading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, forgotPassword, resetPassword, logout, updateProfile, deleteAccount } = useAuth()
   const followableTeams = user ? [...new Set([user.defaultTeam, ...user.followedTeams.map(f => f.team)].filter((t): t is string => !!t))] : []
   const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user, followableTeams.join('|'))
   const notif = useNotificationCenter(!!user)
@@ -8277,6 +8334,7 @@ export default function App() {
         onResendVerification={resendVerification}
         onForgotPassword={forgotPassword}
         onLogout={logout}
+        onDeleteAccount={deleteAccount}
         onBack={() => setView('home')}
         onHistory={() => setView('history')}
         onUpdateProfile={updateProfile}
