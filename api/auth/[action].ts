@@ -3,6 +3,7 @@ import { OAuth2Client } from 'google-auth-library'
 import { sql, ensureSchema } from '../_lib/db.js'
 import { hashPassword, verifyPassword, newToken, randomUUID } from '../_lib/crypto.js'
 import { signSession, sessionCookieHeader, clearSessionCookieHeader, getSessionFromCookies } from '../_lib/session.js'
+import { isAdminEmail } from '../_lib/admin.js'
 import { sendVerificationEmail, sendNewRegistrationEmail, sendPasswordResetEmail, verifyUnsubscribeSignature, escapeHtml } from '../_lib/email.js'
 import { toUser } from '../_lib/users.js'
 import { getAdminEmails } from '../_lib/admin.js'
@@ -306,6 +307,36 @@ async function handleMe(req: VercelRequest, res: VercelResponse) {
     `
     if (rows.length === 0) { res.status(401).json({ error: 'Not authenticated' }); return }
     res.status(200).json({ user: toUser(rows[0]) })
+    return
+  }
+
+  if (req.method === 'DELETE') {
+    const rows = await sql`SELECT email FROM users WHERE id = ${session.id}`
+    if (rows.length === 0) { res.status(401).json({ error: 'Not authenticated' }); return }
+    // Typing the account's own email is the confirmation — a stray request
+    // (or a script riding on the session cookie) can't delete an account
+    // without knowing it.
+    const confirmEmail = typeof req.body?.confirmEmail === 'string' ? req.body.confirmEmail.trim().toLowerCase() : ''
+    if (confirmEmail !== String(rows[0].email).toLowerCase()) {
+      res.status(400).json({ error: 'Het ingevulde e-mailadres komt niet overeen met dit account' })
+      return
+    }
+    // The hardcoded admin is the permanent fallback that keeps the app from
+    // ever being locked out of its own admin screen (see admin/users.ts).
+    if (isAdminEmail(rows[0].email)) {
+      res.status(400).json({ error: 'Dit beheerdersaccount kan niet worden verwijderd' })
+      return
+    }
+    // Same cleanup as an admin deleting the account (admin/users.ts): games
+    // have no ON DELETE CASCADE so they go first, in one transaction so a
+    // failure can't leave a half-deleted account; shares, messages and
+    // notifications cascade off the user row.
+    await sql.transaction([
+      sql`DELETE FROM games WHERE user_id = ${session.id}`,
+      sql`DELETE FROM users WHERE id = ${session.id}`,
+    ])
+    res.setHeader('Set-Cookie', clearSessionCookieHeader())
+    res.status(200).json({ ok: true })
     return
   }
 
