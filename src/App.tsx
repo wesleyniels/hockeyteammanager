@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { upload as uploadToBlob } from '@vercel/blob/client'
 // Single source of truth for the version shown in Profiel (see below) and
 // broadcast to every Meldingen inbox on release (api/_lib/changelog.ts) —
@@ -816,6 +816,65 @@ async function fetchTeamRoster(team: string): Promise<RosterPlayer[]> {
   }
 }
 
+// A saved match freezes its squad as it was when last saved, so photos
+// uploaded afterwards (or on a match built before photos existed) are missing
+// from it — most visibly on matches already played. The current team roster is
+// the source of truth for photos (never redacted, unlike names), so they're
+// overlaid at display time instead of being baked into old matches: matched by
+// roster id first (squads built from the roster keep those ids), then by name.
+// Nothing here is written back to the match.
+const ROSTER_CACHE_MS = 60_000
+const rosterCache = new Map<string, { at: number; players: Promise<RosterPlayer[]> }>()
+function fetchTeamRosterCached(team: string): Promise<RosterPlayer[]> {
+  const hit = rosterCache.get(team)
+  if (hit && Date.now() - hit.at < ROSTER_CACHE_MS) return hit.players
+  const players = fetchTeamRoster(team)
+  rosterCache.set(team, { at: Date.now(), players })
+  return players
+}
+
+type RosterPhotoIndex = Map<string, { byId: Map<string, string>; byName: Map<string, string> }>
+
+function useRosterPhotos(teams: string[], enabled = true): RosterPhotoIndex {
+  const key = [...new Set(teams.filter(Boolean).map(t => t.toLowerCase()))].sort().join('|')
+  const [index, setIndex] = useState<RosterPhotoIndex>(new Map())
+  useEffect(() => {
+    if (!enabled || !key) return
+    let cancelled = false
+    Promise.all(key.split('|').map(async t => [t, await fetchTeamRosterCached(t)] as const)).then(results => {
+      if (cancelled) return
+      const next: RosterPhotoIndex = new Map()
+      for (const [t, players] of results) {
+        const byId = new Map<string, string>()
+        const byName = new Map<string, string>()
+        for (const p of players) {
+          if (!p.photoUrl) continue
+          byId.set(p.id, p.photoUrl)
+          byName.set(p.name.toLowerCase(), p.photoUrl)
+        }
+        next.set(t, { byId, byName })
+      }
+      setIndex(next)
+    })
+    return () => { cancelled = true }
+  }, [key, enabled])
+  return index
+}
+
+function overlayRosterPhotos(squad: Player[], team: string, index: RosterPhotoIndex): Player[] {
+  const photos = index.get(team.toLowerCase())
+  if (!photos) return squad
+  let changed = false
+  const out = squad.map(p => {
+    if (p.photoUrl) return p
+    const url = photos.byId.get(p.id) ?? photos.byName.get(p.name.toLowerCase())
+    if (!url) return p
+    changed = true
+    return { ...p, photoUrl: url }
+  })
+  return changed ? out : squad
+}
+
 // Coaches/trainers/managers of a team — real accounts (users.role +
 // users.default_team), not team_players rows. No email included; this is a
 // broadly-viewable list, unlike the messaging contact picker.
@@ -1036,6 +1095,23 @@ function renderFormattedText(text: string): React.ReactNode {
 }
 
 const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name
+
+// First name above a player's photo on a field marker — a photo circle prints
+// no text of its own (the initials/number fallback shows the first name
+// inside the circle), so without this a photo marker would be anonymous.
+function PhotoNameTag({ player }: { player: Player | null | undefined }) {
+  if (!player?.photoUrl) return null
+  return (
+    <div className="absolute left-1/2 -translate-x-1/2 font-bold text-white pointer-events-none"
+      style={{
+        top: '-13px', fontSize: '8px', lineHeight: 1, whiteSpace: 'nowrap', maxWidth: '64px',
+        overflow: 'hidden', textOverflow: 'ellipsis',
+        background: 'rgba(13,20,43,0.65)', padding: '1.5px 4px', borderRadius: '5px',
+      }}>
+      {firstName(player.name)}
+    </div>
+  )
+}
 const initials = (name: string) => name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()
 const sortPlayers = <T extends { number?: number; name: string }>(list: T[]) =>
   [...list].sort((a, b) => (a.number ?? Infinity) - (b.number ?? Infinity) || a.name.localeCompare(b.name))
@@ -1663,6 +1739,7 @@ function FieldView({ ageGroup, slots, squad, oppMarkers, selected, dragOverPos, 
             style={{ left: `${x}%`, top: `${y}%`, zIndex: isBeingDragged ? 30 : 10 }}
             onPointerDown={e => { e.stopPropagation(); onMarkerPointerDown(slot.posId, e) }}
             onClick={e => { e.stopPropagation(); onFieldClick(slot.posId) }}>
+            <PhotoNameTag player={player} />
             {player && playedSeconds && (
               <div className="absolute left-1/2 -translate-x-1/2 font-mono font-bold text-white"
                 style={{
@@ -1835,6 +1912,7 @@ function ReadOnlyFieldView({ ageGroup, slots, squad, captainId }: { ageGroup: Ag
         return (
           <div key={slot.posId} className="absolute transform -translate-x-1/2 -translate-y-1/2"
             style={{ left: `${slot.x}%`, top: `${slot.y}%`, zIndex: 10 }}>
+            <PhotoNameTag player={player} />
             {player && player.id === captainId && (
               <div className="absolute flex items-center justify-center font-bold text-white"
                 style={{
@@ -1996,6 +2074,7 @@ function TacticsFieldEditor({
             style={{ left: `${x}%`, top: `${y}%`, zIndex: isBeingDragged ? 30 : 5 }}
             onPointerDown={e => { e.stopPropagation(); onSquadMarkerPointerDown(slot.posId, e) }}
             onClick={e => { e.stopPropagation(); onSquadSlotClick(slot.posId) }}>
+            <PhotoNameTag player={player} />
             <div style={{
               width: player ? '46px' : '36px',
               height: player ? '46px' : '36px',
@@ -2121,6 +2200,7 @@ function TacticsFieldEditor({
             }}
             onPointerCancel={() => setDraggingMarker(null)}
             onClick={e => { e.stopPropagation(); if (!markerMovedRef.current) onMarkerClick(m.id) }}>
+            <PhotoNameTag player={player} />
             <div style={{
               width: '40px', height: '40px', borderRadius: '50%',
               background: '#fff',
@@ -3554,7 +3634,9 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
     }
   }, [running, clockRunningSince])
 
-  const getPlayer = (id: string | null) => id ? squad.find(p => p.id === id) ?? null : null
+  const rosterPhotos = useRosterPhotos([team], !!user)
+  const displaySquad = useMemo(() => overlayRosterPhotos(squad, team, rosterPhotos), [squad, team, rosterPhotos])
+  const getPlayer = (id: string | null) => id ? displaySquad.find(p => p.id === id) ?? null : null
 
   // ── Tactics boards ────────────────────────────────────────────────────────
   // Separate, deliberately simple canvas for illustrating set plays to
@@ -4182,7 +4264,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
               <FieldView
                 ageGroup={ageGroup}
                 slots={slots}
-                squad={squad}
+                squad={displaySquad}
                 oppMarkers={oppMarkers}
                 playedSeconds={playedSeconds}
                 captainId={captainId}
@@ -4290,7 +4372,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
                 <FieldView
                   ageGroup={ageGroup}
                   slots={slots}
-                  squad={squad}
+                  squad={displaySquad}
                   oppMarkers={oppMarkers}
                   playedSeconds={playedSeconds}
                   captainId={captainId}
@@ -4726,7 +4808,7 @@ function GameView({ club, team, ageGroup, opponent, homeAway, squad: squadProp, 
               <TacticsFieldEditor
                 isDual={isDual}
                 slots={slots}
-                squad={squad}
+                squad={displaySquad}
                 oppMarkers={oppMarkers}
                 board={activeBoard}
                 tool={tacticsTool}
@@ -5210,15 +5292,19 @@ function HistoryView({ games, user, authLoading, onDelete, onEdit, onProfile, on
   // isGameFinished keeps a match in progress right now under "upcoming"
   // until today's over or its final period has actually run out — plain
   // finalTime > 0 flipped a match to "played" the instant its clock
-  // started. Upcoming matches sort soonest-first; played ones keep the
-  // existing newest-first order.
+  // started. Upcoming matches sort soonest-first, played ones newest-first,
+  // both by match date (not by when the match row happened to be created —
+  // fixtures get seeded in batches, so creation order isn't date order).
   // Following more than one team means `games` is a mix of all of them —
   // narrow to whichever one the switcher above has selected before any of
   // the upcoming/played splitting below.
   const teamGames = selectedTeam ? games.filter(g => g.team === selectedTeam) : games
   const upcomingGames = teamGames.filter(g => !isGameFinished(g)).sort((a, b) => a.date.localeCompare(b.date))
-  const playedGames = [...teamGames.filter(isGameFinished)].reverse()
-  const filteredGames = filter === 'upcoming' ? upcomingGames : filter === 'played' ? playedGames : [...upcomingGames, ...playedGames]
+  const playedGames = teamGames.filter(isGameFinished).sort((a, b) => b.date.localeCompare(a.date))
+  // "Alles" is one plain chronological list (oldest first) rather than the
+  // two groups above stacked, which jumped back in time where they met.
+  const allGames = [...teamGames].sort((a, b) => a.date.localeCompare(b.date))
+  const filteredGames = filter === 'upcoming' ? upcomingGames : filter === 'played' ? playedGames : allGames
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--brand-eef3ff)' }}>
@@ -8207,7 +8293,16 @@ export default function App() {
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null)
   const { user, loading: authLoading, loginWithCredential, registerWithPassword, loginWithPassword, resendVerification, forgotPassword, resetPassword, logout, updateProfile, deleteAccount } = useAuth()
   const followableTeams = user ? [...new Set([user.defaultTeam, ...user.followedTeams.map(f => f.team)].filter((t): t is string => !!t))] : []
-  const { games, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user, followableTeams.join('|'))
+  const { games: remoteGames, error: gamesError, addGame, updateGame, deleteGame } = useRemoteGames(!!user, followableTeams.join('|'))
+  const gameTeams = useMemo(() => [...new Set(remoteGames.map(g => g.team))], [remoteGames])
+  const gameRosterPhotos = useRosterPhotos(gameTeams, !!user)
+  const games = useMemo(
+    () => remoteGames.map(g => {
+      const squad = overlayRosterPhotos(g.squad, g.team, gameRosterPhotos)
+      return squad === g.squad ? g : { ...g, squad }
+    }),
+    [remoteGames, gameRosterPhotos],
+  )
   const notif = useNotificationCenter(!!user)
 
   // A notification email (sendNotificationEmail, api/_lib/email.ts) links
